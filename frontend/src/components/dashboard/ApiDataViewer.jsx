@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import './ApiDataViewer.css';
 
@@ -645,7 +645,7 @@ const ApiDataViewer = () => {
               )}
             </span>
           </h3>
-          <div className="employee-filters d-flex gap-3">
+            <div className="employee-filters d-flex gap-3">
             {/* Division Filter */}
             <div className="division-filter">
               <label htmlFor="employee-division-select" className="form-label me-2">Division:</label>
@@ -664,7 +664,6 @@ const ApiDataViewer = () => {
                 ))}
               </select>
             </div>
-
             {/* Section Filter */}
             <div className="section-filter">
               <label htmlFor="employee-section-select" className="form-label me-2">Section:</label>
@@ -809,6 +808,44 @@ const ApiDataViewer = () => {
   // Get unique divisions for employee filtering
   const getEmployeeDivisions = () => {
     const maps = buildDivisionMaps();
+
+    // Prefer canonical `divisions` list for dropdown options so users always see known
+    // divisions even when employee list is empty. Compute counts from `allEmployees`.
+    if (divisions && divisions.length) {
+      const counts = new Map();
+      allEmployees.forEach(e => {
+        const key = getEmployeeDivisionKey(e, maps);
+        counts.set(key, (counts.get(key) || 0) + 1);
+      });
+
+      const result = divisions.map(d => {
+        const key = `id:${String(d.id)}`;
+        return {
+          key,
+          name: d.name,
+          count: counts.get(key) || 0,
+        };
+      });
+
+      // Also include any divisions derived from employees that aren't in the canonical list
+      const extra = [];
+      const seen = new Set(result.map(r => r.key));
+      allEmployees.forEach(e => {
+        const k = getEmployeeDivisionKey(e, maps);
+        if (!seen.has(k)) {
+          seen.add(k);
+          extra.push({ key: k, name: getEmployeeDivisionDisplay(e), count: 1 });
+        } else {
+          // increment count for extras if present
+          const ex = extra.find(x => x.key === k);
+          if (ex) ex.count += 1;
+        }
+      });
+
+      return [...result, ...extra].sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    // Fallback: derive from employees if no canonical divisions are available
     const buckets = new Map(); // key -> { key, name, count }
     allEmployees.forEach(e => {
       const key = getEmployeeDivisionKey(e, maps);
@@ -880,6 +917,49 @@ const ApiDataViewer = () => {
     setAvailableSections(sectionsForDivision);
   }, [selectedEmployeeDivision, allSections, allEmployees]);
 
+  // Auto-select default division 'IS' (Information Systems) when available
+  const autoSelectedDivisionRef = useRef(false);
+  const autoSelectedSectionRef = useRef(false);
+
+  useEffect(() => {
+    if (selectedEmployeeDivision !== 'all') return; // don't override user's choice
+    if (!divisions || !divisions.length) return;
+    if (autoSelectedDivisionRef.current) return; // only auto-select once
+
+    const target = divisions.find(d => {
+      const code = String(d.code || '').toLowerCase();
+      const name = String(d.name || '').toLowerCase();
+      return code === 'is' || name.includes('information systems') || name.includes('information system');
+    });
+
+    if (target) {
+      // Use the same key format produced by getEmployeeDivisions (id:ID)
+      setSelectedEmployeeDivision(`id:${String(target.id)}`);
+      autoSelectedDivisionRef.current = true;
+      // reset section auto-select flag so the section auto-select can run for this division
+      autoSelectedSectionRef.current = false;
+    }
+  }, [divisions, selectedEmployeeDivision]);
+
+  // After availableSections are derived for the selected division, auto-select an IS section if present
+  // After availableSections are derived for the selected division, auto-select an IS section if present
+  useEffect(() => {
+    if (selectedSection !== 'all') return; // don't override user's choice
+    if (!availableSections || !availableSections.length) return;
+    if (autoSelectedSectionRef.current) return; // only auto-select once per lifecycle
+
+    const sec = availableSections.find(s => {
+      const code = String(s.code || '').toLowerCase();
+      const name = String(s.name || '').toLowerCase();
+      return code === 'is' || name.includes('(is)') || name.includes('information systems') || name.includes('information system');
+    });
+
+    if (sec) {
+      setSelectedSection(String(sec.id));
+      autoSelectedSectionRef.current = true;
+    }
+  }, [availableSections, selectedSection]);
+
   useEffect(() => {
     let filtered = allEmployees;
 
@@ -887,7 +967,6 @@ const ApiDataViewer = () => {
       const maps = buildDivisionMaps();
       filtered = filtered.filter(emp => getEmployeeDivisionKey(emp, maps) === String(selectedEmployeeDivision));
     }
-
     if (selectedSection !== 'all') {
       const selObj = availableSections.find(s => String(s.id) === String(selectedSection));
       const selNameKey = normalizeTextKey(selObj?.name || '');

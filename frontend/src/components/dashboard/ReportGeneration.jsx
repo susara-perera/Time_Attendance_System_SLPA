@@ -23,6 +23,7 @@ const ReportGeneration = () => {
   const [employeeInfo, setEmployeeInfo] = useState(null);
   const groupReportRef = useRef(null);
   const individualReportRef = useRef(null);
+  const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
   // Return DB-provided time strings unchanged. If a Date or ISO string is provided, format to HH:mm:ss.
   const ensureSeconds = (timeVal) => {
@@ -54,6 +55,52 @@ const ReportGeneration = () => {
       endDate: today
     });
   }, []);
+
+  // Lookup HRIS/local employee when division, section and employeeId are provided
+  useEffect(() => {
+    let mounted = true;
+    const lookup = async () => {
+      if (!employeeId || !divisionId || !sectionId) {
+        if (mounted) setEmployeeInfo(null);
+        return;
+      }
+
+      if (divisionId === 'all' || sectionId === 'all') {
+        if (mounted) setEmployeeInfo(null);
+        return;
+      }
+
+      try {
+        const token = localStorage.getItem('token');
+        const url = `${API_BASE}/users/hris?emp_number=${encodeURIComponent(employeeId)}&division=${encodeURIComponent(divisionId)}&section=${encodeURIComponent(sectionId)}`;
+        const resp = await fetch(url, {
+          headers: {
+            'Authorization': token ? `Bearer ${token}` : undefined,
+            'Content-Type': 'application/json'
+          }
+        });
+        if (!resp.ok) {
+          console.warn('Employee lookup failed:', resp.status);
+          if (mounted) setEmployeeInfo(null);
+          return;
+        }
+        const data = await resp.json();
+        const items = Array.isArray(data.data) ? data.data : (Array.isArray(data) ? data : []);
+        if (items.length > 0) {
+          if (mounted) setEmployeeInfo(items[0]);
+        } else {
+          if (mounted) setEmployeeInfo(null);
+        }
+      } catch (err) {
+        console.error('Error fetching employee info:', err);
+        if (mounted) setEmployeeInfo(null);
+      }
+    };
+
+    // small debounce to avoid rapid calls while typing
+    const t = setTimeout(lookup, 300);
+    return () => { mounted = false; clearTimeout(t); };
+  }, [employeeId, divisionId, sectionId]);
 
   // When scope changes to group, clear and block employeeId
   useEffect(() => {
@@ -99,24 +146,57 @@ const ReportGeneration = () => {
         
         console.log('Processed sections array:', sectionsArray); // Debug log
         setSections(sectionsArray);
-        
+
         // Reset section selection to 'all' when division changes
         if (sectionsArray.length > 0) {
+          setSectionId('all');
+        } else {
+          // If endpoint returned empty, try fallback to client-side filtering from allSections
+          const fallback = filterAllSectionsByDivision(divId, allSections, divisions);
+          setSections(fallback);
           setSectionId('all');
         }
       } else {
         console.error('Failed to fetch sections:', response.status, response.statusText);
         // Don't show error for divisions that don't have MySQL sections
         // Just set empty sections array
-        setSections([]);
+        const fallback = filterAllSectionsByDivision(divId, allSections, divisions);
+        setSections(fallback);
         setSectionId('all');
       }
     } catch (err) {
       console.error('Error fetching sections by division:', err);
-      setSections([]);
+      const fallback = filterAllSectionsByDivision(divId, allSections, divisions);
+      setSections(fallback);
       setSectionId('all');
     }
-  }, [reportType]); // Add reportType as dependency since it affects which endpoint to use
+  }, [reportType, allSections, divisions]); // include allSections/divisions so fallback uses latest
+
+  // Helper: fallback filter to derive sections from allSections when backend endpoint is unavailable
+  const filterAllSectionsByDivision = (divId, allSecs = [], divs = []) => {
+    if (!divId || divId === 'all') return allSecs || [];
+    const normalized = (allSecs || []).filter(s => {
+      if (!s) return false;
+      // section.division may be object or id or name
+      if (typeof s.division === 'object' && s.division?._id) return String(s.division._id) === String(divId);
+      if (typeof s.division === 'string' && s.division) {
+        if (s.division === divId) return true;
+        // maybe division code stored instead of id
+        const byCode = divs.find(d => String(d.code) === String(s.division) || String(d._id) === String(s.division));
+        if (byCode && String(byCode._id) === String(divId)) return true;
+      }
+      // fallback: match by division name if section holds division name
+      const sectionDivName = (typeof s.division === 'object' ? s.division?.name : s.division) || s.divisionName || s.DIVISION_NAME || '';
+      if (sectionDivName) {
+        const divObj = divs.find(d => String(d._id) === String(divId) || normalizeString(d.name) === normalizeString(sectionDivName));
+        if (divObj) return true;
+      }
+      return false;
+    });
+    return normalized;
+  };
+
+  const normalizeString = (v) => (typeof v === 'string' ? v.trim().toLowerCase().replace(/\s+/g, ' ') : '');
 
   // Fetch sections when division changes
   useEffect(() => {
@@ -214,12 +294,22 @@ const ReportGeneration = () => {
           sectionsArray = data.sections;
         }
 
-        // Normalize minimal fields so dropdown shows name and id consistently
-        const normalized = sectionsArray.map(s => ({
-          _id: s._id || s.id || s.SECTION_ID || s.code || s.section_code,
-          name: s.name || s.section_name || s.SECTION_NAME || s.hie_name || s.hie_relationship || s.section_name,
-          ...s
-        }));
+        // Normalize fields (handle HRIS/raw shapes) so dropdown shows name and id consistently
+        const normalized = sectionsArray.map(s => {
+          const divisionId = String(s?.division_id ?? s?.DIVISION_ID ?? s?.division_code ?? s?.DIVISION_CODE ?? s?.hie_code ?? s?.hie_relationship ?? '');
+          const divisionName = s?.division_name ?? s?.DIVISION_NAME ?? s?.hie_name ?? s?.hie_relationship ?? '';
+          const sectionId = String(s?._id ?? s?.id ?? s?.SECTION_ID ?? s?.code ?? s?.hie_code ?? s?.SECTION_CODE ?? s?.section_code ?? '');
+          const sectionName = s?.name || s?.section_name || s?.SECTION_NAME || s?.hie_name || s?.hie_relationship || '';
+          return {
+            _id: sectionId || undefined,
+            name: sectionName || `Section ${sectionId}`,
+            division: divisionName ? { _id: divisionId || undefined, name: divisionName } : (divisionId || ''),
+            divisionCode: String(s?.division_code ?? s?.DIVISION_CODE ?? ''),
+            code: String(s?.code ?? s?.SECTION_CODE ?? s?.hie_code ?? s?.section_code ?? ''),
+            _raw: s,
+            ...s
+          };
+        });
 
         setAllSections(normalized);
         setSections(normalized);
@@ -903,6 +993,9 @@ const ReportGeneration = () => {
                 value={reportType}
                 onChange={(e) => setReportType(e.target.value)}
                 className="form-control"
+                disabled={true}
+                aria-disabled={true}
+                title="Temporarily locked for testing"
               >
                 <option value="attendance">Attendance Report</option>
                 <option value="meal">Meal Report</option>
@@ -920,6 +1013,9 @@ const ReportGeneration = () => {
                 value={reportScope}
                 onChange={(e) => setReportScope(e.target.value)}
                 className="form-control"
+                disabled={true}
+                aria-disabled={true}
+                title="Temporarily locked for testing"
               >
                 <option value="individual">Individual Report</option>
                 <option value="group">Group Report</option>
@@ -1020,6 +1116,29 @@ const ReportGeneration = () => {
               />
             </div>
           </div>
+
+          {/* Employee info preview (appears when division, section and employee ID are provided) */}
+          {employeeId && employeeInfo && (
+            <div style={{ gridColumn: '1 / -1', margin: '14px 0', display: 'flex', justifyContent: 'center' }}>
+              <div style={{ background: '#fff', border: '1px solid #e6eefc', padding: '12px 18px', borderRadius: 10, boxShadow: '0 2px 8px rgba(102,126,234,0.06)', minWidth: 360 }}>
+                <div style={{ fontWeight: 700, marginBottom: 6 }}>{employeeInfo.FULLNAME || employeeInfo.FULL_NAME || employeeInfo.CALLING_NAME || employeeInfo.name || employeeInfo.employee_name || ''}</div>
+                <div style={{ display: 'flex', gap: 12, fontSize: 14 }}>
+                  <div>Emp No: <b>{employeeInfo.EMP_NUMBER || employeeInfo.employee_id || employeeInfo.employeeId || employeeInfo._id}</b></div>
+                  <div>Division: <b>{employeeInfo.DIVISION_NAME || employeeInfo.division?.name || ''}</b></div>
+                  <div>Section: <b>{employeeInfo.SECTION_NAME || employeeInfo.section?.name || ''}</b></div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* If employeeId provided but no match found, show warning */}
+          {employeeId && !employeeInfo && (
+            <div style={{ gridColumn: '1 / -1', margin: '8px 0 18px', display: 'flex', justifyContent: 'center' }}>
+              <div style={{ background: '#fff6f6', border: '1px solid #fde2e2', padding: '10px 14px', borderRadius: 8, color: '#c53030', minWidth: 360, textAlign: 'center' }}>
+                No employee found for the entered ID in the selected division/section.
+              </div>
+            </div>
+          )}
 
           {/* Generate Button */}
           <div className="form-actions" style={{ marginBottom: '40px', display: 'flex', justifyContent: 'center' }}>
