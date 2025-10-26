@@ -246,8 +246,17 @@ body {
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 60;
   border-right: 1px solid var(--gray-200);
-  overflow-y: auto;
+  /* Disable vertical scrolling for the sidebar per UX request */
+  overflow-y: hidden;
+  /* Hide native scrollbars across browsers */
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
   transform: translateX(-100%);
+}
+
+/* Hide webkit scrollbar for the sidebar */
+.sidebar::-webkit-scrollbar {
+  display: none;
 }
 
 .sidebar.sidebar-open {
