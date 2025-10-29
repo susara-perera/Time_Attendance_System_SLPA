@@ -21,6 +21,8 @@ const ReportGeneration = () => {
   const [reportData, setReportData] = useState(null);
   const [error, setError] = useState('');
   const [employeeInfo, setEmployeeInfo] = useState(null);
+  const autoSelectedDivisionRef = useRef(false);
+  const autoSelectedSectionRef = useRef(false);
   const groupReportRef = useRef(null);
   const individualReportRef = useRef(null);
   const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
@@ -56,51 +58,6 @@ const ReportGeneration = () => {
     });
   }, []);
 
-  // Lookup HRIS/local employee when division, section and employeeId are provided
-  useEffect(() => {
-    let mounted = true;
-    const lookup = async () => {
-      if (!employeeId || !divisionId || !sectionId) {
-        if (mounted) setEmployeeInfo(null);
-        return;
-      }
-
-      if (divisionId === 'all' || sectionId === 'all') {
-        if (mounted) setEmployeeInfo(null);
-        return;
-      }
-
-      try {
-        const token = localStorage.getItem('token');
-        const url = `${API_BASE}/users/hris?emp_number=${encodeURIComponent(employeeId)}&division=${encodeURIComponent(divisionId)}&section=${encodeURIComponent(sectionId)}`;
-        const resp = await fetch(url, {
-          headers: {
-            'Authorization': token ? `Bearer ${token}` : undefined,
-            'Content-Type': 'application/json'
-          }
-        });
-        if (!resp.ok) {
-          console.warn('Employee lookup failed:', resp.status);
-          if (mounted) setEmployeeInfo(null);
-          return;
-        }
-        const data = await resp.json();
-        const items = Array.isArray(data.data) ? data.data : (Array.isArray(data) ? data : []);
-        if (items.length > 0) {
-          if (mounted) setEmployeeInfo(items[0]);
-        } else {
-          if (mounted) setEmployeeInfo(null);
-        }
-      } catch (err) {
-        console.error('Error fetching employee info:', err);
-        if (mounted) setEmployeeInfo(null);
-      }
-    };
-
-    // small debounce to avoid rapid calls while typing
-    const t = setTimeout(lookup, 300);
-    return () => { mounted = false; clearTimeout(t); };
-  }, [employeeId, divisionId, sectionId]);
 
   // When scope changes to group, clear and block employeeId
   useEffect(() => {
@@ -209,6 +166,44 @@ const ReportGeneration = () => {
       setSectionId('all');
     }
   }, [divisionId, allSections, fetchSectionsByDivision]);
+
+  // Auto-select default division 'IS' (Information Systems) when available
+  useEffect(() => {
+    if (divisionId && divisionId !== 'all') return; // don't override user's choice
+    if (!divisions || divisions.length === 0) return;
+    if (autoSelectedDivisionRef.current) return;
+
+    const target = divisions.find(d => {
+      const code = String(d.code || d.DIVISION_CODE || '').toLowerCase();
+      const name = String(d.name || d.DIVISION_NAME || '').toLowerCase();
+      return code === 'is' || name.includes('information systems') || name.includes('information system');
+    });
+
+    if (target) {
+      setDivisionId(target._id || target.id);
+      autoSelectedDivisionRef.current = true;
+      // allow section auto-select to run after sections for this division are loaded
+      autoSelectedSectionRef.current = false;
+    }
+  }, [divisions, divisionId]);
+
+  // Auto-select an IS section when sections are loaded for the selected division
+  useEffect(() => {
+    if (!sections || sections.length === 0) return;
+    if (sectionId && sectionId !== 'all') return; // don't override user's choice
+    if (autoSelectedSectionRef.current) return;
+
+    const sec = sections.find(s => {
+      const code = String(s.code || s.section_code || s.SECTION_CODE || '').toLowerCase();
+      const name = String(s.name || s.section_name || s.SECTION_NAME || '').toLowerCase();
+      return code === 'is' || name.includes('information systems') || name.includes('information system') || name.includes('(is)');
+    });
+
+    if (sec) {
+      setSectionId(sec._id || sec.id || sec.section_id);
+      autoSelectedSectionRef.current = true;
+    }
+  }, [sections, sectionId]);
 
   const fetchDivisions = async () => {
     try {
@@ -360,10 +355,7 @@ const ReportGeneration = () => {
         if (reportScope === 'individual') {
           payload.employee_id = employeeId;
         }
-        if (reportScope === 'group') {
-          if (divisionId !== 'all') payload.division_id = divisionId;
-          if (sectionId !== 'all') payload.section_id = sectionId;
-        }
+        // For attendance, do NOT send division or section info to MySQL. Only use employee ID and date range.
       } else if (reportType === 'meal') {
         // Use MongoDB API for meal reports
         apiUrl = 'http://localhost:5000/api/meal-reports';
@@ -993,9 +985,6 @@ const ReportGeneration = () => {
                 value={reportType}
                 onChange={(e) => setReportType(e.target.value)}
                 className="form-control"
-                disabled={true}
-                aria-disabled={true}
-                title="Temporarily locked for testing"
               >
                 <option value="attendance">Attendance Report</option>
                 <option value="meal">Meal Report</option>
@@ -1013,9 +1002,6 @@ const ReportGeneration = () => {
                 value={reportScope}
                 onChange={(e) => setReportScope(e.target.value)}
                 className="form-control"
-                disabled={true}
-                aria-disabled={true}
-                title="Temporarily locked for testing"
               >
                 <option value="individual">Individual Report</option>
                 <option value="group">Group Report</option>
@@ -1043,7 +1029,8 @@ const ReportGeneration = () => {
               />
             </div>
 
-            {/* Division - always visible, enabled only for group scope */}
+            {/* Division and Section - only visible for group scope */}
+            {/* Division - always visible, disabled for individual scope */}
             <div className="form-group" style={{gridColumn: 'span 1'}}>
               <label htmlFor="divisionId">
                 <i className="bi bi-building"></i>
@@ -1054,6 +1041,8 @@ const ReportGeneration = () => {
                 value={divisionId}
                 onChange={(e) => setDivisionId(e.target.value)}
                 className="form-control"
+                disabled={reportScope === 'individual'}
+                style={{ cursor: reportScope === 'individual' ? 'not-allowed' : 'pointer' }}
               >
                 <option value="all">All Divisions</option>
                 {(Array.isArray(divisions) ? divisions : []).map(division => (
@@ -1064,7 +1053,7 @@ const ReportGeneration = () => {
               </select>
             </div>
 
-            {/* Section - always visible, enabled only for group scope */}
+            {/* Section - always visible, disabled for individual scope */}
             <div className="form-group" style={{gridColumn: 'span 1'}}>
               <label htmlFor="sectionId">
                 <i className="bi bi-diagram-3"></i>
@@ -1075,6 +1064,8 @@ const ReportGeneration = () => {
                 value={sectionId}
                 onChange={(e) => setSectionId(e.target.value)}
                 className="form-control"
+                disabled={reportScope === 'individual'}
+                style={{ cursor: reportScope === 'individual' ? 'not-allowed' : 'pointer' }}
               >
                 <option value="all">All Sections</option>
                 {(Array.isArray(sections) ? sections : []).map(section => (
