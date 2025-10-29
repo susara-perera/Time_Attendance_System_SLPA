@@ -2,6 +2,7 @@ import React, { useState, useContext } from 'react';
 import { AuthContext } from '../../context/AuthContext';
 import DashboardStats from './DashboardStats';
 import UserManagement from './UserManagement';
+import EmployeeManagement from './EmployeeManagement';
 import ReportGeneration from './ReportGeneration';
 import MealManagement from './MealManagement';
 import DivisionManagement from './DivisionManagement';
@@ -37,6 +38,9 @@ const Dashboard = () => {
         break;
       case 'users':
         setActiveSection('users');
+        break;
+      case 'employees':
+        setActiveSection('employees');
         break;
       case 'reports':
         setActiveSection('reports');
@@ -128,6 +132,8 @@ const Dashboard = () => {
         return <DashboardStats onQuickAction={handleQuickAction} />;
       case 'users':
         return <UserManagement />;
+      case 'employees':
+        return <EmployeeManagement />;
       case 'reports':
       case 'unit-attendance':
       case 'audit-report':
@@ -210,11 +216,11 @@ const Dashboard = () => {
       roles: ['super_admin', 'admin']
     },
     {
-      id: 'settings',
-      label: 'Settings',
-      icon: 'bi-gear',
+      id: 'employees',
+      label: 'Employee Management',
+      icon: 'bi-people',
       color: 'secondary',
-      roles: ['super_admin', 'admin']
+      roles: ['super_admin', 'admin', 'administrative_clerk']
     }
   ];
 

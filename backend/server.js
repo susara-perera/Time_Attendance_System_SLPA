@@ -149,6 +149,7 @@ app.use('/api/users', require('./routes/user'));
 app.use('/api/attendance', require('./routes/attendance'));
 app.use('/api/divisions', require('./routes/division'));
 app.use('/api/sections', require('./routes/section'));
+app.use('/api/employees', require('./routes/employee'));
 app.use('/api/meals', require('./routes/meal'));
 app.use('/api/reports', require('./routes/report'));
 app.use('/api/settings', require('./routes/settings'));
