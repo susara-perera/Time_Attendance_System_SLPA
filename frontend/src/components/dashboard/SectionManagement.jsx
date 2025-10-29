@@ -48,8 +48,6 @@ const SectionManagement = () => {
   const toastTimerRef = useRef(null);
   const canView = usePermission('sections', 'read');
   const canCreate = usePermission('sections', 'create');
-  const canUpdate = usePermission('sections', 'update');
-  const canDelete = usePermission('sections', 'delete');
   const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
   // Toast helpers
@@ -415,8 +413,8 @@ const SectionManagement = () => {
   // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
-    // Front-end permission safeguard
-    if (!canCreate && !canUpdate) {
+    // Front-end permission safeguard (create-only on this view)
+    if (!canCreate) {
       alert('You do not have permission to perform this action.');
       return;
     }
@@ -549,74 +547,7 @@ const SectionManagement = () => {
   };
 
   // Handle opening edit modal
-  const handleEdit = (section) => {
-    console.log('Editing section:', section);
-    setCurrentSection(section);
-    setFormData({
-      name: section.name || '',
-      division: section.division?._id || section.division || ''
-    });
-    setFormErrors({});
-    setShowEditModal(true);
-  };
-
-  // Handle delete section
-  const handleDelete = async (section) => {
-    if (!canDelete) {
-      alert('You do not have permission to delete sections.');
-      return;
-    }
-
-    if (window.confirm(`Are you sure you want to delete "${section.name}" section? This action cannot be undone.`)) {
-      try {
-        const token = localStorage.getItem('token');
-        
-        if (!token) {
-          alert('Authentication token not found. Please log in again.');
-          return;
-        }
-
-        const response = await fetch(`http://localhost:5000/api/sections/${section._id}`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          credentials: 'include'
-        });
-
-        if (response.ok) {
-          console.log('Section deleted:', section._id);
-          
-          // Refresh data to get updated information
-          await fetchData();
-          alert('Section deleted successfully!');
-        } else {
-          let errorMessage = 'Unknown error';
-          try {
-            const errorData = await response.json();
-            console.error('Failed to delete section:', response.status, errorData);
-            
-            if (errorData.errors && Array.isArray(errorData.errors)) {
-              errorMessage = errorData.errors.map(err => err.message).join(', ');
-            } else if (errorData.error) {
-              errorMessage = errorData.error;
-            } else if (errorData.message) {
-              errorMessage = errorData.message;
-            }
-          } catch (jsonError) {
-            console.error('Error parsing response:', jsonError);
-            errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-          }
-          
-          alert(`Failed to delete section: ${errorMessage}`);
-        }
-      } catch (error) {
-        console.error('Error deleting section:', error);
-        alert('Error deleting section. Please try again.');
-      }
-    }
-  };
+  // Edit/Delete removed: this view is read-only for sections (only sub-sections can be created/viewed)
 
   // Handle create sub-section
   const handleCreateSubSection = (section) => {
@@ -713,12 +644,7 @@ const SectionManagement = () => {
   };
 
   // Handle opening add modal
-  const handleAdd = () => {
-    setCurrentSection(null);
-    setFormData({ name: '', division: '' });
-    setFormErrors({});
-    setShowAddModal(true);
-  };
+  // Add/Edit removed from main UI; modal remains but opening is only via other flows if required.
 
   // Handle closing modals
   const handleCloseModal = () => {
@@ -746,21 +672,9 @@ const SectionManagement = () => {
     if (!canView) {
       return (
         <div className="section-management">
-          <div className="section-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><i className="bi bi-diagram-3"></i> Section Management</h2>
-                <div>
-                  {canCreate ? (
-                    <button
-                      onClick={handleAdd}
-                      className="btn-professional btn-success"
-                      style={{ padding: '8px 14px', borderRadius: 8, fontWeight: 700 }}
-                      title="Add Section"
-                    >
-                      <i className="bi bi-plus-circle" style={{ marginRight: 8 }}></i>Add Section
-                    </button>
-                  ) : null}
-                </div>
-              </div>
+            <div className="section-header">
+              <h2><i className="bi bi-diagram-3"></i> Section Management</h2>
+            </div>
           <div className="professional-card">
             <div className="no-data">
               <p>You do not have permission to view sections. Contact a Super Admin for access.</p>
@@ -1027,45 +941,25 @@ const SectionManagement = () => {
                     {section.createdAt ? (parseHrisDate(section.createdAt) || 'N/A') : 'N/A'}
                   </td>
                   <td>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button 
-                        className="btn-professional btn-success"
-                        onClick={canCreate ? () => handleCreateSubSection(section) : undefined}
-                        title={!canCreate ? 'No permission to create sub sections' : 'Create Sub-Section'}
-                        disabled={!canCreate}
-                        style={{ padding: '8px 12px', fontSize: '12px', cursor: canCreate ? 'pointer' : 'not-allowed' }}
-                      >
-                        <i className="bi bi-plus"></i>
-                      </button>
-                      <button 
-                        className="btn-professional btn-light"
-                        onClick={() => toggleSubSections(section)}
-                        title="View Sub-Sections"
-                        style={{ padding: '8px 12px', fontSize: '12px' }}
-                      >
-                        <i className="bi bi-chevron-right"></i>
-                      </button>
-                      {canUpdate && (
-                        <button
-                          className="btn-professional btn-warning"
-                          onClick={() => handleEdit(section)}
-                          title="Edit Section"
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button 
+                          className="btn-professional btn-success"
+                          onClick={canCreate ? () => handleCreateSubSection(section) : undefined}
+                          title={!canCreate ? 'No permission to create sub sections' : 'Create Sub-Section'}
+                          disabled={!canCreate}
+                          style={{ padding: '8px 12px', fontSize: '12px', cursor: canCreate ? 'pointer' : 'not-allowed' }}
+                        >
+                          <i className="bi bi-plus"></i>
+                        </button>
+                        <button 
+                          className="btn-professional btn-light"
+                          onClick={() => toggleSubSections(section)}
+                          title="View Sub-Sections"
                           style={{ padding: '8px 12px', fontSize: '12px' }}
                         >
-                          <i className="bi bi-pencil"></i>
+                          <i className="bi bi-chevron-right"></i>
                         </button>
-                      )}
-                      {canDelete && (
-                        <button
-                          className="btn-professional btn-danger"
-                          onClick={() => handleDelete(section)}
-                          title="Delete Section"
-                          style={{ padding: '8px 12px', fontSize: '12px' }}
-                        >
-                          <i className="bi bi-trash"></i>
-                        </button>
-                      )}
-                    </div>
+                      </div>
                   </td>
                 </tr>
               ))}
@@ -1075,7 +969,7 @@ const SectionManagement = () => {
 
         {sections.length === 0 && (
           <div className="no-data">
-            <p>No sections found. Click "Add Section" to create the first section.</p>
+            <p>No sections found.</p>
           </div>
         )}
       </div>
@@ -1145,9 +1039,9 @@ const SectionManagement = () => {
                 <button 
                   type="submit"
                   className="btn-professional btn-success"
-                  disabled={submitting || (!canCreate && !canUpdate)}
-                  aria-disabled={submitting || (!canCreate && !canUpdate)}
-                  title={!canCreate && !canUpdate ? 'You do not have permission to perform this action' : ''}
+                  disabled={submitting || !canCreate}
+                  aria-disabled={submitting || !canCreate}
+                  title={!canCreate ? 'You do not have permission to perform this action' : ''}
                 >
                   <i className={`bi ${currentSection ? "bi-check-circle" : "bi-plus-circle"}`}></i>
                   {submitting ? (
