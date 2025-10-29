@@ -20,6 +20,25 @@ const ApiDataViewer = () => {
   const [showDivisionJson, setShowDivisionJson] = useState(false);
   const [showSectionJson, setShowSectionJson] = useState(false);
 
+  // Attendance view state (individual)
+  const [attendanceFromDate, setAttendanceFromDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return formatDateYmd(d);
+  });
+  const [attendanceToDate, setAttendanceToDate] = useState(() => formatDateYmd(new Date()));
+  // Preset for quick date ranges: 'last7'|'last30'|'thisMonth'|'custom'
+  const [periodPreset, setPeriodPreset] = useState('last7');
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [attendanceError, setAttendanceError] = useState(null);
+  const [attendanceRecords, setAttendanceRecords] = useState([]);
+  const [attendanceSummary, setAttendanceSummary] = useState(null);
+  const [selectedAttendanceEmployee, setSelectedAttendanceEmployee] = useState(null);
+
+  // Individual attendance filters (division/section scoped to HRIS data)
+  const [selectedIADivision, setSelectedIADivision] = useState('all'); // use same key format as employee division keys (e.g., id:123)
+  const [selectedIASection, setSelectedIASection] = useState('all');
+
   // Raw API data (for dynamic tables/JSON displays)
   const [rawDivisions, setRawDivisions] = useState([]);
   const [rawSections, setRawSections] = useState([]);
@@ -41,10 +60,10 @@ const ApiDataViewer = () => {
     return [...ordered, ...remaining];
   };
 
-  const formatDateYmd = (d) => {
+  function formatDateYmd(d) {
     const pad = (n) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  };
+  }
 
   const parseHrisDate = (value) => {
     if (!value) return '';
@@ -434,10 +453,19 @@ const ApiDataViewer = () => {
       fetchDivisions();
     } else if (activeTab === 'sections') {
       fetchSections();
-    } else if (activeTab === 'employees') {
+    } else if (activeTab === 'employees' || activeTab === 'individual-attendance') {
+      // For both the employees view and the standalone individual attendance report
+      // ensure employee/division/section data is loaded
       fetchAllData();
     }
   }, [activeTab]);
+
+  // Helper to open the Individual Attendance tab and ensure HRIS data is loaded
+  const openIndividualAttendance = () => {
+    setActiveTab('individual-attendance');
+    // Trigger data load; don't await so UI stays responsive
+    fetchAllData();
+  };
 
   const renderDivisions = () => (
     <div className="api-table-container">
@@ -707,6 +735,15 @@ const ApiDataViewer = () => {
           </div>
         </div>
 
+        {/* Attendance date range controls (used by per-row View Attendance) */}
+        <div className="mb-3 d-flex align-items-center gap-2">
+          <label className="form-label mb-0">From:</label>
+          <input type="date" className="form-control" style={{ width: '180px' }} value={attendanceFromDate} onChange={e => setAttendanceFromDate(e.target.value)} />
+          <label className="form-label mb-0">To:</label>
+          <input type="date" className="form-control" style={{ width: '180px' }} value={attendanceToDate} onChange={e => setAttendanceToDate(e.target.value)} />
+          <small className="text-muted ms-2">Click "View Attendance" on an employee row to load individual punches.</small>
+        </div>
+
       {/* Filter Status Info */}
       {(selectedEmployeeDivision !== 'all' || selectedSection !== 'all') && (
         <div className="alert alert-info mb-3">
@@ -771,6 +808,7 @@ const ApiDataViewer = () => {
               <th>NIC</th>
               <th>Division</th>
               <th>Section</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -783,11 +821,70 @@ const ApiDataViewer = () => {
                 <td>{employee.nic}</td>
                 <td>{employee.divisionHierarchyName || employee.divisionName || divisionMap.get(String(employee.divisionId)) || employee.divisionCode || '-'}</td>
                 <td>{employee.sectionHierarchyName || employee.sectionName || sectionMap.get(String(employee.sectionId)) || employee.sectionCode || '-'}</td>
+                <td>
+                  <button
+                    className="btn btn-sm btn-outline-primary"
+                    onClick={() => fetchAttendanceForEmployee(employee.empNumber)}
+                    disabled={attendanceLoading}
+                  >
+                    View Attendance
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      
+      {/* Attendance display panel for selected employee */}
+      {selectedAttendanceEmployee && (
+        <div className="attendance-panel mt-4">
+          <h5>Attendance for {selectedAttendanceEmployee} &nbsp; <small className="text-muted">({attendanceFromDate} to {attendanceToDate})</small></h5>
+
+          {attendanceLoading ? (
+            <div className="spinner-border text-primary" role="status"><span className="visually-hidden">Loading...</span></div>
+          ) : attendanceError ? (
+            <div className="alert alert-danger">{attendanceError}</div>
+          ) : (
+            <>
+              {attendanceSummary && (
+                <div className="mb-2">
+                  <strong>Summary:</strong> {attendanceSummary.total_records ?? attendanceSummary.total_records === 0 ? ` ${attendanceSummary.total_records} records` : ''}
+                </div>
+              )}
+
+              <div className="table-responsive">
+                <table className="table table-sm table-bordered">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Time</th>
+                      <th>Scan Type</th>
+                      <th>Division</th>
+                      <th>Section</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attendanceRecords && attendanceRecords.length ? (
+                      attendanceRecords.map(rec => (
+                        <tr key={`${rec.attendance_id || rec.employee_ID}-${rec.date_}-${rec.time_}`}> 
+                          <td>{rec.date_}</td>
+                          <td>{rec.time_}</td>
+                          <td>{rec.scan_type}</td>
+                          <td>{rec.division_name || rec.divisionName || ''}</td>
+                          <td>{rec.section_name || rec.sectionName || ''}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr><td colSpan={5} className="text-center">No attendance records found for this period.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      )}
       </div>
     );
   };
@@ -894,6 +991,32 @@ const ApiDataViewer = () => {
     return employeeSections.sort((a, b) => a.name.localeCompare(b.name));
   };
 
+  // Sync period preset into from/to dates when a preset is chosen
+  useEffect(() => {
+    const now = new Date();
+    let from = new Date();
+    let to = new Date();
+    switch (periodPreset) {
+      case 'last7':
+        from = new Date(); from.setDate(now.getDate() - 7);
+        to = now;
+        break;
+      case 'last30':
+        from = new Date(); from.setDate(now.getDate() - 30);
+        to = now;
+        break;
+      case 'thisMonth':
+        from = new Date(now.getFullYear(), now.getMonth(), 1);
+        to = now;
+        break;
+      case 'custom':
+      default:
+        return; // don't override custom dates
+    }
+    setAttendanceFromDate(formatDateYmd(from));
+    setAttendanceToDate(formatDateYmd(to));
+  }, [periodPreset]);
+
   // Handle employee division selection change
   const handleEmployeeDivisionChange = (event) => {
     const selectedDiv = event.target.value;
@@ -984,6 +1107,137 @@ const ApiDataViewer = () => {
     setEmployees(filtered);
   }, [allEmployees, selectedEmployeeDivision, selectedSection]);
 
+    const renderIndividualAttendance = () => {
+      // We only use Employee ID input (no dropdown). Division/Section are used to scope lookup if needed.
+      const divisionOptions = divisions || [];
+
+      return (
+        <div className="api-table-container">
+          <h3>Individual Attendance Report</h3>
+
+          <div className="mb-3 d-flex align-items-center gap-2 flex-wrap">
+            <label className="form-label mb-0">Division:</label>
+            <select
+              className="form-select"
+              style={{ width: '260px' }}
+              value={selectedIADivision}
+              onChange={e => { setSelectedIADivision(e.target.value); setSelectedIASection('all'); }}
+            >
+              <option value="all">All Divisions</option>
+              {divisionOptions.map(d => (
+                <option key={d.id} value={`id:${d.id}`}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+
+            <label className="form-label mb-0">Section:</label>
+            <select
+              className="form-select"
+              style={{ width: '260px' }}
+              value={selectedIASection}
+              onChange={e => setSelectedIASection(e.target.value)}
+              disabled={selectedIADivision === 'all'}
+            >
+              {selectedIADivision === 'all' ? (
+                <option value="all">Select a division first</option>
+              ) : (
+                <>
+                  <option value="all">All Sections</option>
+                  {deriveSectionsForDivision(selectedIADivision).map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </>
+              )}
+            </select>
+
+            <label className="form-label mb-0">Period:</label>
+            <select className="form-select" style={{ width: '180px' }} value={periodPreset} onChange={e => setPeriodPreset(e.target.value)}>
+              <option value="last7">Last 7 days</option>
+              <option value="last30">Last 30 days</option>
+              <option value="thisMonth">This month</option>
+              <option value="custom">Custom</option>
+            </select>
+
+            <label className="form-label mb-0">From:</label>
+            <input type="date" className="form-control" style={{ width: '180px' }} value={attendanceFromDate} onChange={e => { setAttendanceFromDate(e.target.value); setPeriodPreset('custom'); }} />
+            <label className="form-label mb-0">To:</label>
+            <input type="date" className="form-control" style={{ width: '180px' }} value={attendanceToDate} onChange={e => { setAttendanceToDate(e.target.value); setPeriodPreset('custom'); }} />
+
+            <label className="form-label mb-0">Employee ID:</label>
+            <input
+              type="text"
+              className="form-control"
+              style={{ width: '320px' }}
+              placeholder="Enter employee ID"
+              value={selectedAttendanceEmployee || ''}
+              onChange={e => setSelectedAttendanceEmployee(e.target.value || null)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  if (!selectedAttendanceEmployee) {
+                    setAttendanceError('Please enter an employee ID');
+                    return;
+                  }
+                  fetchAttendanceForEmployee(selectedAttendanceEmployee);
+                }
+              }}
+            />
+
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                if (!selectedAttendanceEmployee) {
+                  setAttendanceError('Please select an employee');
+                  return;
+                }
+                fetchAttendanceForEmployee(selectedAttendanceEmployee);
+              }}
+              disabled={attendanceLoading}
+            >
+              {attendanceLoading ? 'Loading...' : 'Load Report'}
+            </button>
+          </div>
+
+          {attendanceError && <div className="alert alert-danger">{attendanceError}</div>}
+
+          {attendanceSummary && (
+            <div className="mb-2">
+              <strong>Summary:</strong> {attendanceSummary.total_records ?? attendanceSummary.total_records === 0 ? ` ${attendanceSummary.total_records} records` : ''}
+            </div>
+          )}
+
+          <div className="table-responsive">
+            <table className="table table-sm table-bordered">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Time</th>
+                  <th>Scan Type</th>
+                  <th>Division</th>
+                  <th>Section</th>
+                </tr>
+              </thead>
+              <tbody>
+                {attendanceRecords && attendanceRecords.length ? (
+                  attendanceRecords.map(rec => (
+                    <tr key={`${rec.attendance_id || rec.employee_ID}-${rec.date_}-${rec.time_}`}>
+                      <td>{rec.date_}</td>
+                      <td>{rec.time_}</td>
+                      <td>{rec.scan_type}</td>
+                      <td>{rec.division_name || rec.divisionName || ''}</td>
+                      <td>{rec.section_name || rec.sectionName || ''}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr><td colSpan={5} className="text-center">No attendance records loaded.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    };
+
   const refreshData = () => {
     if (activeTab === 'divisions') {
       fetchDivisions();
@@ -995,10 +1249,48 @@ const ApiDataViewer = () => {
       setSelectedEmployeeDivision('all'); // Reset employee filters when refreshing
       setSelectedSection('all');
       setAvailableSections([]);
+    } else if (activeTab === 'individual-attendance') {
+      // Ensure IA view has HRIS data available and reset filters
+      fetchAllData();
+      setSelectedIADivision('all');
+      setSelectedIASection('all');
+      setSelectedAttendanceEmployee(null);
+      setPeriodPreset('last7');
     }
     setShowEmployeeJson(false);
     setShowDivisionJson(false);
     setShowSectionJson(false);
+  };
+
+  // Fetch individual attendance from MySQL using ReportGeneration API
+  const fetchAttendanceForEmployee = async (empNumber) => {
+    try {
+      setAttendanceLoading(true);
+      setAttendanceError(null);
+      setAttendanceRecords([]);
+      setAttendanceSummary(null);
+      setSelectedAttendanceEmployee(empNumber);
+
+      const payload = {
+        report_type: 'individual',
+        employee_id: empNumber,
+        from_date: attendanceFromDate,
+        to_date: attendanceToDate
+      };
+
+      const resp = await axios.post(`${API_BASE_URL}/reports/mysql/attendance`, payload);
+      if (resp.data && resp.data.success) {
+        setAttendanceRecords(resp.data.data || []);
+        setAttendanceSummary(resp.data.summary || null);
+      } else {
+        setAttendanceError(resp.data?.message || 'Failed to fetch attendance');
+      }
+    } catch (error) {
+      console.error('Error fetching attendance:', error);
+      setAttendanceError(error.response?.data?.message || error.message || 'Error fetching attendance');
+    } finally {
+      setAttendanceLoading(false);
+    }
   };
 
   return (
@@ -1040,6 +1332,13 @@ const ApiDataViewer = () => {
           <i className="bi bi-people"></i>
           Employees
         </button>
+        <button
+          className={`tab-btn ${activeTab === 'individual-attendance' ? 'active' : ''}`}
+          onClick={openIndividualAttendance}
+        >
+          <i className="bi bi-person-lines-fill"></i>
+          Individual Attendance
+        </button>
       </div>
 
       <div className="api-content">
@@ -1062,6 +1361,7 @@ const ApiDataViewer = () => {
             {activeTab === 'divisions' && renderDivisions()}
             {activeTab === 'sections' && renderSections()}
             {activeTab === 'employees' && renderEmployees()}
+            {activeTab === 'individual-attendance' && renderIndividualAttendance()}
           </>
         )}
       </div>
