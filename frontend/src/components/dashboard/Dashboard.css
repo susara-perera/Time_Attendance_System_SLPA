@@ -250,8 +250,12 @@ body {
   overflow-y: hidden;
   /* Hide native scrollbars across browsers */
   -ms-overflow-style: none; /* IE and Edge */
-  scrollbar-width: none; /* Firefox */
+  /* Firefox: hide scrollbar when supported */
   transform: translateX(-100%);
+}
+
+@supports (scrollbar-width: none) {
+  .sidebar { scrollbar-width: none; }
 }
 
 /* Hide webkit scrollbar for the sidebar */

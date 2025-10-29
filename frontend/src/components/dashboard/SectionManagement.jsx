@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import usePermission from '../../hooks/usePermission';
 
 const SectionManagement = () => {
   const [sections, setSections] = useState([]);
   const [divisions, setDivisions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [isHrisSource, setIsHrisSource] = useState(true); // Read-only when showing HRIS data
+  // HRIS source flag removed (was unused) - keep rawSections/rawDivisions for snapshots
   const [selectedDivision, setSelectedDivision] = useState(''); // division _id or 'all'
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -33,7 +33,7 @@ const SectionManagement = () => {
   const [formErrors, setFormErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   // Sub-sections display state
-  const [expandedSections, setExpandedSections] = useState({}); // { [sectionId]: boolean }
+  // expandedSections removed (not used)
   const [subSectionsBySection, setSubSectionsBySection] = useState({}); // { [sectionId]: Array }
   const [subSectionsLoading, setSubSectionsLoading] = useState({}); // { [sectionId]: boolean }
   const [subSectionsError, setSubSectionsError] = useState({}); // { [sectionId]: string }
@@ -66,7 +66,9 @@ const SectionManagement = () => {
       clearTimeout(toastTimerRef.current);
       toastTimerRef.current = null;
     }
-    setToast({ show: true, type, title, message });
+    // Ensure message is a string to avoid React rendering objects as children
+    const safeMessage = (message && typeof message === 'object') ? (message.message || JSON.stringify(message)) : String(message || '');
+    setToast({ show: true, type, title, message: safeMessage });
     toastTimerRef.current = setTimeout(() => {
       setToast((t) => ({ ...t, show: false }));
       toastTimerRef.current = null;
@@ -288,7 +290,7 @@ const SectionManagement = () => {
   };
 
   // Fetch sections and divisions from HRIS APIs (read-only)
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const token = localStorage.getItem('token');
       
@@ -336,8 +338,7 @@ const SectionManagement = () => {
             _raw: s,
           };
         }).sort((a, b) => a.name.localeCompare(b.name));
-        setSections(normalizedSections);
-        setIsHrisSource(true);
+  setSections(normalizedSections);
       } else {
         console.error('Failed to fetch HRIS sections:', sectionsResponse.status, sectionsResponse.statusText);
         setSections([]);
@@ -367,7 +368,7 @@ const SectionManagement = () => {
       console.error('Error fetching data:', error);
       setLoading(false);
     }
-  };
+  }, [API_BASE_URL]);
 
   // Helper: get division name from id/code or populated object
   const getDivisionName = (divisionRef) => {
@@ -561,6 +562,11 @@ const SectionManagement = () => {
 
   // Handle delete section
   const handleDelete = async (section) => {
+    if (!canDelete) {
+      alert('You do not have permission to delete sections.');
+      return;
+    }
+
     if (window.confirm(`Are you sure you want to delete "${section.name}" section? This action cannot be undone.`)) {
       try {
         const token = localStorage.getItem('token');
@@ -684,15 +690,14 @@ const SectionManagement = () => {
       });
 
       if (resp.ok) {
-        let created;
-        try { const j = await resp.json(); created = j?.data; } catch (_) {}
+        // consume response body if present but do not keep unused reference
+        await resp.json().catch(() => {});
         closeSubModal();
         showToast({ type: 'success', title: 'Success', message: 'Sub-section created successfully.' });
-        // Refresh and expand the parent section's sub-sections
+        // Refresh the parent section's sub-sections
         const parentId = subParentSection?._id;
         if (parentId) {
           await fetchSubSections(parentId, { force: true });
-          // Keep collapsed by default as requested
         }
       } else {
         let msg = 'Failed to create sub-section';
@@ -726,7 +731,7 @@ const SectionManagement = () => {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   if (loading) {
     return (
@@ -741,9 +746,21 @@ const SectionManagement = () => {
     if (!canView) {
       return (
         <div className="section-management">
-          <div className="section-header">
-            <h2><i className="bi bi-diagram-3"></i> Section Management</h2>
-          </div>
+          <div className="section-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><i className="bi bi-diagram-3"></i> Section Management</h2>
+                <div>
+                  {canCreate ? (
+                    <button
+                      onClick={handleAdd}
+                      className="btn-professional btn-success"
+                      style={{ padding: '8px 14px', borderRadius: 8, fontWeight: 700 }}
+                      title="Add Section"
+                    >
+                      <i className="bi bi-plus-circle" style={{ marginRight: 8 }}></i>Add Section
+                    </button>
+                  ) : null}
+                </div>
+              </div>
           <div className="professional-card">
             <div className="no-data">
               <p>You do not have permission to view sections. Contact a Super Admin for access.</p>
@@ -1028,6 +1045,26 @@ const SectionManagement = () => {
                       >
                         <i className="bi bi-chevron-right"></i>
                       </button>
+                      {canUpdate && (
+                        <button
+                          className="btn-professional btn-warning"
+                          onClick={() => handleEdit(section)}
+                          title="Edit Section"
+                          style={{ padding: '8px 12px', fontSize: '12px' }}
+                        >
+                          <i className="bi bi-pencil"></i>
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button
+                          className="btn-professional btn-danger"
+                          onClick={() => handleDelete(section)}
+                          title="Delete Section"
+                          style={{ padding: '8px 12px', fontSize: '12px' }}
+                        >
+                          <i className="bi bi-trash"></i>
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
