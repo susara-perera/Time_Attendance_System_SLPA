@@ -1066,6 +1066,10 @@ const generateMySQLAttendanceReport = async (req, res) => {
       to_date
     } = req.body;
 
+    console.log('=== ATTENDANCE REPORT REQUEST ===');
+    console.log('Report type:', report_type);
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+
     // Validate required fields
     if (!from_date || !to_date) {
       return res.status(400).json({
@@ -1082,17 +1086,14 @@ const generateMySQLAttendanceReport = async (req, res) => {
       });
     }
 
-    // Create MySQL connection
-    const connection = await createMySQLConnection();
-
-    let sql, params;
-
+    const hrisApiService = require('../services/hrisApiService');
+    
     // Handle group reports differently to match the required format
     if (report_type === 'group') {
+      console.log('Calling generateMySQLGroupAttendanceReport...');
       const groupReportData = await generateMySQLGroupAttendanceReport(from_date, to_date, division_id, section_id);
       
-      // Close connection
-      await connection.end();
+      console.log(`Group report generated: ${groupReportData.employees.length} employees`);
       
       return res.status(200).json({
         success: true,
@@ -1104,80 +1105,78 @@ const generateMySQLAttendanceReport = async (req, res) => {
       });
     }
 
-    if (report_type === 'group' && (division_id || section_id)) {
-      // Group report with division or section filter
-      let employeeFilter = '';
-      let employeeParams = [];
-
-      if (section_id && section_id !== 'all') {
-        // Filter by specific section
-        employeeFilter = 'AND e.section = ?';
-        employeeParams.push(section_id);
-      } else if (division_id && division_id !== 'all') {
-        // Filter by specific division
-        employeeFilter = 'AND e.division = ?';
-        employeeParams.push(division_id);
-      }
-
-      sql = `SELECT 
+    // For individual reports: Get attendance from MySQL, employee data from HRIS
+    const connection = await createMySQLConnection();
+    
+    // Get attendance records from MySQL (only attendance table, no joins)
+    const sql = `SELECT 
               a.attendance_id,
               a.employee_ID,
               a.fingerprint_id,
               a.date_,
               a.time_,
-              a.scan_type,
-              e.employee_name,
-              d.division_name,
-              s.section_name
+              a.scan_type
              FROM attendance a
-             LEFT JOIN employees e ON a.employee_ID = e.employee_ID
-             LEFT JOIN divisions d ON e.division = d.division_id
-             LEFT JOIN sections s ON e.section = s.section_id
-             WHERE a.date_ BETWEEN ? AND ? ${employeeFilter}
-             ORDER BY a.date_ DESC, a.time_ DESC`;
-      
-      params = [from_date, to_date, ...employeeParams];
-    } else {
-      // Original logic for individual reports or all group reports
-      sql = `SELECT 
-              a.attendance_id,
-              a.employee_ID,
-              a.fingerprint_id,
-              a.date_,
-              a.time_,
-              a.scan_type,
-              e.employee_name,
-              d.division_name,
-              s.section_name
-             FROM attendance a
-             LEFT JOIN employees e ON a.employee_ID = e.employee_ID
-             LEFT JOIN divisions d ON e.division = d.division_id
-             LEFT JOIN sections s ON e.section = s.section_id
-             WHERE a.date_ BETWEEN ? AND ?`;
-      
-      params = [from_date, to_date];
+             WHERE a.date_ BETWEEN ? AND ? AND a.employee_ID = ?
+             ORDER BY a.date_ ASC, a.time_ ASC`;
+    
+    const params = [from_date, to_date, employee_id];
+    const [attendance_data] = await connection.execute(sql, params);
+    await connection.end();
 
-      // Add employee filter for individual reports
-      if (report_type === 'individual') {
-        sql += ` AND a.employee_ID = ?`;
-        params.push(employee_id);
-      }
-
-      // Add ordering
-      sql += ` ORDER BY a.date_ DESC, a.time_ DESC`;
+    if (attendance_data.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No employee found for the entered ID in the selected division/section.',
+        data: [],
+        employee_info: null
+      });
     }
 
-    // Execute query
-    const [attendance_data] = await connection.execute(sql, params);
+    // Fetch employee details from HRIS API
+    console.log(`Fetching employee ${employee_id} details from HRIS API...`);
+    let employeeInfo = null;
+    try {
+      const allEmployees = await hrisApiService.readData('hr_employee_v', {}, '', false);
+      const employee = allEmployees.find(emp => {
+        const empId = String(emp.emp_no || emp.employee_no || emp.employee_ID || '');
+        return empId === String(employee_id);
+      });
+
+      if (employee) {
+        employeeInfo = {
+          employee_ID: String(employee.emp_no || employee.employee_no || employee.employee_ID || ''),
+          employee_id: String(employee.emp_no || employee.employee_no || employee.employee_ID || ''),
+          employee_name: employee.employee_name || employee.employeeName || 
+                        (employee.first_name ? `${employee.first_name} ${employee.last_name || ''}`.trim() : 
+                         employee.name || employee.full_name || 'Unknown'),
+          name: employee.employee_name || employee.employeeName || 
+                (employee.first_name ? `${employee.first_name} ${employee.last_name || ''}`.trim() : 
+                 employee.name || employee.full_name || 'Unknown'),
+          division_name: employee.division_name || employee.division || employee.division_code || '',
+          section_name: employee.section_name || employee.section || employee.section_code || ''
+        };
+      }
+    } catch (error) {
+      console.error('Error fetching employee from HRIS:', error);
+    }
+
+    // Merge employee info into attendance records
+    const enrichedData = attendance_data.map(record => ({
+      ...record,
+      employee_name: employeeInfo?.employee_name || 'Unknown',
+      division_name: employeeInfo?.division_name || '',
+      section_name: employeeInfo?.section_name || ''
+    }));
 
     // Calculate summary statistics
     const summary = {
-      total_records: attendance_data.length,
-      unique_employees: [...new Set(attendance_data.map(record => record.employee_ID))].length,
-      in_scans: attendance_data.filter(record => 
+      total_records: enrichedData.length,
+      unique_employees: 1,
+      in_scans: enrichedData.filter(record => 
         record.scan_type && record.scan_type.toUpperCase() === 'IN'
       ).length,
-      out_scans: attendance_data.filter(record => 
+      out_scans: enrichedData.filter(record => 
         record.scan_type && record.scan_type.toUpperCase() === 'OUT'
       ).length,
       date_range: {
@@ -1185,27 +1184,6 @@ const generateMySQLAttendanceReport = async (req, res) => {
         to: to_date
       }
     };
-
-    // Add division/section info to summary if filtered
-    if (division_id && division_id !== 'all') {
-      const [divisionInfo] = await connection.execute(
-        'SELECT division_name FROM divisions WHERE division_id = ?', 
-        [division_id]
-      );
-      if (divisionInfo.length > 0) {
-        summary.division_filter = divisionInfo[0].division_name;
-      }
-    }
-
-    if (section_id && section_id !== 'all') {
-      const [sectionInfo] = await connection.execute(
-        'SELECT section_name FROM sections WHERE section_id = ?', 
-        [section_id]
-      );
-      if (sectionInfo.length > 0) {
-        summary.section_filter = sectionInfo[0].section_name;
-      }
-    }
 
     // Prepare query parameters for export
     const query_params = {
@@ -1217,13 +1195,11 @@ const generateMySQLAttendanceReport = async (req, res) => {
       to_date
     };
 
-    // Close connection
-    await connection.end();
-
     // Return response
     res.status(200).json({
       success: true,
-      data: attendance_data,
+      data: enrichedData,
+      employee_info: employeeInfo,
       summary,
       query_params,
       message: 'Report generated successfully'
@@ -1541,45 +1517,31 @@ const mapMongoToMySQLDivisionId = async (divisionId) => {
 // Helper function to generate MySQL-based group attendance report (tabular format)
 const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_id, section_id) => {
   try {
-    // Map MongoDB division ID to MySQL division ID if needed
-    let mysqlDivisionId = division_id;
-    if (division_id && division_id !== 'all') {
-      const mappedId = await mapMongoToMySQLDivisionId(division_id);
-      if (mappedId) {
-        mysqlDivisionId = mappedId;
-        console.log(`Using mapped MySQL division ID: ${mysqlDivisionId}`);
-      } else {
-        console.log(`Could not map division ID: ${division_id}`);
-      }
-    }
-
+    console.log('=== GROUP ATTENDANCE REPORT GENERATION STARTED ===');
+    console.log(`Date range: ${from_date} to ${to_date}`);
+    console.log(`Division filter: ${division_id || 'none'}`);
+    console.log(`Section filter: ${section_id || 'none'}`);
+    
+    const hrisApiService = require('../services/hrisApiService');
+    
     // Create MySQL connection
     const connection = await createMySQLConnection();
 
-    // Get all employees in the specified division/section
-    let employeeSql = `
-      SELECT e.employee_ID, e.employee_name, d.division_name, s.section_name
-      FROM employees e
-      LEFT JOIN divisions d ON e.division = d.division_id
-      LEFT JOIN sections s ON e.section = s.section_id
-      WHERE 1=1
+    // Get distinct employee IDs from attendance for the date range
+    let distinctEmployeeSql = `
+      SELECT DISTINCT employee_ID
+      FROM attendance
+      WHERE date_ BETWEEN ? AND ?
+      ORDER BY employee_ID ASC
     `;
-    let employeeParams = [];
 
-    if (section_id && section_id !== 'all') {
-      employeeSql += ' AND e.section = ?';
-      employeeParams.push(section_id);
-    } else if (mysqlDivisionId && mysqlDivisionId !== 'all') {
-      employeeSql += ' AND e.division = ?';
-      employeeParams.push(mysqlDivisionId);
-    }
-
-    employeeSql += ' ORDER BY e.employee_ID ASC';
-
-    const [employees] = await connection.execute(employeeSql, employeeParams);
-
-    if (employees.length === 0) {
+    const [attendanceEmployees] = await connection.execute(distinctEmployeeSql, [from_date, to_date]);
+    
+    console.log(`Found ${attendanceEmployees.length} employees with attendance in date range`);
+    
+    if (attendanceEmployees.length === 0) {
       await connection.end();
+      console.log('No attendance records found for the date range');
       return {
         reportType: 'group',
         dateRange: { from: from_date, to: to_date },
@@ -1588,6 +1550,120 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
         summary: { totalEmployees: 0, totalDays: 0 }
       };
     }
+
+    // Get employee IDs from attendance
+    const distinctEmployeeIds = attendanceEmployees.map(emp => emp.employee_ID);
+    console.log(`Distinct employee IDs from attendance:`, distinctEmployeeIds.slice(0, 5), '...'); // Show first 5
+    
+    // Fetch employee details from HRIS API
+    console.log('Fetching employee details from HRIS API...');
+    let allEmployees = [];
+    try {
+      console.log('Calling HRIS API readData for hr_employee_v...');
+      const hrisResult = await hrisApiService.readData('hr_employee_v', {}, '', false);
+      console.log('HRIS API raw result type:', typeof hrisResult);
+      console.log('HRIS API raw result is array?', Array.isArray(hrisResult));
+      console.log('HRIS API raw result length:', hrisResult ? hrisResult.length : 'null/undefined');
+      
+      allEmployees = hrisResult || [];
+      console.log(`Fetched ${allEmployees.length} employees from HRIS API`);
+      
+      // Debug: Show sample employee structure
+      if (allEmployees.length > 0) {
+        console.log('Sample HRIS employee (full):', JSON.stringify(allEmployees[0], null, 2));
+      }
+    } catch (error) {
+      console.error('Error fetching employees from HRIS:', error.message);
+      if (error.response) {
+        console.error('HRIS API error response:', error.response.data);
+      }
+      allEmployees = [];
+    }
+    
+    // Filter employees who have attendance records
+    let employees = allEmployees.filter(emp => {
+      const empId = String(emp.emp_no || emp.employee_no || emp.employee_ID || '');
+      return distinctEmployeeIds.includes(empId) || distinctEmployeeIds.includes(parseInt(empId));
+    });
+    
+    console.log(`Matched ${employees.length} employees from HRIS with attendance records`);
+    
+    // If division_id or section_id filters are provided, apply them
+    if (division_id && division_id !== 'all' && division_id !== '') {
+      console.log(`Filtering by division: ${division_id}`);
+      const beforeFilter = employees.length;
+      
+      // Try multiple matching strategies
+      employees = employees.filter(emp => {
+        const empDiv = String(emp.division || emp.division_code || emp.DIVISION_CODE || emp.div_code || '');
+        const empDivName = String(emp.division_name || emp.DIVISION_NAME || emp.div_name || '').toLowerCase();
+        const divIdStr = String(division_id);
+        
+        // Direct match
+        if (empDiv === divIdStr) return true;
+        
+        // Case-insensitive partial match
+        if (empDiv.toLowerCase().includes(divIdStr.toLowerCase())) return true;
+        if (divIdStr.toLowerCase().includes(empDiv.toLowerCase())) return true;
+        
+        // Match by division name (e.g., "IS" or "Information Systems")
+        if (divIdStr === '66' || divIdStr.toLowerCase() === 'is' || divIdStr.toLowerCase().includes('information')) {
+          return empDivName.includes('information') || empDivName.includes('is') || empDiv.toLowerCase() === 'is';
+        }
+        
+        return false;
+      });
+      console.log(`After division filter: ${employees.length} employees (filtered out ${beforeFilter - employees.length})`);
+      
+      // Debug: Show sample of filtered employees
+      if (employees.length > 0) {
+        console.log('Sample filtered employee divisions:', employees.slice(0, 3).map(e => ({
+          id: e.emp_no || e.employee_no,
+          division: e.division || e.division_code,
+          division_name: e.division_name
+        })));
+      }
+    }
+    
+    if (section_id && section_id !== 'all' && section_id !== '') {
+      console.log(`Filtering by section: ${section_id}`);
+      const beforeFilter = employees.length;
+      employees = employees.filter(emp => {
+        const empSec = String(emp.section || emp.section_code || emp.SECTION_CODE || emp.sec_code || '');
+        const secIdStr = String(section_id);
+        return empSec === secIdStr || empSec.toLowerCase().includes(secIdStr.toLowerCase()) || secIdStr.toLowerCase().includes(empSec.toLowerCase());
+      });
+      console.log(`After section filter: ${employees.length} employees (filtered out ${beforeFilter - employees.length})`);
+    }
+
+    if (employees.length === 0) {
+      await connection.end();
+      console.log('No employees left after applying filters');
+      return {
+        reportType: 'group',
+        dateRange: { from: from_date, to: to_date },
+        dates: [],
+        employees: [],
+        summary: { totalEmployees: 0, totalDays: 0 }
+      };
+    }
+
+    console.log(`Processing report for ${employees.length} employees`);
+
+    // Normalize HRIS employee fields to expected shape for report generation
+    employees = employees.map(emp => {
+      const id = String(emp.emp_no || emp.employee_no || emp.employee_ID || emp.employeeId || emp.empId || '');
+      const name = emp.employee_name || emp.employeeName || (emp.first_name ? `${emp.first_name} ${emp.last_name || ''}`.trim() : emp.name || emp.full_name || 'Unknown');
+      const divisionName = emp.division_name || emp.division || emp.division_code || emp.DIVISION_NAME || '';
+      const sectionName = emp.section_name || emp.section || emp.section_code || emp.SECTION_NAME || '';
+      return {
+        ...emp,
+        employee_ID: id,
+        employee_name: name,
+        division_name: divisionName,
+        section_name: sectionName
+      };
+    });
 
     // Generate date range
     const dateRange = [];
@@ -1603,17 +1679,17 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
     // Get all attendance records for the period and employees
     const employeeIds = employees.map(emp => emp.employee_ID);
     const placeholders = employeeIds.map(() => '?').join(',');
-    
-    const attendanceSql = `
+
+    const recordsSql = `
       SELECT employee_ID, date_, time_, scan_type
       FROM attendance
       WHERE date_ BETWEEN ? AND ?
       AND employee_ID IN (${placeholders})
       ORDER BY date_ ASC, time_ ASC
     `;
-    
+
     const attendanceParams = [from_date, to_date, ...employeeIds];
-    const [attendanceRecords] = await connection.execute(attendanceSql, attendanceParams);
+    const [attendanceRecords] = await connection.execute(recordsSql, attendanceParams);
 
     // Create attendance map for quick lookup
     const attendanceMap = {};

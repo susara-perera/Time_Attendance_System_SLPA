@@ -354,8 +354,11 @@ const ReportGeneration = () => {
         };
         if (reportScope === 'individual') {
           payload.employee_id = employeeId;
+        } else if (reportScope === 'group') {
+          // For group reports, send division and section filters
+          payload.division_id = divisionId !== 'all' ? divisionId : '';
+          payload.section_id = sectionId !== 'all' ? sectionId : '';
         }
-        // For attendance, do NOT send division or section info to MySQL. Only use employee ID and date range.
       } else if (reportType === 'meal') {
         // Use MongoDB API for meal reports
         apiUrl = 'http://localhost:5000/api/meal-reports';
@@ -1126,8 +1129,8 @@ const ReportGeneration = () => {
             </div>
           )}
 
-          {/* If employeeId provided but no match found, show warning */}
-          {employeeId && !employeeInfo && (
+          {/* If employeeId provided but no match found AND no report data, show warning */}
+          {employeeId && !employeeInfo && reportData && reportData.data && reportData.data.length === 0 && (
             <div style={{ gridColumn: '1 / -1', margin: '8px 0 18px', display: 'flex', justifyContent: 'center' }}>
               <div style={{ background: '#fff6f6', border: '1px solid #fde2e2', padding: '10px 14px', borderRadius: 8, color: '#c53030', minWidth: 360, textAlign: 'center' }}>
                 No employee found for the entered ID in the selected division/section.
