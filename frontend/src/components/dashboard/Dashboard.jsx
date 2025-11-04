@@ -207,13 +207,13 @@ const Dashboard = () => {
       color: 'secondary',
       roles: ['super_admin']
     },
-    {
-      id: 'api',
-      label: 'API Data',
-      icon: 'bi-cloud-download',
-      color: 'info',
-      roles: ['super_admin', 'admin']
-    },
+    // {
+    //   id: 'api',
+    //   label: 'API Data',
+    //   icon: 'bi-cloud-download',
+    //   color: 'info',
+    //   roles: ['super_admin', 'admin']
+    // },
     {
       id: 'employees',
       label: 'Employee Management',
