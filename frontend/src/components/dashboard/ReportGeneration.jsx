@@ -1030,51 +1030,55 @@ const ReportGeneration = () => {
             </div>
 
             {/* Division and Section - only visible for group scope */}
-            {/* Division - always visible, disabled for individual scope */}
-            <div className="form-group" style={{gridColumn: 'span 1'}}>
-              <label htmlFor="divisionId">
-                <i className="bi bi-building"></i>
-                Division
-              </label>
-              <select
-                id="divisionId"
-                value={divisionId}
-                onChange={(e) => setDivisionId(e.target.value)}
-                className="form-control"
-                disabled={reportScope === 'individual'}
-                style={{ cursor: reportScope === 'individual' ? 'not-allowed' : 'pointer' }}
-              >
-                <option value="all">All Divisions</option>
-                {(Array.isArray(divisions) ? divisions : []).map(division => (
-                  <option key={division._id || division.id} value={division._id || division.id}>
-                    {division.name || division.division_name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {reportScope === 'group' && (
+              <>
+                {/* Division - always visible, disabled for individual scope */}
+                <div className="form-group" style={{gridColumn: 'span 1'}}>
+                  <label htmlFor="divisionId">
+                    <i className="bi bi-building"></i>
+                    Division
+                  </label>
+                  <select
+                    id="divisionId"
+                    value={divisionId}
+                    onChange={(e) => setDivisionId(e.target.value)}
+                    className="form-control"
+                    disabled={reportScope === 'individual'}
+                    style={{ cursor: reportScope === 'individual' ? 'not-allowed' : 'pointer' }}
+                  >
+                    <option value="all">All Divisions</option>
+                    {(Array.isArray(divisions) ? divisions : []).map(division => (
+                      <option key={division._id || division.id} value={division._id || division.id}>
+                        {division.name || division.division_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-            {/* Section - always visible, disabled for individual scope */}
-            <div className="form-group" style={{gridColumn: 'span 1'}}>
-              <label htmlFor="sectionId">
-                <i className="bi bi-diagram-3"></i>
-                Section
-              </label>
-              <select
-                id="sectionId"
-                value={sectionId}
-                onChange={(e) => setSectionId(e.target.value)}
-                className="form-control"
-                disabled={reportScope === 'individual'}
-                style={{ cursor: reportScope === 'individual' ? 'not-allowed' : 'pointer' }}
-              >
-                <option value="all">All Sections</option>
-                {(Array.isArray(sections) ? sections : []).map(section => (
-                  <option key={section._id || section.id} value={section._id || section.id}>
-                    {section.name || section.section_name}
-                  </option>
-                ))}
-              </select>
-            </div>
+                {/* Section - always visible, disabled for individual scope */}
+                <div className="form-group" style={{gridColumn: 'span 1'}}>
+                  <label htmlFor="sectionId">
+                    <i className="bi bi-diagram-3"></i>
+                    Section
+                  </label>
+                  <select
+                    id="sectionId"
+                    value={sectionId}
+                    onChange={(e) => setSectionId(e.target.value)}
+                    className="form-control"
+                    disabled={reportScope === 'individual'}
+                    style={{ cursor: reportScope === 'individual' ? 'not-allowed' : 'pointer' }}
+                  >
+                    <option value="all">All Sections</option>
+                    {(Array.isArray(sections) ? sections : []).map(section => (
+                      <option key={section._id || section.id} value={section._id || section.id}>
+                        {section.name || section.section_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
 
             {/* Date Range */}
             <div className="form-group">
