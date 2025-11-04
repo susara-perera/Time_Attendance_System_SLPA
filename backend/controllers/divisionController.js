@@ -2,7 +2,14 @@ const Division = require('../models/Division');
 const Section = require('../models/Section');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
-const { readData } = require('../services/hrisApiService');
+const { 
+  readData, 
+  getCachedOrFetch, 
+  getCachedDivisions,
+  getCachedSections,
+  isCacheInitialized,
+  initializeCache 
+} = require('../services/hrisApiService');
 
 // @desc    Get all divisions
 // @route   GET /api/divisions
@@ -786,13 +793,23 @@ const getDivisionMySQLSections = async (req, res) => {
 // @access  Public (for now)
 const getHrisDivisions = async (req, res) => {
   try {
-    console.log('Attempting to fetch divisions from HRIS API...');
+    console.log('📥 Fetching divisions from HRIS (using cache)...');
     
-    // Fetch all company hierarchy data first (no filter to avoid HRIS API filter issues)
-    const allHierarchy = await readData('company_hierarchy', {});
+    // Ensure cache is initialized
+    if (!isCacheInitialized()) {
+      console.log('🔄 Cache not initialized, initializing now...');
+      await initializeCache();
+    }
     
-    // Filter for Level 3 (divisions) locally to avoid HRIS API filter issues
-    const divisions = allHierarchy.filter(item => item.DEF_LEVEL === 3 || item.DEF_LEVEL === '3');
+    // Try to get divisions from cache first
+    let divisions = getCachedDivisions();
+    
+    // If not in cache, fetch and cache
+    if (!divisions) {
+      console.log('⚠️ Divisions not in cache, fetching from API...');
+      const allHierarchy = await getCachedOrFetch('company_hierarchy', {});
+      divisions = allHierarchy.filter(item => item.DEF_LEVEL === 3 || item.DEF_LEVEL === '3');
+    }
     
     // Transform HRIS data to match frontend expectations
     const transformedDivisions = divisions.map((division, index) => ({
@@ -896,8 +913,13 @@ const getCombinedDivisions = async (req, res) => {
     let localDivisions = [];
 
     try {
-      // Fetch HRIS divisions
-      const hrisData = await readData('company_hierarchy', { DEF_LEVEL: 3 });
+      // Ensure cache is initialized
+      if (!isCacheInitialized()) {
+        await initializeCache();
+      }
+      
+      // Fetch HRIS divisions from cache
+      const hrisData = getCachedDivisions() || [];
       hrisDivisions = hrisData.map((division, index) => ({
         _id: `hris_${division.HIE_CODE || index}`,
         code: division.HIE_CODE || 'N/A',

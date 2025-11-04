@@ -124,6 +124,9 @@ const login = async (req, res) => {
       });
     }
 
+    // Cache initialization is now handled by middleware (ensureCacheInitialized)
+    // No need to check here - if we reach this point, cache is ready
+
     // Update last login
     user.lastLogin = new Date();
     await user.save();

@@ -3,7 +3,13 @@ const User = require('../models/User');
 const Division = require('../models/Division');
 const AuditLog = require('../models/AuditLog');
 const { validationResult } = require('express-validator');
-const { readData } = require('../services/hrisApiService');
+const { 
+  readData, 
+  getCachedOrFetch, 
+  getCachedSections,
+  isCacheInitialized,
+  initializeCache 
+} = require('../services/hrisApiService');
 
 // @desc    Get all sections
 // @route   GET /api/sections
@@ -580,15 +586,26 @@ const removeEmployeeFromSection = async (req, res) => {
 // @access  Public (for now)
 const getHrisSections = async (req, res) => {
   try {
-    console.log('Attempting to fetch sections from HRIS API...');
+    console.log('📥 Fetching sections from HRIS (using cache)...');
     
-    // Fetch all company hierarchy data first (no filter to avoid HRIS API filter issues)
-    const allHierarchy = await readData('company_hierarchy', {});
+    // Ensure cache is initialized
+    if (!isCacheInitialized()) {
+      console.log('🔄 Cache not initialized, initializing now...');
+      await initializeCache();
+    }
     
-    // Filter for Level 4 (sections) locally to avoid HRIS API filter issues
-    const sections = allHierarchy.filter(item => item.DEF_LEVEL === 4 || item.DEF_LEVEL === '4');
+    // Try to get sections from cache first
+    let sections = getCachedSections();
     
-    // Create a mapping of division codes to division names
+    // If not in cache, fetch and cache
+    if (!sections) {
+      console.log('⚠️ Sections not in cache, fetching from API...');
+      const allHierarchy = await getCachedOrFetch('company_hierarchy', {});
+      sections = allHierarchy.filter(item => item.DEF_LEVEL === 4 || item.DEF_LEVEL === '4');
+    }
+    
+    // Get divisions for mapping
+    const allHierarchy = await getCachedOrFetch('company_hierarchy', {});
     const divisions = allHierarchy.filter(item => item.DEF_LEVEL === 3 || item.DEF_LEVEL === '3');
     const divisionMap = {};
     divisions.forEach(div => {

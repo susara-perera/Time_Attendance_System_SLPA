@@ -52,6 +52,24 @@ testMySQLConnection().then(success => {
   }
 });
 
+// Initialize HRIS API cache at startup
+const { initializeCache } = require('./services/hrisApiService');
+console.log('⏳ Initializing HRIS data cache at startup...');
+console.log('⚠️  Login will be blocked until cache initialization completes');
+
+initializeCache().then(success => {
+  if (success) {
+    console.log('✅ HRIS API cache initialized successfully');
+    console.log('🚀 System ready - Users can now login');
+  } else {
+    console.log('❌ HRIS API cache initialization failed');
+    console.log('⚠️  Users will need to wait for cache initialization on first login attempt');
+  }
+}).catch(err => {
+  console.error('❌ HRIS API cache initialization error:', err.message);
+  console.log('⚠️  System will attempt to initialize cache on first login attempt');
+});
+
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: {
@@ -134,12 +152,18 @@ if (process.env.NODE_ENV === 'development') {
 
 // Health check endpoint
 app.get('/health', (req, res) => {
+  const { isCacheInitialized } = require('./services/hrisApiService');
+  
   res.status(200).json({
     status: 'OK',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: process.env.NODE_ENV,
-    version: process.env.npm_package_version || '1.0.0'
+    version: process.env.npm_package_version || '1.0.0',
+    cache: {
+      initialized: isCacheInitialized(),
+      status: isCacheInitialized() ? 'READY' : 'INITIALIZING'
+    }
   });
 });
 
@@ -158,6 +182,7 @@ app.use('/api/roles', require('./routes/role'));
 app.use('/api/permissions', require('./routes/permission'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/subsections', require('./routes/subSection'));
+app.use('/api/hris-cache', require('./routes/hrisCache'));
 
 // Serve static files in production
 if (process.env.NODE_ENV === 'production') {
