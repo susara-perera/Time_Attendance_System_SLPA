@@ -183,6 +183,7 @@ app.use('/api/permissions', require('./routes/permission'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/subsections', require('./routes/subSection'));
 app.use('/api/hris-cache', require('./routes/hrisCache'));
+app.use('/api/hris', require('./routes/hris'));
 
 // Serve static files in production
 if (process.env.NODE_ENV === 'production') {

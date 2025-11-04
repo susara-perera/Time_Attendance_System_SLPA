@@ -290,13 +290,38 @@ const auditTrail = (action, entityType) => {
       
       // Only log if user is authenticated
       if (req.user) {
+        // Extract entity ID from various sources
+        let entityId = req.params.id || req.params.userId || req.body._id;
+        
+        // For creation operations, try to get ID from response
+        if (!entityId && responseData) {
+          try {
+            const parsedData = typeof responseData === 'string' ? JSON.parse(responseData) : responseData;
+            entityId = parsedData?.data?._id || parsedData?._id || parsedData?.data?.id || parsedData?.id;
+          } catch (e) {
+            // If parsing fails, entityId remains undefined
+          }
+        }
+        
+        // Extract entity name
+        let entityName = req.body.name || req.body.firstName || req.body.email;
+        if (!entityName && responseData) {
+          try {
+            const parsedData = typeof responseData === 'string' ? JSON.parse(responseData) : responseData;
+            entityName = parsedData?.data?.name || parsedData?.data?.subSection?.hie_name || 
+                        parsedData?.data?.hie_name || parsedData?.name;
+          } catch (e) {
+            // If parsing fails, entityName remains undefined
+          }
+        }
+        
         const auditData = {
           user: req.user._id,
           action: action,
           entity: {
             type: entityType,
-            id: req.params.id || req.params.userId || req.body._id,
-            name: req.body.name || req.body.firstName || req.body.email
+            id: entityId,
+            name: entityName
           },
           category: getCategoryFromAction(action),
           severity: getSeverityFromAction(action),

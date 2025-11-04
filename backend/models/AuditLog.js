@@ -22,6 +22,8 @@ const auditLogSchema = new mongoose.Schema({
   'division_created', 'division_updated', 'division_deleted', 'section_created', 'section_updated', 'section_deleted',
   // SubSection actions
   'subsection_created', 'subsection_updated', 'subsection_deleted', 'subsections_viewed', 'subsection_viewed',
+  // Employee Transfer actions
+  'employee_transferred_to_subsection', 'employee_transfer_recalled',
       
       // Meal actions
       'meal_ordered', 'meal_updated', 'meal_cancelled', 'meal_served', 'meal_paid',
@@ -43,13 +45,11 @@ const auditLogSchema = new mongoose.Schema({
     type: {
       type: String,
       required: [true, 'Entity type is required'],
-  enum: ['User', 'Attendance', 'Division', 'Section', 'SubSection', 'Meal', 'Settings', 'Report', 'System']
+  enum: ['User', 'Attendance', 'Division', 'Section', 'SubSection', 'TransferToSubsection', 'Meal', 'Settings', 'Report', 'System']
     },
     id: {
       type: mongoose.Schema.Types.ObjectId,
-      required: function() {
-        return this.entity.type !== 'System';
-      }
+      required: false // Made optional to handle cases where ID might not be available immediately
     },
     name: {
       type: String,

@@ -90,4 +90,31 @@ router.post('/clear', auth, authorize('super_admin'), async (req, res) => {
   }
 });
 
+// @route   GET /api/hris-cache/employees
+// @desc    Get all cached employees from HRIS
+// @access  Private
+router.get('/employees', auth, async (req, res) => {
+  try {
+    const employees = getCachedEmployees();
+
+    if (!employees) {
+      return res.status(503).json({
+        success: false,
+        message: 'HRIS cache not initialized yet'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: employees
+    });
+  } catch (error) {
+    console.error('Get cached employees error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting cached employees'
+    });
+  }
+});
+
 module.exports = router;

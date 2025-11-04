@@ -43,6 +43,21 @@ const SectionManagement = () => {
   // Delete confirmation modal state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null); // { sectionId, subSectionId }
+  // Employee list modal state
+  const [showEmployeeModal, setShowEmployeeModal] = useState(false);
+  const [employeeList, setEmployeeList] = useState([]);
+  const [employeeLoading, setEmployeeLoading] = useState(false);
+  const [selectedSubSection, setSelectedSubSection] = useState(null);
+  // Transfer confirmation modal state
+  const [showTransferConfirm, setShowTransferConfirm] = useState(false);
+  const [transferEmployee, setTransferEmployee] = useState(null);
+  const [transferSubmitting, setTransferSubmitting] = useState(false);
+  // Track transferred employees
+  const [transferredEmployees, setTransferredEmployees] = useState([]);
+  // Recall confirmation modal state
+  const [showRecallConfirm, setShowRecallConfirm] = useState(false);
+  const [recallEmployee, setRecallEmployee] = useState(null);
+  const [recallSubmitting, setRecallSubmitting] = useState(false);
   // Toast popup state
   const [toast, setToast] = useState({ show: false, type: 'success', title: '', message: '' });
   const toastTimerRef = useRef(null);
@@ -164,8 +179,8 @@ const SectionManagement = () => {
   const handleEditSubSection = (sectionId, item) => {
     setEditingSubSection({ sectionId, subSection: item });
     setEditSubForm({
-      name: item?.subSection?.name || '',
-      code: item?.subSection?.code || ''
+      name: item?.subSection?.hie_name || item?.subSection?.name || '',
+      code: item?.subSection?.hie_code || item?.subSection?.code || ''
     });
     setEditSubErrors({});
     setShowEditSubModal(true);
@@ -196,7 +211,13 @@ const SectionManagement = () => {
         method: 'PUT',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ name: editSubForm.name.trim(), code: editSubForm.code.trim() })
+        body: JSON.stringify({ 
+          hie_name: editSubForm.name.trim(), 
+          hie_code: editSubForm.code.trim(),
+          // Keep backward compatibility
+          name: editSubForm.name.trim(), 
+          code: editSubForm.code.trim() 
+        })
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       
@@ -265,6 +286,331 @@ const SectionManagement = () => {
         showToast({ type: 'error', title: 'Failed', message: 'Could not delete sub-section.' });
       }, 150);
     }
+  };
+
+  // Fetch transferred employees from MongoDB
+  const fetchTransferredEmployees = async (subSectionId, token) => {
+    try {
+      console.log('🔍 Fetching transferred employees for subsection:', subSectionId);
+      
+      const response = await fetch(`${API_BASE_URL}/subsections/transferred/${subSectionId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include'
+      });
+
+      console.log('📡 Response status:', response.status);
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('📦 Response data:', data);
+        
+        const transfers = data?.data || [];
+        console.log('📊 Number of transfers found:', transfers.length);
+        
+        if (transfers.length > 0) {
+          console.log('📋 Transfer records:', transfers);
+        }
+        
+        // Update the transferred employees list
+        const transferredIds = transfers.map(t => ({
+          employeeId: t.employeeId,
+          subSectionId: t.subSectionId
+        }));
+        
+        console.log('🎯 Mapped transferred IDs:', transferredIds);
+        
+        setTransferredEmployees(prev => {
+          // Remove old entries for this subsection first
+          const filtered = prev.filter(t => t.subSectionId !== subSectionId);
+          // Add new entries
+          const updated = [...filtered, ...transferredIds];
+          console.log('✅ Updated transferred employees list:', updated);
+          return updated;
+        });
+      } else {
+        console.error('❌ Failed to fetch transferred employees. Status:', response.status);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching transferred employees:', error);
+      // Don't show error toast, just log it
+    }
+  };
+
+  // Handle opening employee list modal
+  const handleAddEmployeeToSubSection = async (subSection) => {
+    setSelectedSubSection(subSection);
+    setShowEmployeeModal(true);
+    setEmployeeLoading(true);
+    setEmployeeList([]);
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token');
+      }
+
+      // Fetch already transferred employees for this subsection
+      await fetchTransferredEmployees(subSection._id, token);
+
+      // Get division and section info from the subsection
+      const divisionCode = subSection?.parentDivision?.division_code || '';
+      const divisionName = subSection?.parentDivision?.division_name || '';
+      const sectionCode = subSection?.parentSection?.hie_code || '';
+      const sectionName = subSection?.parentSection?.hie_name || '';
+
+      console.log('🔍 Fetching employees from cache for:', { divisionCode, divisionName, sectionCode, sectionName });
+
+      // Fetch employees from cache (much faster than direct HRIS API call)
+      const response = await fetch(`${API_BASE_URL}/hris-cache/employees`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      const allEmployees = data?.data || data || [];
+      
+      console.log('📊 Fetched from cache - Total employees:', allEmployees.length);
+
+      // Filter employees by matching division and section
+      const filteredEmployees = allEmployees.filter(emp => {
+        // Get employee's division info from various possible fields
+        const empDivCode = emp?.HIE_CODE_3 || emp?.hie_code_3 || emp?.DIVISION_CODE || emp?.division_code || 
+                          emp?.currentwork?.HIE_CODE_3 || emp?.currentwork?.DIVISION_CODE || '';
+        const empDivName = emp?.HIE_NAME_3 || emp?.hie_name_3 || emp?.DIVISION_NAME || emp?.division_name || 
+                          emp?.currentwork?.HIE_NAME_3 || emp?.currentwork?.DIVISION_NAME || '';
+        
+        // Get employee's section info from various possible fields
+        const empSecCode = emp?.HIE_CODE_4 || emp?.hie_code_4 || emp?.SECTION_CODE || emp?.section_code || 
+                          emp?.currentwork?.HIE_CODE_4 || emp?.currentwork?.SECTION_CODE || '';
+        const empSecName = emp?.HIE_NAME_4 || emp?.hie_name_4 || emp?.SECTION_NAME || emp?.section_name || 
+                          emp?.currentwork?.HIE_NAME_4 || emp?.currentwork?.SECTION_NAME || '';
+
+        console.log('Employee check:', {
+          empNumber: emp?.EMP_NUMBER || emp?.empNumber,
+          empDivCode,
+          empDivName,
+          empSecCode,
+          empSecName,
+          targetDivCode: divisionCode,
+          targetDivName: divisionName,
+          targetSecCode: sectionCode,
+          targetSecName: sectionName
+        });
+
+        // Match by code OR name (more flexible matching)
+        const divisionMatch = (empDivCode && empDivCode === divisionCode) || 
+                             (empDivName && empDivName === divisionName);
+        const sectionMatch = (empSecCode && empSecCode === sectionCode) || 
+                            (empSecName && empSecName === sectionName);
+
+        return divisionMatch && sectionMatch;
+      });
+
+      console.log('✅ Filtered employees:', filteredEmployees.length);
+
+      setEmployeeList(filteredEmployees);
+      setEmployeeLoading(false);
+
+    } catch (error) {
+      console.error('Error fetching employees:', error);
+      setEmployeeLoading(false);
+      showToast({ 
+        type: 'error', 
+        title: 'Error', 
+        message: 'Failed to fetch employees from HRIS API' 
+      });
+    }
+  };
+
+  const closeEmployeeModal = () => {
+    setShowEmployeeModal(false);
+    setSelectedSubSection(null);
+    setEmployeeList([]);
+  };
+
+  // Handle transfer button click
+  const handleTransferEmployee = (employee) => {
+    setTransferEmployee(employee);
+    setShowTransferConfirm(true);
+  };
+
+  // Confirm transfer and save to MongoDB
+  const confirmTransferEmployee = async () => {
+    if (!transferEmployee || !selectedSubSection) return;
+
+    setTransferSubmitting(true);
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setTransferSubmitting(false);
+      setShowTransferConfirm(false);
+      return showToast({ type: 'error', title: 'Auth', message: 'Token missing. Please login.' });
+    }
+
+    try {
+      // Prepare transfer data
+      const transferData = {
+        employeeId: transferEmployee?.EMP_NUMBER || transferEmployee?.empNumber || transferEmployee?.EMP_ID || '',
+        employeeName: transferEmployee?.FULLNAME || transferEmployee?.fullName || transferEmployee?.CALLING_NAME || '',
+        division_code: selectedSubSection?.parentDivision?.division_code || '',
+        division_name: selectedSubSection?.parentDivision?.division_name || '',
+        hie_code: selectedSubSection?.parentSection?.hie_code || '',
+        hie_name: selectedSubSection?.parentSection?.hie_name || '',
+        subSectionId: selectedSubSection?._id || '',
+        subSectionCode: selectedSubSection?.subSection?.hie_code || '',
+        subSectionName: selectedSubSection?.subSection?.hie_name || '',
+        transferredAt: new Date().toISOString(),
+        employeeData: transferEmployee // Store full employee record
+      };
+
+      console.log('📤 Transferring employee:', transferData);
+
+      // Save to MongoDB
+      const response = await fetch(`${API_BASE_URL}/subsections/transfer`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify(transferData)
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Transfer successful - API response:', result);
+      
+      // Add employee to transferred list
+      const newTransfer = {
+        employeeId: transferData.employeeId,
+        subSectionId: transferData.subSectionId
+      };
+      console.log('➕ Adding to transferred list:', newTransfer);
+      
+      setTransferredEmployees(prev => {
+        const updated = [...prev, newTransfer];
+        console.log('📋 Updated transferred employees:', updated);
+        return updated;
+      });
+      
+      setShowTransferConfirm(false);
+      setTransferEmployee(null);
+      setTransferSubmitting(false);
+
+      showToast({ 
+        type: 'success', 
+        title: 'Success!', 
+        message: `Employee ${transferData.employeeName} has been successfully transferred to ${transferData.subSectionName}!` 
+      });
+
+      console.log('✅ Transfer complete - Record saved to DB with ID:', result?.data?._id);
+
+    } catch (error) {
+      console.error('❌ Transfer failed:', error);
+      setTransferSubmitting(false);
+      setShowTransferConfirm(false);
+      showToast({ 
+        type: 'error', 
+        title: 'Transfer Failed', 
+        message: 'Failed to transfer employee. Please try again.' 
+      });
+    }
+  };
+
+  const cancelTransfer = () => {
+    setShowTransferConfirm(false);
+    setTransferEmployee(null);
+  };
+
+  // Handle recall button click - show confirmation modal
+  const handleRecallTransfer = (emp) => {
+    setRecallEmployee(emp);
+    setShowRecallConfirm(true);
+  };
+
+  // Confirm recall and delete from MongoDB
+  const confirmRecallTransfer = async () => {
+    if (!recallEmployee || !selectedSubSection) return;
+
+    setRecallSubmitting(true);
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setRecallSubmitting(false);
+      setShowRecallConfirm(false);
+      return showToast({ type: 'error', title: 'Auth', message: 'Token missing. Please login.' });
+    }
+
+    const empId = recallEmployee?.EMP_NUMBER || recallEmployee?.empNumber || recallEmployee?.EMP_ID || recallEmployee?.emp_id;
+    const empName = recallEmployee?.FULLNAME || recallEmployee?.fullName || recallEmployee?.CALLING_NAME || recallEmployee?.calling_name || recallEmployee?.name || 'Employee';
+
+    try {
+      console.log('🔄 Recalling transfer for:', { empId, subSectionId: selectedSubSection._id });
+
+      const response = await fetch(`${API_BASE_URL}/subsections/recall-transfer`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          employeeId: empId,
+          subSectionId: selectedSubSection._id
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      // Remove from transferred list
+      setTransferredEmployees(prev => 
+        prev.filter(t => !(t.employeeId === empId && t.subSectionId === selectedSubSection._id))
+      );
+
+      setShowRecallConfirm(false);
+      setRecallEmployee(null);
+      setRecallSubmitting(false);
+
+      showToast({ 
+        type: 'success', 
+        title: 'Recalled!', 
+        message: `Successfully recalled the transfer for ${empName}!` 
+      });
+
+      console.log('✅ Recall successful:', result);
+
+    } catch (error) {
+      console.error('❌ Recall failed:', error);
+      setRecallSubmitting(false);
+      setShowRecallConfirm(false);
+      showToast({ 
+        type: 'error', 
+        title: 'Recall Failed', 
+        message: 'Failed to recall the transfer. Please try again.' 
+      });
+    }
+  };
+
+  const cancelRecall = () => {
+    setShowRecallConfirm(false);
+    setRecallEmployee(null);
   };
 
   const cancelDeleteSubSection = () => {
@@ -655,23 +1001,25 @@ const SectionManagement = () => {
       const payload = {
         parentDivision: {
           id: division._id || divId || '',
-          code: division.code || parent.divisionCode || '',
-          name: division.name || (typeof parent.division === 'object' ? parent.division?.name : ''),
+          division_code: rawDivision?.DIVISION_CODE || rawDivision?.division_code || division.code || parent.divisionCode || '',
+          division_name: rawDivision?.DIVISION_NAME || rawDivision?.division_name || division.name || (typeof parent.division === 'object' ? parent.division?.name : ''),
         },
         parentSection: {
           id: parent._id,
-          code: parent.code || '',
-          name: parent.name || '',
+          hie_code: rawSection?.hie_code || rawSection?.SECTION_CODE || rawSection?.code || parent.code || '',
+          hie_name: rawSection?.hie_name || rawSection?.SECTION_NAME || rawSection?.name || parent.name || '',
         },
         subSection: {
-          name: subForm.name.trim(),
-          code: subForm.code.trim(),
+          hie_name: subForm.name.trim(),
+          hie_code: subForm.code.trim(),
         },
         hrisSnapshot: {
           division: rawDivision || null,
           section: rawSection || null,
         },
       };
+
+      console.log('🔍 Subsection Payload:', JSON.stringify(payload, null, 2));
 
       const resp = await fetch(`${API_BASE_URL}/subsections`, {
         method: 'POST',
@@ -2336,7 +2684,7 @@ const SectionManagement = () => {
                             fontWeight: '600',
                             color: '#1f2937'
                           }}>
-                            {ss?.subSection?.name || '-'}
+                            {ss?.subSection?.hie_name || ss?.subSection?.name || '-'}
                           </td>
                           <td style={{ padding: '12px 20px' }}>
                             <span style={{ 
@@ -2349,7 +2697,7 @@ const SectionManagement = () => {
                               fontWeight: '600',
                               display: 'inline-block'
                             }}>
-                              {ss?.subSection?.code || '-'}
+                              {ss?.subSection?.hie_code || ss?.subSection?.code || '-'}
                             </span>
                           </td>
                           <td style={{ 
@@ -2401,6 +2749,25 @@ const SectionManagement = () => {
                                 title="Delete Sub-Section"
                               >
                                 <i className="bi bi-trash"></i>
+                              </button>
+                              <button
+                                className="btn-professional"
+                                onClick={() => handleAddEmployeeToSubSection(ss)}
+                                style={{ 
+                                  padding: '6px 8px', 
+                                  fontSize: 13,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  minWidth: '32px',
+                                  minHeight: '32px',
+                                  backgroundColor: '#10b981',
+                                  color: 'white',
+                                  border: 'none'
+                                }}
+                                title="Add Employee"
+                              >
+                                <i className="bi bi-person-plus"></i>
                               </button>
                             </div>
                           </td>
@@ -2552,6 +2919,668 @@ const SectionManagement = () => {
                 <i className="bi bi-trash" style={{ marginRight: '8px' }}></i>
                 Delete
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Employee List Modal */}
+      {showEmployeeModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000,
+          padding: '20px'
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: '16px',
+            maxWidth: '1000px',
+            width: '100%',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+            overflow: 'hidden'
+          }}>
+            {/* Header */}
+            <div style={{
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              padding: '24px 32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <i className="bi bi-people-fill" style={{ fontSize: '24px', color: 'white' }}></i>
+                <h2 style={{ margin: 0, color: 'white', fontSize: '20px', fontWeight: '600' }}>
+                  Employee List - {selectedSubSection?.subSection?.hie_name || 'Sub-Section'}
+                </h2>
+              </div>
+              <button
+                onClick={closeEmployeeModal}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  width: '36px',
+                  height: '36px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  color: 'white',
+                  fontSize: '20px'
+                }}
+                onMouseOver={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.3)'}
+                onMouseOut={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.2)'}
+              >
+                <i className="bi bi-x"></i>
+              </button>
+            </div>
+
+            {/* Sub-section Info */}
+            <div style={{
+              padding: '20px 32px',
+              borderBottom: '1px solid #e5e7eb',
+              background: '#f9fafb'
+            }}>
+              <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Division</div>
+                  <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '600' }}>
+                    {selectedSubSection?.parentDivision?.division_name || 'N/A'}
+                    <span style={{ marginLeft: '8px', color: '#667eea', fontSize: '12px' }}>
+                      ({selectedSubSection?.parentDivision?.division_code || 'N/A'})
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Section</div>
+                  <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '600' }}>
+                    {selectedSubSection?.parentSection?.hie_name || 'N/A'}
+                    <span style={{ marginLeft: '8px', color: '#667eea', fontSize: '12px' }}>
+                      ({selectedSubSection?.parentSection?.hie_code || 'N/A'})
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div style={{
+              padding: '24px 32px',
+              flex: 1,
+              overflow: 'auto'
+            }}>
+              {employeeLoading ? (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '60px 20px',
+                  gap: '16px'
+                }}>
+                  <div className="spinner-border" role="status" style={{ color: '#667eea' }}>
+                    <span className="visually-hidden">Loading...</span>
+                  </div>
+                  <p style={{ color: '#6b7280', margin: 0 }}>Loading employees from HRIS...</p>
+                </div>
+              ) : employeeList.length === 0 ? (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '60px 20px',
+                  gap: '12px'
+                }}>
+                  <i className="bi bi-person-x" style={{ fontSize: '48px', color: '#d1d5db' }}></i>
+                  <p style={{ color: '#6b7280', margin: 0, fontSize: '16px' }}>
+                    No employees found for this division and section
+                  </p>
+                </div>
+              ) : (
+                <div style={{
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '12px',
+                  overflow: 'hidden'
+                }}>
+                  <table style={{
+                    width: '100%',
+                    borderCollapse: 'collapse'
+                  }}>
+                    <thead>
+                      <tr style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+                        <th style={{ padding: '14px 16px', textAlign: 'left', color: 'white', fontWeight: '600', fontSize: '13px' }}>
+                          EMPLOYEE ID
+                        </th>
+                        <th style={{ padding: '14px 16px', textAlign: 'left', color: 'white', fontWeight: '600', fontSize: '13px' }}>
+                          NAME
+                        </th>
+                        <th style={{ padding: '14px 16px', textAlign: 'center', color: 'white', fontWeight: '600', fontSize: '13px' }}>
+                          ACTION
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {employeeList.map((emp, index) => {
+                        const empId = emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || emp?.emp_id;
+                        const isTransferred = transferredEmployees.some(
+                          te => te.employeeId === empId && te.subSectionId === selectedSubSection?._id
+                        );
+                        
+                        return (
+                          <tr 
+                            key={empId || index}
+                            style={{
+                              borderBottom: index < employeeList.length - 1 ? '1px solid #e5e7eb' : 'none',
+                              transition: 'all 0.2s ease'
+                            }}
+                            onMouseOver={(e) => e.currentTarget.style.background = '#f9fafb'}
+                            onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                          >
+                            <td style={{ padding: '12px 16px', fontSize: '14px', color: '#1f2937', fontWeight: '600' }}>
+                              {empId || 'N/A'}
+                            </td>
+                            <td style={{ padding: '12px 16px', fontSize: '14px', color: '#1f2937' }}>
+                              {emp?.FULLNAME || emp?.fullName || emp?.CALLING_NAME || emp?.calling_name || emp?.name || 'N/A'}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                              {isTransferred ? (
+                                <button
+                                  onClick={() => handleRecallTransfer(emp)}
+                                  style={{
+                                    padding: '8px 16px',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                                    color: 'white',
+                                    fontSize: '13px',
+                                    fontWeight: '600',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s ease',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                  }}
+                                  onMouseOver={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(-1px)';
+                                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(239, 68, 68, 0.4)';
+                                  }}
+                                  onMouseOut={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(0)';
+                                    e.currentTarget.style.boxShadow = 'none';
+                                  }}
+                                  title="Recall employee transfer from this sub-section"
+                                >
+                                  <i className="bi bi-arrow-counterclockwise"></i>
+                                  Recall
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleTransferEmployee(emp)}
+                                  style={{
+                                    padding: '8px 16px',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                    color: 'white',
+                                    fontSize: '13px',
+                                    fontWeight: '600',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s ease',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                  }}
+                                  onMouseOver={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(-1px)';
+                                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
+                                  }}
+                                  onMouseOut={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(0)';
+                                    e.currentTarget.style.boxShadow = 'none';
+                                  }}
+                                  title="Transfer employee to this sub-section"
+                                >
+                                  <i className="bi bi-arrow-left-right"></i>
+                                  Transfer
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              padding: '20px 32px',
+              borderTop: '1px solid #e5e7eb',
+              background: '#f9fafb',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div style={{ fontSize: '14px', color: '#6b7280' }}>
+                <strong style={{ color: '#1f2937' }}>{employeeList.length}</strong> employee{employeeList.length !== 1 ? 's' : ''} found
+              </div>
+              <button
+                onClick={closeEmployeeModal}
+                style={{
+                  padding: '10px 24px',
+                  border: '2px solid #d1d5db',
+                  borderRadius: '8px',
+                  backgroundColor: 'white',
+                  color: '#6b7280',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseOver={(e) => {
+                  e.target.style.borderColor = '#9ca3af';
+                  e.target.style.color = '#374151';
+                }}
+                onMouseOut={(e) => {
+                  e.target.style.borderColor = '#d1d5db';
+                  e.target.style.color = '#6b7280';
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Transfer Confirmation Modal */}
+      {showTransferConfirm && transferEmployee && selectedSubSection && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10001,
+          padding: '20px'
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: '16px',
+            maxWidth: '550px',
+            width: '100%',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+            overflow: 'hidden'
+          }}>
+            {/* Header */}
+            <div style={{
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              padding: '24px 32px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px'
+            }}>
+              <i className="bi bi-arrow-left-right-circle" style={{ fontSize: '28px', color: 'white' }}></i>
+              <h3 style={{ margin: 0, color: 'white', fontSize: '20px', fontWeight: '600' }}>
+                Confirm Transfer
+              </h3>
+            </div>
+
+            {/* Content */}
+            <div style={{ padding: '32px' }}>
+              <div style={{
+                background: '#f9fafb',
+                borderRadius: '12px',
+                padding: '20px',
+                marginBottom: '24px',
+                border: '2px solid #e5e7eb'
+              }}>
+                <div style={{ 
+                  fontSize: '16px', 
+                  color: '#374151', 
+                  marginBottom: '20px',
+                  lineHeight: '1.6'
+                }}>
+                  Are you sure you want to transfer this employee?
+                </div>
+
+                {/* Employee Info */}
+                <div style={{
+                  background: 'white',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  marginBottom: '16px',
+                  border: '1px solid #e5e7eb'
+                }}>
+                  <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Employee</div>
+                  <div style={{ fontSize: '16px', color: '#1f2937', fontWeight: '600' }}>
+                    {transferEmployee?.FULLNAME || transferEmployee?.fullName || transferEmployee?.CALLING_NAME || 'N/A'}
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#667eea', marginTop: '4px' }}>
+                    ID: {transferEmployee?.EMP_NUMBER || transferEmployee?.empNumber || 'N/A'}
+                  </div>
+                </div>
+
+                {/* Destination Info */}
+                <div style={{
+                  background: 'white',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  border: '1px solid #e5e7eb'
+                }}>
+                  <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '8px' }}>
+                    <i className="bi bi-arrow-down"></i> Transferring to:
+                  </div>
+                  <div style={{ marginLeft: '16px' }}>
+                    <div style={{ fontSize: '14px', color: '#1f2937', marginBottom: '6px' }}>
+                      <strong>Sub-Section:</strong> {selectedSubSection?.subSection?.hie_name || 'N/A'}
+                    </div>
+                    <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '4px' }}>
+                      <strong>Section:</strong> {selectedSubSection?.parentSection?.hie_name || 'N/A'}
+                    </div>
+                    <div style={{ fontSize: '13px', color: '#6b7280' }}>
+                      <strong>Division:</strong> {selectedSubSection?.parentDivision?.division_name || 'N/A'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ 
+                display: 'flex', 
+                gap: '12px', 
+                justifyContent: 'flex-end' 
+              }}>
+                <button
+                  onClick={cancelTransfer}
+                  disabled={transferSubmitting}
+                  style={{
+                    padding: '12px 24px',
+                    border: '2px solid #d1d5db',
+                    borderRadius: '8px',
+                    backgroundColor: 'white',
+                    color: '#6b7280',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    cursor: transferSubmitting ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s ease',
+                    opacity: transferSubmitting ? 0.5 : 1
+                  }}
+                  onMouseOver={(e) => {
+                    if (!transferSubmitting) {
+                      e.target.style.borderColor = '#9ca3af';
+                      e.target.style.color = '#374151';
+                    }
+                  }}
+                  onMouseOut={(e) => {
+                    if (!transferSubmitting) {
+                      e.target.style.borderColor = '#d1d5db';
+                      e.target.style.color = '#6b7280';
+                    }
+                  }}
+                >
+                  <i className="bi bi-x-circle" style={{ marginRight: '8px' }}></i>
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmTransferEmployee}
+                  disabled={transferSubmitting}
+                  style={{
+                    padding: '12px 24px',
+                    border: 'none',
+                    borderRadius: '8px',
+                    background: transferSubmitting 
+                      ? '#9ca3af' 
+                      : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    color: 'white',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    cursor: transferSubmitting ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s ease',
+                    boxShadow: '0 3px 10px rgba(102, 126, 234, 0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                  onMouseOver={(e) => {
+                    if (!transferSubmitting) {
+                      e.target.style.transform = 'translateY(-1px)';
+                      e.target.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.4)';
+                    }
+                  }}
+                  onMouseOut={(e) => {
+                    if (!transferSubmitting) {
+                      e.target.style.transform = 'translateY(0)';
+                      e.target.style.boxShadow = '0 3px 10px rgba(102, 126, 234, 0.3)';
+                    }
+                  }}
+                >
+                  {transferSubmitting ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                      Transferring...
+                    </>
+                  ) : (
+                    <>
+                      <i className="bi bi-check-circle"></i>
+                      Confirm Transfer
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recall Confirmation Modal */}
+      {showRecallConfirm && recallEmployee && selectedSubSection && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10001,
+          padding: '20px'
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: '16px',
+            maxWidth: '550px',
+            width: '100%',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+            overflow: 'hidden'
+          }}>
+            {/* Header */}
+            <div style={{
+              background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+              padding: '24px 32px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px'
+            }}>
+              <i className="bi bi-arrow-counterclockwise" style={{ fontSize: '28px', color: 'white' }}></i>
+              <h3 style={{ margin: 0, color: 'white', fontSize: '20px', fontWeight: '600' }}>
+                Confirm Recall Transfer
+              </h3>
+            </div>
+
+            {/* Content */}
+            <div style={{ padding: '32px' }}>
+              <div style={{
+                background: '#fef2f2',
+                borderRadius: '12px',
+                padding: '20px',
+                marginBottom: '24px',
+                border: '2px solid #fecaca'
+              }}>
+                <div style={{ 
+                  fontSize: '16px', 
+                  color: '#991b1b', 
+                  marginBottom: '20px',
+                  lineHeight: '1.6',
+                  fontWeight: '600'
+                }}>
+                  Are you sure you want to recall the transfer for this employee?
+                </div>
+
+                <div style={{ 
+                  fontSize: '14px', 
+                  color: '#7f1d1d', 
+                  marginBottom: '20px',
+                  lineHeight: '1.6'
+                }}>
+                  This will remove the employee from this sub-section.
+                </div>
+
+                {/* Employee Info */}
+                <div style={{
+                  background: 'white',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  marginBottom: '16px',
+                  border: '1px solid #fecaca'
+                }}>
+                  <div style={{ fontSize: '12px', color: '#991b1b', marginBottom: '4px' }}>Employee</div>
+                  <div style={{ fontSize: '16px', color: '#1f2937', fontWeight: '600' }}>
+                    {recallEmployee?.FULLNAME || recallEmployee?.fullName || recallEmployee?.CALLING_NAME || 'N/A'}
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#dc2626', marginTop: '4px' }}>
+                    ID: {recallEmployee?.EMP_NUMBER || recallEmployee?.empNumber || 'N/A'}
+                  </div>
+                </div>
+
+                {/* Current Sub-Section Info */}
+                <div style={{
+                  background: 'white',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  border: '1px solid #fecaca'
+                }}>
+                  <div style={{ fontSize: '12px', color: '#991b1b', marginBottom: '8px' }}>
+                    <i className="bi bi-building"></i> Current Assignment:
+                  </div>
+                  <div style={{ marginLeft: '16px' }}>
+                    <div style={{ fontSize: '14px', color: '#1f2937', marginBottom: '6px' }}>
+                      <strong>Sub-Section:</strong> {selectedSubSection?.subSection?.hie_name || 'N/A'}
+                    </div>
+                    <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '4px' }}>
+                      <strong>Section:</strong> {selectedSubSection?.parentSection?.hie_name || 'N/A'}
+                    </div>
+                    <div style={{ fontSize: '13px', color: '#6b7280' }}>
+                      <strong>Division:</strong> {selectedSubSection?.parentDivision?.division_name || 'N/A'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ 
+                display: 'flex', 
+                gap: '12px', 
+                justifyContent: 'flex-end' 
+              }}>
+                <button
+                  onClick={cancelRecall}
+                  disabled={recallSubmitting}
+                  style={{
+                    padding: '12px 24px',
+                    border: '2px solid #d1d5db',
+                    borderRadius: '8px',
+                    backgroundColor: 'white',
+                    color: '#6b7280',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    cursor: recallSubmitting ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s ease',
+                    opacity: recallSubmitting ? 0.5 : 1
+                  }}
+                  onMouseOver={(e) => {
+                    if (!recallSubmitting) {
+                      e.target.style.borderColor = '#9ca3af';
+                      e.target.style.color = '#374151';
+                    }
+                  }}
+                  onMouseOut={(e) => {
+                    if (!recallSubmitting) {
+                      e.target.style.borderColor = '#d1d5db';
+                      e.target.style.color = '#6b7280';
+                    }
+                  }}
+                >
+                  <i className="bi bi-x-circle" style={{ marginRight: '8px' }}></i>
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmRecallTransfer}
+                  disabled={recallSubmitting}
+                  style={{
+                    padding: '12px 24px',
+                    border: 'none',
+                    borderRadius: '8px',
+                    background: recallSubmitting 
+                      ? '#9ca3af' 
+                      : 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                    color: 'white',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    cursor: recallSubmitting ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s ease',
+                    boxShadow: '0 3px 10px rgba(239, 68, 68, 0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                  onMouseOver={(e) => {
+                    if (!recallSubmitting) {
+                      e.target.style.transform = 'translateY(-1px)';
+                      e.target.style.boxShadow = '0 4px 15px rgba(239, 68, 68, 0.4)';
+                    }
+                  }}
+                  onMouseOut={(e) => {
+                    if (!recallSubmitting) {
+                      e.target.style.transform = 'translateY(0)';
+                      e.target.style.boxShadow = '0 3px 10px rgba(239, 68, 68, 0.3)';
+                    }
+                  }}
+                >
+                  {recallSubmitting ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                      Recalling...
+                    </>
+                  ) : (
+                    <>
+                      <i className="bi bi-check-circle"></i>
+                      Confirm Recall
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
