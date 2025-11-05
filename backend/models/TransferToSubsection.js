@@ -26,16 +26,16 @@ const transferToSubsectionSchema = new mongoose.Schema({
 		type: String, 
 		default: '' 
 	},
-	subSectionId: { 
+	sub_section_id: { 
 		type: String, 
 		required: true,
 		index: true 
 	},
-	subSectionCode: { 
+	sub_hie_code: { 
 		type: String, 
-		default: '' 
+		required: true 
 	},
-	subSectionName: { 
+	sub_hie_name: { 
 		type: String, 
 		required: true 
 	},
@@ -57,6 +57,6 @@ const transferToSubsectionSchema = new mongoose.Schema({
 });
 
 // Create compound index for faster queries
-transferToSubsectionSchema.index({ employeeId: 1, subSectionId: 1 });
+transferToSubsectionSchema.index({ employeeId: 1, sub_section_id: 1 });
 
 module.exports = mongoose.model('TransferToSubsection', transferToSubsectionSchema);

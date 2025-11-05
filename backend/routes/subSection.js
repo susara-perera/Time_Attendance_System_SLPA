@@ -2,13 +2,16 @@ const express = require('express');
 const router = express.Router();
 
 const { auth, auditTrail } = require('../middleware/auth');
-const { createSubSection, listSubSections, updateSubSection, deleteSubSection, transferEmployeeToSubSection, getTransferredEmployees, recallTransfer } = require('../controllers/subSectionController');
+const { createSubSection, listSubSections, updateSubSection, deleteSubSection, transferEmployeeToSubSection, getTransferredEmployees, getAllTransferredEmployees, recallTransfer } = require('../controllers/subSectionController');
 
 // Optional: list for verification/testing
 router.get('/', auth, auditTrail('subsections_viewed', 'SubSection'), listSubSections);
 
 // Transfer employee to sub-section (must come before /:id routes)
 router.post('/transfer', auth, auditTrail('employee_transferred_to_subsection', 'TransferToSubsection'), transferEmployeeToSubSection);
+
+// Get all transferred employees across all subsections (must come before /:id routes)
+router.get('/transferred/all/list', auth, getAllTransferredEmployees);
 
 // Get transferred employees for a subsection (must come before /:id routes)
 router.get('/transferred/:subSectionId', auth, getTransferredEmployees);

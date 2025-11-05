@@ -36,13 +36,13 @@ const subSectionSchema = new mongoose.Schema({
     }
   },
   subSection: {
-    hie_name: {
+    sub_hie_name: {
       type: String,
       required: [true, 'Sub-section name is required'],
       trim: true,
       maxlength: [100, 'Sub-section name cannot exceed 100 characters']
     },
-    hie_code: {
+    sub_hie_code: {
       type: String,
       required: [true, 'Sub-section code is required'],
       trim: true,
@@ -80,26 +80,26 @@ subSectionSchema.index({ 'parentSection.id': 1 });
 // Index for unique constraint on sub-section code within parent section
 subSectionSchema.index({ 
   'parentSection.id': 1, 
-  'subSection.hie_code': 1 
+  'subSection.sub_hie_code': 1 
 }, { unique: true });
 
 // Virtual for full sub-section identifier
 subSectionSchema.virtual('fullCode').get(function() {
-  return `${this.parentSection.hie_code}-${this.subSection.hie_code}`;
+  return `${this.parentSection.hie_code}-${this.subSection.sub_hie_code}`;
 });
 
 // Pre-save middleware to ensure code is uppercase
 subSectionSchema.pre('save', function(next) {
-  if (this.subSection && this.subSection.hie_code) {
-    this.subSection.hie_code = this.subSection.hie_code.toUpperCase();
+  if (this.subSection && this.subSection.sub_hie_code) {
+    this.subSection.sub_hie_code = this.subSection.sub_hie_code.toUpperCase();
   }
   next();
 });
 
 // Pre-update middleware to ensure code is uppercase
 subSectionSchema.pre(['findOneAndUpdate', 'updateOne', 'updateMany'], function(next) {
-  if (this.getUpdate().$set && this.getUpdate().$set['subSection.hie_code']) {
-    this.getUpdate().$set['subSection.hie_code'] = this.getUpdate().$set['subSection.hie_code'].toUpperCase();
+  if (this.getUpdate().$set && this.getUpdate().$set['subSection.sub_hie_code']) {
+    this.getUpdate().$set['subSection.sub_hie_code'] = this.getUpdate().$set['subSection.sub_hie_code'].toUpperCase();
   }
   next();
 });

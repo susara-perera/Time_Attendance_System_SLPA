@@ -18,10 +18,28 @@ exports.createSubSection = async (req, res, next) => {
 		if (!parentDivision?.id || !parentSection?.id) {
 			return res.status(400).json({ success: false, message: 'Parent division and section are required.' });
 		}
-		if (!(subSection?.hie_name || subSection?.name) || !(subSection?.hie_code || subSection?.code)) {
-			console.log('❌ Validation failed - subSection:', subSection);
+		
+		// Check for sub-section name (prioritize new field names)
+		const nameValue = subSection?.sub_hie_name || subSection?.hie_name || subSection?.name;
+		const codeValue = subSection?.sub_hie_code || subSection?.hie_code || subSection?.code;
+		
+		// Trim and validate
+		const hasName = nameValue && String(nameValue).trim().length > 0;
+		const hasCode = codeValue && String(codeValue).trim().length > 0;
+		
+		console.log('🔍 Validation check:', { 
+			nameValue, 
+			codeValue, 
+			hasName, 
+			hasCode 
+		});
+		
+		if (!hasName || !hasCode) {
+			console.log('❌ Validation failed');
 			return res.status(400).json({ success: false, message: 'Sub-section name and code are required.' });
 		}
+		
+		console.log('✅ Validation passed!');
 
 		const payload = {
 			parentDivision: {
@@ -35,8 +53,8 @@ exports.createSubSection = async (req, res, next) => {
 				hie_name: parentSection.hie_name || parentSection.name || ''
 			},
 			subSection: {
-				hie_name: String(subSection.hie_name || subSection.name).trim(),
-				hie_code: String(subSection.hie_code || subSection.code).trim()
+				sub_hie_name: String(subSection.sub_hie_name || subSection.hie_name || subSection.name).trim(),
+				sub_hie_code: String(subSection.sub_hie_code || subSection.hie_code || subSection.code).trim()
 			},
 			hrisSnapshot: hrisSnapshot || {},
 			createdBy: req.user?._id,
@@ -73,15 +91,15 @@ exports.listSubSections = async (req, res, next) => {
 exports.updateSubSection = async (req, res, next) => {
 	try {
 		const { id } = req.params;
-		const { name, code, hie_name, hie_code } = req.body || {};
+		const { name, code, hie_name, hie_code, sub_hie_name, sub_hie_code } = req.body || {};
 
-		if (!name && !code && !hie_name && !hie_code) {
+		if (!name && !code && !hie_name && !hie_code && !sub_hie_name && !sub_hie_code) {
 			return res.status(400).json({ success: false, message: 'Nothing to update' });
 		}
 
 		const update = {};
-		if (hie_name || name) update['subSection.hie_name'] = String(hie_name || name).trim();
-		if (hie_code || code) update['subSection.hie_code'] = String(hie_code || code).trim();
+		if (sub_hie_name || hie_name || name) update['subSection.sub_hie_name'] = String(sub_hie_name || hie_name || name).trim();
+		if (sub_hie_code || hie_code || code) update['subSection.sub_hie_code'] = String(sub_hie_code || hie_code || code).trim();
 		update.updatedBy = req.user?._id;
 
 		const updated = await SubSection.findByIdAndUpdate(
@@ -125,18 +143,25 @@ exports.transferEmployeeToSubSection = async (req, res, next) => {
 			division_name,
 			hie_code,
 			hie_name,
-			subSectionId,
-			subSectionCode,
-			subSectionName,
+			sub_section_id,
+			subSectionId, // backward compatibility
+			sub_hie_code,
+			subSectionCode, // backward compatibility
+			sub_hie_name,
+			subSectionName, // backward compatibility
 			transferredAt,
 			employeeData
 		} = req.body || {};
 
+		const finalSubSectionId = sub_section_id || subSectionId;
+		const finalSubHieCode = sub_hie_code || subSectionCode || '';
+		const finalSubHieName = sub_hie_name || subSectionName;
+
 		console.log('📥 Transfer request received:', { 
 			employeeId, 
 			employeeName, 
-			subSectionId,
-			subSectionName 
+			sub_section_id: finalSubSectionId,
+			sub_hie_name: finalSubHieName 
 		});
 
 		// Basic validation
@@ -144,7 +169,7 @@ exports.transferEmployeeToSubSection = async (req, res, next) => {
 			console.log('❌ Validation failed: Missing employee ID or name');
 			return res.status(400).json({ success: false, message: 'Employee ID and name are required' });
 		}
-		if (!subSectionId || !subSectionName) {
+		if (!finalSubSectionId || !finalSubHieName) {
 			console.log('❌ Validation failed: Missing subsection information');
 			return res.status(400).json({ success: false, message: 'Sub-section information is required' });
 		}
@@ -159,9 +184,9 @@ exports.transferEmployeeToSubSection = async (req, res, next) => {
 			division_name,
 			hie_code,
 			hie_name,
-			subSectionId,
-			subSectionCode,
-			subSectionName,
+			sub_section_id: finalSubSectionId,
+			sub_hie_code: finalSubHieCode,
+			sub_hie_name: finalSubHieName,
 			transferredAt: transferredAt || new Date(),
 			transferredBy: req.user?._id,
 			employeeData: employeeData || {}
@@ -170,7 +195,7 @@ exports.transferEmployeeToSubSection = async (req, res, next) => {
 		console.log('✅ Transfer record created successfully!');
 		console.log('📝 Record ID:', transferRecord._id);
 		console.log('👤 Employee ID:', transferRecord.employeeId);
-		console.log('📍 SubSection ID:', transferRecord.subSectionId);
+		console.log('📍 SubSection ID:', transferRecord.sub_section_id);
 		console.log('💾 Full record:', JSON.stringify(transferRecord, null, 2));
 
 		return res.status(201).json({
@@ -193,14 +218,14 @@ exports.getTransferredEmployees = async (req, res, next) => {
 		console.log('📥 Fetching transferred employees for subsection:', subSectionId);
 		console.log('🔍 SubSection ID type:', typeof subSectionId);
 
-		const transfers = await TransferToSubsection.find({ subSectionId }).sort({ transferredAt: -1 });
+		const transfers = await TransferToSubsection.find({ sub_section_id: subSectionId }).sort({ transferredAt: -1 });
 
 		console.log('✅ Found transferred employees:', transfers.length);
 		
 		if (transfers.length > 0) {
 			console.log('📋 Transfer records found:');
 			transfers.forEach((t, index) => {
-				console.log(`  ${index + 1}. Employee: ${t.employeeName} (${t.employeeId}) -> SubSection: ${t.subSectionName}`);
+				console.log(`  ${index + 1}. Employee: ${t.employeeName} (${t.employeeId}) -> SubSection: ${t.sub_hie_name}`);
 			});
 		} else {
 			console.log('⚠️ No transfer records found for this subsection');
@@ -216,15 +241,36 @@ exports.getTransferredEmployees = async (req, res, next) => {
 	}
 };
 
+// GET /api/subsections/transferred/all/list
+// Get all transferred employees across all subsections
+exports.getAllTransferredEmployees = async (req, res, next) => {
+	try {
+		console.log('📥 Fetching all transferred employees...');
+
+		const transfers = await TransferToSubsection.find({}).sort({ transferredAt: -1 });
+
+		console.log('✅ Found total transferred employees:', transfers.length);
+
+		return res.json({
+			success: true,
+			data: transfers
+		});
+	} catch (err) {
+		console.error('❌ Error fetching all transferred employees:', err);
+		next(err);
+	}
+};
+
 // DELETE /api/subsections/recall-transfer
 // Recall (delete) a transfer record
 exports.recallTransfer = async (req, res, next) => {
 	try {
-		const { employeeId, subSectionId } = req.body || {};
+		const { employeeId, subSectionId, sub_section_id } = req.body || {};
+		const finalSubSectionId = sub_section_id || subSectionId;
 
-		console.log('🔄 Recall transfer request:', { employeeId, subSectionId });
+		console.log('🔄 Recall transfer request:', { employeeId, sub_section_id: finalSubSectionId });
 
-		if (!employeeId || !subSectionId) {
+		if (!employeeId || !finalSubSectionId) {
 			console.log('❌ Validation failed: Missing employee ID or subsection ID');
 			return res.status(400).json({ 
 				success: false, 
@@ -237,18 +283,18 @@ exports.recallTransfer = async (req, res, next) => {
 		// Delete the transfer record
 		const deleted = await TransferToSubsection.findOneAndDelete({
 			employeeId,
-			subSectionId
+			sub_section_id: finalSubSectionId
 		});
 
 		if (!deleted) {
-			console.log('❌ Transfer record not found for:', { employeeId, subSectionId });
+			console.log('❌ Transfer record not found for:', { employeeId, sub_section_id: finalSubSectionId });
 			console.log('🔍 Checking all records in collection...');
 			const allRecords = await TransferToSubsection.find({});
 			console.log(`📊 Total records in collection: ${allRecords.length}`);
 			if (allRecords.length > 0) {
 				console.log('📋 Existing records:');
 				allRecords.forEach((r, i) => {
-					console.log(`  ${i + 1}. EmpID: ${r.employeeId}, SubSecID: ${r.subSectionId}`);
+					console.log(`  ${i + 1}. EmpID: ${r.employeeId}, SubSecID: ${r.sub_section_id}`);
 				});
 			}
 			return res.status(404).json({

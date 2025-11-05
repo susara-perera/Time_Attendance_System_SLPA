@@ -308,7 +308,8 @@ const auditTrail = (action, entityType) => {
         if (!entityName && responseData) {
           try {
             const parsedData = typeof responseData === 'string' ? JSON.parse(responseData) : responseData;
-            entityName = parsedData?.data?.name || parsedData?.data?.subSection?.hie_name || 
+            entityName = parsedData?.data?.name || parsedData?.data?.subSection?.sub_hie_name || 
+                        parsedData?.data?.subSection?.hie_name || 
                         parsedData?.data?.hie_name || parsedData?.name;
           } catch (e) {
             // If parsing fails, entityName remains undefined

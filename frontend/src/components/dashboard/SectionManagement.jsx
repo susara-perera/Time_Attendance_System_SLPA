@@ -58,6 +58,13 @@ const SectionManagement = () => {
   const [showRecallConfirm, setShowRecallConfirm] = useState(false);
   const [recallEmployee, setRecallEmployee] = useState(null);
   const [recallSubmitting, setRecallSubmitting] = useState(false);
+  // Transferred employees modal state
+  const [showTransferredEmployeesModal, setShowTransferredEmployeesModal] = useState(false);
+  const [transferredEmployeesList, setTransferredEmployeesList] = useState([]);
+  const [transferredLoading, setTransferredLoading] = useState(false);
+  // Search state for employee modals
+  const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
+  const [transferredSearchQuery, setTransferredSearchQuery] = useState('');
   // Toast popup state
   const [toast, setToast] = useState({ show: false, type: 'success', title: '', message: '' });
   const toastTimerRef = useRef(null);
@@ -179,8 +186,8 @@ const SectionManagement = () => {
   const handleEditSubSection = (sectionId, item) => {
     setEditingSubSection({ sectionId, subSection: item });
     setEditSubForm({
-      name: item?.subSection?.hie_name || item?.subSection?.name || '',
-      code: item?.subSection?.hie_code || item?.subSection?.code || ''
+      name: item?.subSection?.sub_hie_name || item?.subSection?.hie_name || item?.subSection?.name || '',
+      code: item?.subSection?.sub_hie_code || item?.subSection?.hie_code || item?.subSection?.code || ''
     });
     setEditSubErrors({});
     setShowEditSubModal(true);
@@ -212,9 +219,11 @@ const SectionManagement = () => {
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ 
+          sub_hie_name: editSubForm.name.trim(), 
+          sub_hie_code: editSubForm.code.trim(),
+          // Keep backward compatibility
           hie_name: editSubForm.name.trim(), 
           hie_code: editSubForm.code.trim(),
-          // Keep backward compatibility
           name: editSubForm.name.trim(), 
           code: editSubForm.code.trim() 
         })
@@ -318,14 +327,14 @@ const SectionManagement = () => {
         // Update the transferred employees list
         const transferredIds = transfers.map(t => ({
           employeeId: t.employeeId,
-          subSectionId: t.subSectionId
+          sub_section_id: t.sub_section_id
         }));
         
         console.log('🎯 Mapped transferred IDs:', transferredIds);
         
         setTransferredEmployees(prev => {
           // Remove old entries for this subsection first
-          const filtered = prev.filter(t => t.subSectionId !== subSectionId);
+          const filtered = prev.filter(t => t.sub_section_id !== subSectionId);
           // Add new entries
           const updated = [...filtered, ...transferredIds];
           console.log('✅ Updated transferred employees list:', updated);
@@ -420,7 +429,19 @@ const SectionManagement = () => {
 
       console.log('✅ Filtered employees:', filteredEmployees.length);
 
-      setEmployeeList(filteredEmployees);
+      // Filter out already transferred employees for this subsection
+      const notTransferredEmployees = filteredEmployees.filter(emp => {
+        const empId = String(emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || '');
+        const isAlreadyTransferred = transferredEmployees.some(
+          te => String(te.employeeId) === empId && te.sub_section_id === subSection._id
+        );
+        return !isAlreadyTransferred;
+      });
+
+      console.log('✅ Not transferred employees (after filtering):', notTransferredEmployees.length);
+      console.log('🔍 Already transferred count:', filteredEmployees.length - notTransferredEmployees.length);
+
+      setEmployeeList(notTransferredEmployees);
       setEmployeeLoading(false);
 
     } catch (error) {
@@ -438,6 +459,7 @@ const SectionManagement = () => {
     setShowEmployeeModal(false);
     setSelectedSubSection(null);
     setEmployeeList([]);
+    setEmployeeSearchQuery('');
   };
 
   // Handle transfer button click
@@ -461,15 +483,15 @@ const SectionManagement = () => {
     try {
       // Prepare transfer data
       const transferData = {
-        employeeId: transferEmployee?.EMP_NUMBER || transferEmployee?.empNumber || transferEmployee?.EMP_ID || '',
+        employeeId: String(transferEmployee?.EMP_NUMBER || transferEmployee?.empNumber || transferEmployee?.EMP_ID || ''),
         employeeName: transferEmployee?.FULLNAME || transferEmployee?.fullName || transferEmployee?.CALLING_NAME || '',
         division_code: selectedSubSection?.parentDivision?.division_code || '',
         division_name: selectedSubSection?.parentDivision?.division_name || '',
         hie_code: selectedSubSection?.parentSection?.hie_code || '',
         hie_name: selectedSubSection?.parentSection?.hie_name || '',
-        subSectionId: selectedSubSection?._id || '',
-        subSectionCode: selectedSubSection?.subSection?.hie_code || '',
-        subSectionName: selectedSubSection?.subSection?.hie_name || '',
+        sub_section_id: selectedSubSection?._id || '',
+        sub_hie_code: selectedSubSection?.subSection?.sub_hie_code || selectedSubSection?.subSection?.hie_code || '',
+        sub_hie_name: selectedSubSection?.subSection?.sub_hie_name || selectedSubSection?.subSection?.hie_name || '',
         transferredAt: new Date().toISOString(),
         employeeData: transferEmployee // Store full employee record
       };
@@ -497,7 +519,7 @@ const SectionManagement = () => {
       // Add employee to transferred list
       const newTransfer = {
         employeeId: transferData.employeeId,
-        subSectionId: transferData.subSectionId
+        sub_section_id: transferData.sub_section_id
       };
       console.log('➕ Adding to transferred list:', newTransfer);
       
@@ -514,7 +536,7 @@ const SectionManagement = () => {
       showToast({ 
         type: 'success', 
         title: 'Success!', 
-        message: `Employee ${transferData.employeeName} has been successfully transferred to ${transferData.subSectionName}!` 
+        message: `Employee ${transferData.employeeName} has been successfully transferred to ${transferData.sub_hie_name}!` 
       });
 
       console.log('✅ Transfer complete - Record saved to DB with ID:', result?.data?._id);
@@ -558,7 +580,7 @@ const SectionManagement = () => {
     const empName = recallEmployee?.FULLNAME || recallEmployee?.fullName || recallEmployee?.CALLING_NAME || recallEmployee?.calling_name || recallEmployee?.name || 'Employee';
 
     try {
-      console.log('🔄 Recalling transfer for:', { empId, subSectionId: selectedSubSection._id });
+      console.log('🔄 Recalling transfer for:', { empId, sub_section_id: selectedSubSection._id });
 
       const response = await fetch(`${API_BASE_URL}/subsections/recall-transfer`, {
         method: 'DELETE',
@@ -568,8 +590,8 @@ const SectionManagement = () => {
         },
         credentials: 'include',
         body: JSON.stringify({
-          employeeId: empId,
-          subSectionId: selectedSubSection._id
+          employeeId: String(empId),
+          sub_section_id: selectedSubSection._id
         })
       });
 
@@ -581,7 +603,7 @@ const SectionManagement = () => {
 
       // Remove from transferred list
       setTransferredEmployees(prev => 
-        prev.filter(t => !(t.employeeId === empId && t.subSectionId === selectedSubSection._id))
+        prev.filter(t => !(String(t.employeeId) === String(empId) && t.sub_section_id === selectedSubSection._id))
       );
 
       setShowRecallConfirm(false);
@@ -595,6 +617,12 @@ const SectionManagement = () => {
       });
 
       console.log('✅ Recall successful:', result);
+
+      // If we're in the transferred employees modal, refresh the list
+      if (showTransferredEmployeesModal) {
+        // Re-fetch transferred employees
+        await handleShowTransferredEmployees(selectedSubSection);
+      }
 
     } catch (error) {
       console.error('❌ Recall failed:', error);
@@ -616,6 +644,64 @@ const SectionManagement = () => {
   const cancelDeleteSubSection = () => {
     setShowDeleteConfirm(false);
     setDeleteTarget(null);
+  };
+
+  // Handle showing transferred employees only
+  const handleShowTransferredEmployees = async (subSection) => {
+    setSelectedSubSection(subSection);
+    setShowTransferredEmployeesModal(true);
+    setTransferredLoading(true);
+    setTransferredEmployeesList([]);
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token');
+      }
+
+      console.log('🔍 Fetching transferred employees for subsection:', subSection._id);
+
+      // Fetch transferred employees from MongoDB
+      const response = await fetch(`${API_BASE_URL}/subsections/transferred/${subSection._id}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      const transfers = data?.data || [];
+      
+      console.log('📊 Transferred employees:', transfers);
+
+      // Extract employee data from transfer records
+      const employeeDataList = transfers.map(transfer => transfer.employeeData || {});
+      
+      setTransferredEmployeesList(employeeDataList);
+      setTransferredLoading(false);
+
+    } catch (error) {
+      console.error('Error fetching transferred employees:', error);
+      setTransferredLoading(false);
+      showToast({ 
+        type: 'error', 
+        title: 'Error', 
+        message: 'Failed to fetch transferred employees' 
+      });
+    }
+  };
+
+  const closeTransferredEmployeesModal = () => {
+    setShowTransferredEmployeesModal(false);
+    setSelectedSubSection(null);
+    setTransferredEmployeesList([]);
+    setTransferredSearchQuery('');
   };
 
   // Helpers: string normalization and defaults
@@ -1010,8 +1096,8 @@ const SectionManagement = () => {
           hie_name: rawSection?.hie_name || rawSection?.SECTION_NAME || rawSection?.name || parent.name || '',
         },
         subSection: {
-          hie_name: subForm.name.trim(),
-          hie_code: subForm.code.trim(),
+          sub_hie_name: subForm.name.trim(),
+          sub_hie_code: subForm.code.trim(),
         },
         hrisSnapshot: {
           division: rawDivision || null,
@@ -2662,6 +2748,16 @@ const SectionManagement = () => {
                           textTransform: 'uppercase',
                           letterSpacing: '0.5px'
                         }}>
+                          Transferring
+                        </th>
+                        <th style={{ 
+                          padding: '16px 20px', 
+                          textAlign: 'center',
+                          fontWeight: '700',
+                          fontSize: '13px',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px'
+                        }}>
                           Actions
                         </th>
                       </tr>
@@ -2684,7 +2780,7 @@ const SectionManagement = () => {
                             fontWeight: '600',
                             color: '#1f2937'
                           }}>
-                            {ss?.subSection?.hie_name || ss?.subSection?.name || '-'}
+                            {ss?.subSection?.sub_hie_name || ss?.subSection?.hie_name || ss?.subSection?.name || '-'}
                           </td>
                           <td style={{ padding: '12px 20px' }}>
                             <span style={{ 
@@ -2697,7 +2793,7 @@ const SectionManagement = () => {
                               fontWeight: '600',
                               display: 'inline-block'
                             }}>
-                              {ss?.subSection?.hie_code || ss?.subSection?.code || '-'}
+                              {ss?.subSection?.sub_hie_code || ss?.subSection?.hie_code || ss?.subSection?.code || '-'}
                             </span>
                           </td>
                           <td style={{ 
@@ -2711,6 +2807,51 @@ const SectionManagement = () => {
                             }}>
                               <i className="bi bi-calendar3"></i>
                               {ss?.createdAt ? formatDateYmd(new Date(ss.createdAt)) : '—'}
+                            </div>
+                          </td>
+                          <td style={{ 
+                            padding: '12px 20px',
+                            textAlign: 'center'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                              <button
+                                className="btn-professional"
+                                onClick={() => handleAddEmployeeToSubSection(ss)}
+                                style={{ 
+                                  padding: '6px 8px', 
+                                  fontSize: 13,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  minWidth: '32px',
+                                  minHeight: '32px',
+                                  backgroundColor: '#10b981',
+                                  color: 'white',
+                                  border: 'none'
+                                }}
+                                title="Add Employee - Shows all not-transferred employees"
+                              >
+                                <i className="bi bi-person-plus"></i>
+                              </button>
+                              <button
+                                className="btn-professional"
+                                onClick={() => handleShowTransferredEmployees(ss)}
+                                style={{ 
+                                  padding: '6px 8px', 
+                                  fontSize: 13,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  minWidth: '32px',
+                                  minHeight: '32px',
+                                  backgroundColor: '#f59e0b',
+                                  color: 'white',
+                                  border: 'none'
+                                }}
+                                title="Recall - Shows all transferred employees"
+                              >
+                                <i className="bi bi-arrow-counterclockwise"></i>
+                              </button>
                             </div>
                           </td>
                           <td style={{ 
@@ -2749,25 +2890,6 @@ const SectionManagement = () => {
                                 title="Delete Sub-Section"
                               >
                                 <i className="bi bi-trash"></i>
-                              </button>
-                              <button
-                                className="btn-professional"
-                                onClick={() => handleAddEmployeeToSubSection(ss)}
-                                style={{ 
-                                  padding: '6px 8px', 
-                                  fontSize: 13,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  minWidth: '32px',
-                                  minHeight: '32px',
-                                  backgroundColor: '#10b981',
-                                  color: 'white',
-                                  border: 'none'
-                                }}
-                                title="Add Employee"
-                              >
-                                <i className="bi bi-person-plus"></i>
                               </button>
                             </div>
                           </td>
@@ -2961,7 +3083,7 @@ const SectionManagement = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <i className="bi bi-people-fill" style={{ fontSize: '24px', color: 'white' }}></i>
                 <h2 style={{ margin: 0, color: 'white', fontSize: '20px', fontWeight: '600' }}>
-                  Employee List - {selectedSubSection?.subSection?.hie_name || 'Sub-Section'}
+                  Employee List - {selectedSubSection?.subSection?.sub_hie_name || selectedSubSection?.subSection?.hie_name || 'Sub-Section'}
                 </h2>
               </div>
               <button
@@ -3015,6 +3137,47 @@ const SectionManagement = () => {
               </div>
             </div>
 
+            {/* Search Bar */}
+            <div style={{
+              padding: '16px 32px',
+              borderBottom: '1px solid #e5e7eb',
+              background: '#f9fafb'
+            }}>
+              <div style={{ position: 'relative' }}>
+                <i className="bi bi-search" style={{
+                  position: 'absolute',
+                  left: '14px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#9ca3af',
+                  fontSize: '16px'
+                }}></i>
+                <input
+                  type="text"
+                  placeholder="Search by Employee ID or Name..."
+                  value={employeeSearchQuery}
+                  onChange={(e) => setEmployeeSearchQuery(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px 12px 42px',
+                    border: '2px solid #e5e7eb',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    outline: 'none',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = '#667eea';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(102, 126, 234, 0.1)';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = '#e5e7eb';
+                    e.target.style.boxShadow = 'none';
+                  }}
+                />
+              </div>
+            </div>
+
             {/* Content */}
             <div style={{
               padding: '24px 32px',
@@ -3035,7 +3198,19 @@ const SectionManagement = () => {
                   </div>
                   <p style={{ color: '#6b7280', margin: 0 }}>Loading employees from HRIS...</p>
                 </div>
-              ) : employeeList.length === 0 ? (
+              ) : (() => {
+                // Filter employees based on search query
+                const filteredEmployees = employeeList.filter(emp => {
+                  if (!employeeSearchQuery.trim()) return true;
+                  
+                  const searchLower = employeeSearchQuery.toLowerCase().trim();
+                  const empId = String(emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || emp?.emp_id || '').toLowerCase();
+                  const empName = String(emp?.FULLNAME || emp?.fullName || emp?.CALLING_NAME || emp?.calling_name || emp?.name || '').toLowerCase();
+                  
+                  return empId.includes(searchLower) || empName.includes(searchLower);
+                });
+
+                return filteredEmployees.length === 0 ? (
                 <div style={{
                   display: 'flex',
                   flexDirection: 'column',
@@ -3046,7 +3221,7 @@ const SectionManagement = () => {
                 }}>
                   <i className="bi bi-person-x" style={{ fontSize: '48px', color: '#d1d5db' }}></i>
                   <p style={{ color: '#6b7280', margin: 0, fontSize: '16px' }}>
-                    No employees found for this division and section
+                    {employeeSearchQuery ? 'No employees match your search' : 'No employees found for this division and section'}
                   </p>
                 </div>
               ) : (
@@ -3073,17 +3248,14 @@ const SectionManagement = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {employeeList.map((emp, index) => {
+                      {filteredEmployees.map((emp, index) => {
                         const empId = emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || emp?.emp_id;
-                        const isTransferred = transferredEmployees.some(
-                          te => te.employeeId === empId && te.subSectionId === selectedSubSection?._id
-                        );
                         
                         return (
                           <tr 
                             key={empId || index}
                             style={{
-                              borderBottom: index < employeeList.length - 1 ? '1px solid #e5e7eb' : 'none',
+                              borderBottom: index < filteredEmployees.length - 1 ? '1px solid #e5e7eb' : 'none',
                               transition: 'all 0.2s ease'
                             }}
                             onMouseOver={(e) => e.currentTarget.style.background = '#f9fafb'}
@@ -3096,67 +3268,35 @@ const SectionManagement = () => {
                               {emp?.FULLNAME || emp?.fullName || emp?.CALLING_NAME || emp?.calling_name || emp?.name || 'N/A'}
                             </td>
                             <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                              {isTransferred ? (
-                                <button
-                                  onClick={() => handleRecallTransfer(emp)}
-                                  style={{
-                                    padding: '8px 16px',
-                                    border: 'none',
-                                    borderRadius: '6px',
-                                    background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
-                                    color: 'white',
-                                    fontSize: '13px',
-                                    fontWeight: '600',
-                                    cursor: 'pointer',
-                                    transition: 'all 0.2s ease',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '6px'
-                                  }}
-                                  onMouseOver={(e) => {
-                                    e.currentTarget.style.transform = 'translateY(-1px)';
-                                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(239, 68, 68, 0.4)';
-                                  }}
-                                  onMouseOut={(e) => {
-                                    e.currentTarget.style.transform = 'translateY(0)';
-                                    e.currentTarget.style.boxShadow = 'none';
-                                  }}
-                                  title="Recall employee transfer from this sub-section"
-                                >
-                                  <i className="bi bi-arrow-counterclockwise"></i>
-                                  Recall
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => handleTransferEmployee(emp)}
-                                  style={{
-                                    padding: '8px 16px',
-                                    border: 'none',
-                                    borderRadius: '6px',
-                                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                                    color: 'white',
-                                    fontSize: '13px',
-                                    fontWeight: '600',
-                                    cursor: 'pointer',
-                                    transition: 'all 0.2s ease',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '6px'
-                                  }}
-                                  onMouseOver={(e) => {
-                                    e.currentTarget.style.transform = 'translateY(-1px)';
-                                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
-                                  }}
-                                  onMouseOut={(e) => {
-                                    e.currentTarget.style.transform = 'translateY(0)';
-                                    e.currentTarget.style.boxShadow = 'none';
-                                  }}
-                                  title="Transfer employee to this sub-section"
-                                >
-                                  <i className="bi bi-arrow-left-right"></i>
-                                  Transfer
-                                </button>
-                              )}
+                              <button
+                                onClick={() => handleTransferEmployee(emp)}
+                                style={{
+                                  padding: '8px 16px',
+                                  border: 'none',
+                                  borderRadius: '6px',
+                                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                  color: 'white',
+                                  fontSize: '13px',
+                                  fontWeight: '600',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.2s ease',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px'
+                                }}
+                                onMouseOver={(e) => {
+                                  e.currentTarget.style.transform = 'translateY(-1px)';
+                                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
+                                }}
+                                onMouseOut={(e) => {
+                                  e.currentTarget.style.transform = 'translateY(0)';
+                                  e.currentTarget.style.boxShadow = 'none';
+                                }}
+                                title="Transfer employee to this sub-section"
+                              >
+                                <i className="bi bi-arrow-left-right"></i>
+                                Transfer
+                              </button>
                             </td>
                           </tr>
                         );
@@ -3164,7 +3304,8 @@ const SectionManagement = () => {
                     </tbody>
                   </table>
                 </div>
-              )}
+              );
+              })()}
             </div>
 
             {/* Footer */}
@@ -3177,7 +3318,26 @@ const SectionManagement = () => {
               alignItems: 'center'
             }}>
               <div style={{ fontSize: '14px', color: '#6b7280' }}>
-                <strong style={{ color: '#1f2937' }}>{employeeList.length}</strong> employee{employeeList.length !== 1 ? 's' : ''} found
+                {(() => {
+                  const filteredCount = employeeList.filter(emp => {
+                    if (!employeeSearchQuery.trim()) return true;
+                    const searchLower = employeeSearchQuery.toLowerCase().trim();
+                    const empId = String(emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || emp?.emp_id || '').toLowerCase();
+                    const empName = String(emp?.FULLNAME || emp?.fullName || emp?.CALLING_NAME || emp?.calling_name || emp?.name || '').toLowerCase();
+                    return empId.includes(searchLower) || empName.includes(searchLower);
+                  }).length;
+                  
+                  return (
+                    <>
+                      <strong style={{ color: '#1f2937' }}>{filteredCount}</strong> employee{filteredCount !== 1 ? 's' : ''} found
+                      {employeeSearchQuery && filteredCount !== employeeList.length && (
+                        <span style={{ marginLeft: '8px', color: '#9ca3af' }}>
+                          (filtered from {employeeList.length})
+                        </span>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
               <button
                 onClick={closeEmployeeModal}
@@ -3292,7 +3452,7 @@ const SectionManagement = () => {
                   </div>
                   <div style={{ marginLeft: '16px' }}>
                     <div style={{ fontSize: '14px', color: '#1f2937', marginBottom: '6px' }}>
-                      <strong>Sub-Section:</strong> {selectedSubSection?.subSection?.hie_name || 'N/A'}
+                      <strong>Sub-Section:</strong> {selectedSubSection?.subSection?.sub_hie_name || selectedSubSection?.subSection?.hie_name || 'N/A'}
                     </div>
                     <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '4px' }}>
                       <strong>Section:</strong> {selectedSubSection?.parentSection?.hie_name || 'N/A'}
@@ -3392,6 +3552,335 @@ const SectionManagement = () => {
         </div>
       )}
 
+      {/* Transferred Employees Modal */}
+      {showTransferredEmployeesModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000,
+          padding: '20px'
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: '16px',
+            maxWidth: '1000px',
+            width: '100%',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+            overflow: 'hidden'
+          }}>
+            {/* Header */}
+            <div style={{
+              background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+              padding: '24px 32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <i className="bi bi-arrow-counterclockwise" style={{ fontSize: '24px', color: 'white' }}></i>
+                <h2 style={{ margin: 0, color: 'white', fontSize: '20px', fontWeight: '600' }}>
+                  Transferred Employees - {selectedSubSection?.subSection?.sub_hie_name || selectedSubSection?.subSection?.hie_name || 'Sub-Section'}
+                </h2>
+              </div>
+              <button
+                onClick={closeTransferredEmployeesModal}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  width: '36px',
+                  height: '36px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  color: 'white',
+                  fontSize: '20px'
+                }}
+                onMouseOver={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.3)'}
+                onMouseOut={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.2)'}
+              >
+                <i className="bi bi-x"></i>
+              </button>
+            </div>
+
+            {/* Sub-section Info */}
+            <div style={{
+              padding: '20px 32px',
+              borderBottom: '1px solid #e5e7eb',
+              background: '#fef3c7'
+            }}>
+              <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: '12px', color: '#92400e', marginBottom: '4px' }}>Division</div>
+                  <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '600' }}>
+                    {selectedSubSection?.parentDivision?.division_name || 'N/A'}
+                    <span style={{ marginLeft: '8px', color: '#d97706', fontSize: '12px' }}>
+                      ({selectedSubSection?.parentDivision?.division_code || 'N/A'})
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '12px', color: '#92400e', marginBottom: '4px' }}>Section</div>
+                  <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '600' }}>
+                    {selectedSubSection?.parentSection?.hie_name || 'N/A'}
+                    <span style={{ marginLeft: '8px', color: '#d97706', fontSize: '12px' }}>
+                      ({selectedSubSection?.parentSection?.hie_code || 'N/A'})
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Search Bar */}
+            <div style={{
+              padding: '16px 32px',
+              borderBottom: '1px solid #e5e7eb',
+              background: '#fef3c7'
+            }}>
+              <div style={{ position: 'relative' }}>
+                <i className="bi bi-search" style={{
+                  position: 'absolute',
+                  left: '14px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#d97706',
+                  fontSize: '16px'
+                }}></i>
+                <input
+                  type="text"
+                  placeholder="Search by Employee ID or Name..."
+                  value={transferredSearchQuery}
+                  onChange={(e) => setTransferredSearchQuery(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px 12px 42px',
+                    border: '2px solid #fbbf24',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    outline: 'none',
+                    transition: 'all 0.2s ease',
+                    background: 'white'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = '#f59e0b';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(245, 158, 11, 0.1)';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = '#fbbf24';
+                    e.target.style.boxShadow = 'none';
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Content */}
+            <div style={{
+              padding: '24px 32px',
+              flex: 1,
+              overflow: 'auto'
+            }}>
+              {transferredLoading ? (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '60px 20px',
+                  gap: '16px'
+                }}>
+                  <div className="spinner-border" role="status" style={{ color: '#f59e0b' }}>
+                    <span className="visually-hidden">Loading...</span>
+                  </div>
+                  <p style={{ color: '#6b7280', margin: 0 }}>Loading transferred employees...</p>
+                </div>
+              ) : (() => {
+                // Filter transferred employees based on search query
+                const filteredTransferred = transferredEmployeesList.filter(emp => {
+                  if (!transferredSearchQuery.trim()) return true;
+                  
+                  const searchLower = transferredSearchQuery.toLowerCase().trim();
+                  const empId = String(emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || emp?.emp_id || '').toLowerCase();
+                  const empName = String(emp?.FULLNAME || emp?.fullName || emp?.CALLING_NAME || emp?.calling_name || emp?.name || '').toLowerCase();
+                  
+                  return empId.includes(searchLower) || empName.includes(searchLower);
+                });
+
+                return filteredTransferred.length === 0 ? (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '60px 20px',
+                  gap: '12px'
+                }}>
+                  <i className="bi bi-inbox" style={{ fontSize: '48px', color: '#d1d5db' }}></i>
+                  <p style={{ color: '#6b7280', margin: 0, fontSize: '16px' }}>
+                    {transferredSearchQuery ? 'No transferred employees match your search' : 'No transferred employees found for this sub-section'}
+                  </p>
+                </div>
+              ) : (
+                <div style={{
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '12px',
+                  overflow: 'hidden'
+                }}>
+                  <table style={{
+                    width: '100%',
+                    borderCollapse: 'collapse'
+                  }}>
+                    <thead>
+                      <tr style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' }}>
+                        <th style={{ padding: '14px 16px', textAlign: 'left', color: 'white', fontWeight: '600', fontSize: '13px' }}>
+                          EMPLOYEE ID
+                        </th>
+                        <th style={{ padding: '14px 16px', textAlign: 'left', color: 'white', fontWeight: '600', fontSize: '13px' }}>
+                          NAME
+                        </th>
+                        <th style={{ padding: '14px 16px', textAlign: 'center', color: 'white', fontWeight: '600', fontSize: '13px' }}>
+                          ACTION
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredTransferred.map((emp, index) => {
+                        const empId = emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || emp?.emp_id;
+                        
+                        return (
+                          <tr 
+                            key={empId || index}
+                            style={{
+                              borderBottom: index < filteredTransferred.length - 1 ? '1px solid #e5e7eb' : 'none',
+                              transition: 'all 0.2s ease'
+                            }}
+                            onMouseOver={(e) => e.currentTarget.style.background = '#fef3c7'}
+                            onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                          >
+                            <td style={{ padding: '12px 16px', fontSize: '14px', color: '#1f2937', fontWeight: '600' }}>
+                              {empId || 'N/A'}
+                            </td>
+                            <td style={{ padding: '12px 16px', fontSize: '14px', color: '#1f2937' }}>
+                              {emp?.FULLNAME || emp?.fullName || emp?.CALLING_NAME || emp?.calling_name || emp?.name || 'N/A'}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                              <button
+                                onClick={() => {
+                                  // Close transferred modal and trigger recall
+                                  setShowTransferredEmployeesModal(false);
+                                  setTimeout(() => {
+                                    handleRecallTransfer(emp);
+                                  }, 200);
+                                }}
+                                style={{
+                                  padding: '8px 16px',
+                                  border: 'none',
+                                  borderRadius: '6px',
+                                  background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                                  color: 'white',
+                                  fontSize: '13px',
+                                  fontWeight: '600',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.2s ease',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px'
+                                }}
+                                onMouseOver={(e) => {
+                                  e.currentTarget.style.transform = 'translateY(-1px)';
+                                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(239, 68, 68, 0.4)';
+                                }}
+                                onMouseOut={(e) => {
+                                  e.currentTarget.style.transform = 'translateY(0)';
+                                  e.currentTarget.style.boxShadow = 'none';
+                                }}
+                                title="Recall employee transfer from this sub-section"
+                              >
+                                <i className="bi bi-arrow-counterclockwise"></i>
+                                Recall
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+              })()}
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              padding: '20px 32px',
+              borderTop: '1px solid #e5e7eb',
+              background: '#f9fafb',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div style={{ fontSize: '14px', color: '#6b7280' }}>
+                {(() => {
+                  const filteredCount = transferredEmployeesList.filter(emp => {
+                    if (!transferredSearchQuery.trim()) return true;
+                    const searchLower = transferredSearchQuery.toLowerCase().trim();
+                    const empId = String(emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || emp?.emp_id || '').toLowerCase();
+                    const empName = String(emp?.FULLNAME || emp?.fullName || emp?.CALLING_NAME || emp?.calling_name || emp?.name || '').toLowerCase();
+                    return empId.includes(searchLower) || empName.includes(searchLower);
+                  }).length;
+                  
+                  return (
+                    <>
+                      <strong style={{ color: '#1f2937' }}>{filteredCount}</strong> transferred employee{filteredCount !== 1 ? 's' : ''}
+                      {transferredSearchQuery && filteredCount !== transferredEmployeesList.length && (
+                        <span style={{ marginLeft: '8px', color: '#9ca3af' }}>
+                          (filtered from {transferredEmployeesList.length})
+                        </span>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+              <button
+                onClick={closeTransferredEmployeesModal}
+                style={{
+                  padding: '10px 24px',
+                  border: '2px solid #d1d5db',
+                  borderRadius: '8px',
+                  backgroundColor: 'white',
+                  color: '#6b7280',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseOver={(e) => {
+                  e.target.style.borderColor = '#9ca3af';
+                  e.target.style.color = '#374151';
+                }}
+                onMouseOut={(e) => {
+                  e.target.style.borderColor = '#d1d5db';
+                  e.target.style.color = '#6b7280';
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Recall Confirmation Modal */}
       {showRecallConfirm && recallEmployee && selectedSubSection && (
         <div style={{
@@ -3486,7 +3975,7 @@ const SectionManagement = () => {
                   </div>
                   <div style={{ marginLeft: '16px' }}>
                     <div style={{ fontSize: '14px', color: '#1f2937', marginBottom: '6px' }}>
-                      <strong>Sub-Section:</strong> {selectedSubSection?.subSection?.hie_name || 'N/A'}
+                      <strong>Sub-Section:</strong> {selectedSubSection?.subSection?.sub_hie_name || selectedSubSection?.subSection?.hie_name || 'N/A'}
                     </div>
                     <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '4px' }}>
                       <strong>Section:</strong> {selectedSubSection?.parentSection?.hie_name || 'N/A'}
