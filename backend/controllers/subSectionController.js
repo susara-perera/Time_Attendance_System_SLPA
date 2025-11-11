@@ -1,5 +1,6 @@
 const SubSection = require('../models/SubSection');
 const TransferToSubsection = require('../models/TransferToSubsection');
+const { getCachedSubSections, refreshSubSectionsCache } = require('../services/mongodbCacheService');
 
 // GET /api/subsections
 // Create a new sub-section request/record
@@ -62,6 +63,13 @@ exports.createSubSection = async (req, res, next) => {
 		};
 
 		const created = await SubSection.create(payload);
+		
+		console.log(`[MongoDB] ✅ Sub-section created successfully: ${created.subSection?.sub_hie_name || 'Unknown'}`);
+		
+		// Refresh cache after creation
+		const { refreshSubSectionsCache } = require('../services/mongodbCacheService');
+		await refreshSubSectionsCache();
+		console.log(`[MongoDB] 🔄 Cache refreshed after sub-section creation`);
 
 		return res.status(201).json({
 			success: true,
@@ -69,6 +77,7 @@ exports.createSubSection = async (req, res, next) => {
 			data: created
 		});
 	} catch (err) {
+		console.error(`[MongoDB] ❌ Error creating sub-section:`, err);
 		// Pass to global error handler for duplicate keys/validation, etc.
 		next(err);
 	}
@@ -76,17 +85,34 @@ exports.createSubSection = async (req, res, next) => {
 
 // GET /api/subsections (optional simple list for verification)
 exports.listSubSections = async (req, res, next) => {
-	try {
-		const { sectionId } = req.query;
-		const query = sectionId ? { 'parentSection.id': sectionId } : {};
-		const items = await SubSection.find(query).sort({ createdAt: -1 }).limit(200);
-		res.json({ success: true, data: items });
-	} catch (err) {
-		next(err);
-	}
-};
-
-// PUT /api/subsections/:id
+    try {
+        const { sectionId } = req.query;
+        console.log(`[MongoDB] 📦 Fetching sub sections for sectionId: ${sectionId || 'ALL'}`);
+        
+        // Try to get from cache first
+        let cachedSubSections = getCachedSubSections();
+        
+        if (!cachedSubSections) {
+            console.log('[MongoDB] 🔄 Cache miss, refreshing sub sections cache...');
+            cachedSubSections = await refreshSubSectionsCache();
+        }
+        
+        let items = cachedSubSections || [];
+        
+        // Filter by sectionId if provided
+        if (sectionId && sectionId !== 'all') {
+            items = items.filter(item => item.parentSection && item.parentSection.id === sectionId);
+        }
+        
+        console.log(`[MongoDB] ✅ Cached data for: sub sections (${cachedSubSections ? cachedSubSections.length : 0} items)`);
+        console.log(`[MongoDB] 📊 Found ${items.length} sub sections for sectionId: ${sectionId || 'ALL'}`);
+        
+        res.json({ success: true, data: items });
+    } catch (err) {
+        console.error('[MongoDB] ❌ Error fetching sub sections:', err);
+        next(err);
+    }
+};// PUT /api/subsections/:id
 // Update sub-section name/code
 exports.updateSubSection = async (req, res, next) => {
 	try {
@@ -109,11 +135,20 @@ exports.updateSubSection = async (req, res, next) => {
 		);
 
 		if (!updated) {
+			console.log(`[MongoDB] ❌ Sub-section not found for update, ID: ${id}`);
 			return res.status(404).json({ success: false, message: 'Sub-section not found' });
 		}
+		
+		console.log(`[MongoDB] ✅ Sub-section updated successfully: ${updated.subSection?.sub_hie_name || 'Unknown'}`);
+		
+		// Refresh cache after update
+		const { refreshSubSectionsCache } = require('../services/mongodbCacheService');
+		await refreshSubSectionsCache();
+		console.log(`[MongoDB] 🔄 Cache refreshed after sub-section update`);
 
 		return res.json({ success: true, message: 'Sub-section updated successfully', data: updated });
 	} catch (err) {
+		console.error(`[MongoDB] ❌ Error updating sub-section:`, err);
 		next(err);
 	}
 };
@@ -122,12 +157,42 @@ exports.updateSubSection = async (req, res, next) => {
 exports.deleteSubSection = async (req, res, next) => {
 	try {
 		const { id } = req.params;
+		console.log(`[MongoDB] 🗑️ Attempting to delete sub-section with ID: ${id}`);
+		
 		const removed = await SubSection.findByIdAndDelete(id);
 		if (!removed) {
+			console.log(`[MongoDB] ❌ Sub-section not found for ID: ${id}`);
 			return res.status(404).json({ success: false, message: 'Sub-section not found' });
 		}
-		return res.json({ success: true, message: 'Sub-section deleted successfully' });
+		
+		console.log(`[MongoDB] ✅ Sub-section deleted successfully: ${removed.subSection?.sub_hie_name || 'Unknown'}`);
+		
+		// Remove all employee transfers to this sub-section
+		console.log(`[MongoDB] 🔄 Removing employee transfers for sub-section ID: ${id}`);
+		const transferResult = await TransferToSubsection.deleteMany({ sub_section_id: id });
+		console.log(`[MongoDB] ✅ Removed ${transferResult.deletedCount} employee transfer(s) from sub-section`);
+		
+		// Log details if any employees were affected
+		if (transferResult.deletedCount > 0) {
+			console.log(`[MongoDB] 📋 ${transferResult.deletedCount} employee(s) have been removed from the deleted sub-section`);
+		}
+		
+		// Refresh cache after deletion
+		const { refreshSubSectionsCache } = require('../services/mongodbCacheService');
+		await refreshSubSectionsCache();
+		console.log(`[MongoDB] 🔄 Cache refreshed after sub-section deletion`);
+		
+		const message = transferResult.deletedCount > 0 
+			? `Sub-section deleted successfully. ${transferResult.deletedCount} employee(s) removed from sub-section.`
+			: 'Sub-section deleted successfully.';
+		
+		return res.json({ 
+			success: true, 
+			message,
+			employeesRemoved: transferResult.deletedCount
+		});
 	} catch (err) {
+		console.error(`[MongoDB] ❌ Error deleting sub-section:`, err);
 		next(err);
 	}
 };

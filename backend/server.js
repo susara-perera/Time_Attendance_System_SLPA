@@ -54,6 +54,8 @@ testMySQLConnection().then(success => {
 
 // Initialize HRIS API cache at startup
 const { initializeCache } = require('./services/hrisApiService');
+const { initializeCache: initializeMongoDBCache } = require('./services/mongodbCacheService');
+
 console.log('⏳ Initializing HRIS data cache at startup...');
 console.log('⚠️  Login will be blocked until cache initialization completes');
 
@@ -68,6 +70,18 @@ initializeCache().then(success => {
 }).catch(err => {
   console.error('❌ HRIS API cache initialization error:', err.message);
   console.log('⚠️  System will attempt to initialize cache on first login attempt');
+});
+
+// Initialize MongoDB cache at startup
+console.log('⏳ Initializing MongoDB data cache at startup...');
+initializeMongoDBCache().then(success => {
+  if (success) {
+    console.log('✅ MongoDB cache initialized successfully');
+  } else {
+    console.log('❌ MongoDB cache initialization failed');
+  }
+}).catch(err => {
+  console.error('❌ MongoDB cache initialization error:', err.message);
 });
 
 // Security middleware
@@ -183,6 +197,7 @@ app.use('/api/permissions', require('./routes/permission'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/subsections', require('./routes/subSection'));
 app.use('/api/hris-cache', require('./routes/hrisCache'));
+app.use('/api/mongodb-cache', require('./routes/mongodbCache'));
 app.use('/api/hris', require('./routes/hris'));
 
 // Serve static files in production
