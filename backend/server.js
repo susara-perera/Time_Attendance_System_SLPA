@@ -10,12 +10,19 @@ const cookieParser = require('cookie-parser');
 require('dotenv').config();
 
 const connectDB = require('./config/database');
-const { testMySQLConnection } = require('./config/mysql');
+const { testMySQLConnection, ensureMySQLSchema } = require('./config/mysql');
 
 const app = express();
 
-// Connect to MongoDB
-connectDB();
+// Ensure MongoDB is connected for auth, roles, and other Mongoose models
+connectDB()
+  .then(() => {
+    console.log('✅ MongoDB connection established. Proceeding to seed roles...');
+    return seedRoles();
+  })
+  .catch(err => {
+    console.error('❌ Failed to connect to MongoDB at startup:', err?.message || err);
+  });
 
 // Seed default roles if missing
 const seedRoles = async () => {
@@ -41,12 +48,14 @@ const seedRoles = async () => {
   }
 };
 
-seedRoles();
+// Seed roles is now invoked after successful Mongo connection above
 
 // Test MySQL connection for reports
-testMySQLConnection().then(success => {
+testMySQLConnection().then(async success => {
   if (success) {
     console.log('📊 MySQL available for report generation');
+    // Ensure tables we rely on exist (idempotent)
+    await ensureMySQLSchema();
   } else {
     console.log('⚠️ MySQL not available - reports may be limited');
   }
@@ -54,7 +63,7 @@ testMySQLConnection().then(success => {
 
 // Initialize HRIS API cache at startup
 const { initializeCache } = require('./services/hrisApiService');
-const { initializeCache: initializeMongoDBCache } = require('./services/mongodbCacheService');
+// MongoDB cache removed
 
 console.log('⏳ Initializing HRIS data cache at startup...');
 console.log('⚠️  Login will be blocked until cache initialization completes');
@@ -73,16 +82,7 @@ initializeCache().then(success => {
 });
 
 // Initialize MongoDB cache at startup
-console.log('⏳ Initializing MongoDB data cache at startup...');
-initializeMongoDBCache().then(success => {
-  if (success) {
-    console.log('✅ MongoDB cache initialized successfully');
-  } else {
-    console.log('❌ MongoDB cache initialization failed');
-  }
-}).catch(err => {
-  console.error('❌ MongoDB cache initialization error:', err.message);
-});
+// (MongoDB cache disabled) Remove MongoDB cache initialization.
 
 // Security middleware
 app.use(helmet({
@@ -195,9 +195,13 @@ app.use('/api/mysql', require('./routes/mysql'));
 app.use('/api/roles', require('./routes/role'));
 app.use('/api/permissions', require('./routes/permission'));
 app.use('/api/dashboard', require('./routes/dashboard'));
-app.use('/api/subsections', require('./routes/subSection'));
+// (MongoDB subsections disabled) Remove legacy Mongo subsections route
+// app.use('/api/subsections', require('./routes/subSection'));
+app.use('/api/mysql-subsections', require('./routes/mysqlSubSection'));
 app.use('/api/hris-cache', require('./routes/hrisCache'));
-app.use('/api/mongodb-cache', require('./routes/mongodbCache'));
+// MySQL-based subsection transfer endpoints
+app.use('/api/mysql-subsections', require('./routes/mysqlSubSectionTransfer'));
+// (MongoDB cache route disabled) app.use('/api/mongodb-cache', require('./routes/mongodbCache'));
 app.use('/api/hris', require('./routes/hris'));
 
 // Serve static files in production

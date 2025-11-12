@@ -152,7 +152,7 @@ const SectionManagement = () => {
     setSubSectionsLoading(prev => ({ ...prev, [sectionId]: true }));
     setSubSectionsError(prev => ({ ...prev, [sectionId]: '' }));
     try {
-      const resp = await fetch(`${API_BASE_URL}/subsections?sectionId=${encodeURIComponent(sectionId)}`, {
+  const resp = await fetch(`${API_BASE_URL}/mysql-subsections?sectionId=${encodeURIComponent(sectionId)}`, {
         headers: { 'Authorization': `Bearer ${token}` },
         credentials: 'include'
       });
@@ -214,7 +214,7 @@ const SectionManagement = () => {
     }
 
     try {
-      const resp = await fetch(`${API_BASE_URL}/subsections/${editingSubSection.subSection._id}`, {
+  const resp = await fetch(`${API_BASE_URL}/mysql-subsections/${editingSubSection.subSection._id}`, {
         method: 'PUT',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -270,7 +270,7 @@ const SectionManagement = () => {
       return showToast({ type: 'error', title: 'Auth', message: 'Token missing. Please login.' });
     }
     try {
-      const resp = await fetch(`${API_BASE_URL}/subsections/${subSectionId}`, {
+  const resp = await fetch(`${API_BASE_URL}/mysql-subsections/${subSectionId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` },
         credentials: 'include',
@@ -297,12 +297,12 @@ const SectionManagement = () => {
     }
   };
 
-  // Fetch transferred employees from MongoDB
+  // Fetch transferred employees (MySQL) and return mapped IDs for immediate filtering
   const fetchTransferredEmployees = async (subSectionId, token) => {
     try {
       console.log('🔍 Fetching transferred employees for subsection:', subSectionId);
       
-      const response = await fetch(`${API_BASE_URL}/subsections/transferred/${subSectionId}`, {
+  const response = await fetch(`${API_BASE_URL}/mysql-subsections/transferred/${subSectionId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -313,39 +313,32 @@ const SectionManagement = () => {
 
       console.log('📡 Response status:', response.status);
 
-      if (response.ok) {
-        const data = await response.json();
-        console.log('📦 Response data:', data);
-        
-        const transfers = data?.data || [];
-        console.log('📊 Number of transfers found:', transfers.length);
-        
-        if (transfers.length > 0) {
-          console.log('📋 Transfer records:', transfers);
-        }
-        
-        // Update the transferred employees list
-        const transferredIds = transfers.map(t => ({
-          employeeId: t.employeeId,
-          sub_section_id: t.sub_section_id
-        }));
-        
-        console.log('🎯 Mapped transferred IDs:', transferredIds);
-        
-        setTransferredEmployees(prev => {
-          // Remove old entries for this subsection first
-          const filtered = prev.filter(t => t.sub_section_id !== subSectionId);
-          // Add new entries
-          const updated = [...filtered, ...transferredIds];
-          console.log('✅ Updated transferred employees list:', updated);
-          return updated;
-        });
-      } else {
+      if (!response.ok) {
         console.error('❌ Failed to fetch transferred employees. Status:', response.status);
+        return [];
       }
+      const data = await response.json();
+      console.log('📦 Response data:', data);
+      const transfers = data?.data || [];
+      console.log('📊 Number of transfers found:', transfers.length);
+      if (transfers.length > 0) console.log('📋 Transfer records:', transfers);
+
+      const transferredIds = transfers.map(t => ({
+        employeeId: String(t.employeeId || t.employee_id || t.empId || t.emp_id || ''),
+        sub_section_id: t.sub_section_id || t.subSectionId || t.subsection_id || t.subsectionId
+      }));
+      console.log('🎯 Mapped transferred IDs:', transferredIds);
+      setTransferredEmployees(prev => {
+        const filtered = prev.filter(t => t.sub_section_id !== subSectionId);
+        const updated = [...filtered, ...transferredIds];
+        console.log('✅ Updated transferred employees list:', updated);
+        return updated;
+      });
+      return transferredIds;
     } catch (error) {
       console.error('❌ Error fetching transferred employees:', error);
       // Don't show error toast, just log it
+      return [];
     }
   };
 
@@ -362,8 +355,8 @@ const SectionManagement = () => {
         throw new Error('No authentication token');
       }
 
-      // Fetch already transferred employees for this subsection
-      await fetchTransferredEmployees(subSection._id, token);
+  // Fetch already transferred employees for this subsection and keep local copy
+  const currentTransferred = await fetchTransferredEmployees(subSection._id, token);
 
       // Get division and section info from the subsection
       const divisionCode = subSection?.parentDivision?.division_code || '';
@@ -429,11 +422,11 @@ const SectionManagement = () => {
 
       console.log('✅ Filtered employees:', filteredEmployees.length);
 
-      // Filter out already transferred employees for this subsection
+      // Filter out already transferred employees for this subsection using latest (local) list
       const notTransferredEmployees = filteredEmployees.filter(emp => {
         const empId = String(emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || '');
-        const isAlreadyTransferred = transferredEmployees.some(
-          te => String(te.employeeId) === empId && te.sub_section_id === subSection._id
+        const isAlreadyTransferred = currentTransferred.some(
+          te => String(te.employeeId) === empId && String(te.sub_section_id) === String(subSection._id)
         );
         return !isAlreadyTransferred;
       });
@@ -498,8 +491,8 @@ const SectionManagement = () => {
 
       console.log('📤 Transferring employee:', transferData);
 
-      // Save to MongoDB
-      const response = await fetch(`${API_BASE_URL}/subsections/transfer`, {
+    // Save to MySQL
+    const response = await fetch(`${API_BASE_URL}/mysql-subsections/transfer`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -516,19 +509,10 @@ const SectionManagement = () => {
       const result = await response.json();
       console.log('✅ Transfer successful - API response:', result);
       
-      // Add employee to transferred list
-      const newTransfer = {
-        employeeId: transferData.employeeId,
-        sub_section_id: transferData.sub_section_id
-      };
-      console.log('➕ Adding to transferred list:', newTransfer);
-      
-      setTransferredEmployees(prev => {
-        const updated = [...prev, newTransfer];
-        console.log('📋 Updated transferred employees:', updated);
-        return updated;
-      });
-      
+      // Add employee to transferred list and immediately remove from selectable employee list
+      const newTransfer = { employeeId: transferData.employeeId, sub_section_id: transferData.sub_section_id };
+      setTransferredEmployees(prev => [...prev, newTransfer]);
+      setEmployeeList(prev => prev.filter(e => String(e?.EMP_NUMBER || e?.empNumber || e?.EMP_ID || '') !== String(transferData.employeeId)));
       setShowTransferConfirm(false);
       setTransferEmployee(null);
       setTransferSubmitting(false);
@@ -576,13 +560,18 @@ const SectionManagement = () => {
       return showToast({ type: 'error', title: 'Auth', message: 'Token missing. Please login.' });
     }
 
-    const empId = recallEmployee?.EMP_NUMBER || recallEmployee?.empNumber || recallEmployee?.EMP_ID || recallEmployee?.emp_id;
-    const empName = recallEmployee?.FULLNAME || recallEmployee?.fullName || recallEmployee?.CALLING_NAME || recallEmployee?.calling_name || recallEmployee?.name || 'Employee';
+  const empId = recallEmployee?.EMP_NUMBER || recallEmployee?.empNumber || recallEmployee?.EMP_ID || recallEmployee?.emp_id;
+  const empName = recallEmployee?.FULLNAME || recallEmployee?.fullName || recallEmployee?.CALLING_NAME || recallEmployee?.calling_name || recallEmployee?.name || 'Employee';
 
     try {
+      // Extra debug to validate payload shape
+      console.log('RECALL PAYLOAD:', { employeeId: String(empId), sub_section_id: selectedSubSection?._id });
       console.log('🔄 Recalling transfer for:', { empId, sub_section_id: selectedSubSection._id });
 
-      const response = await fetch(`${API_BASE_URL}/subsections/recall-transfer`, {
+      // Provide query params redundantly to handle environments that drop DELETE bodies
+      const recallUrl = `${API_BASE_URL}/mysql-subsections/recall-transfer?employeeId=${encodeURIComponent(String(empId))}&sub_section_id=${encodeURIComponent(String(selectedSubSection._id))}`;
+
+      let response = await fetch(recallUrl, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -595,16 +584,45 @@ const SectionManagement = () => {
         })
       });
 
+      // If DELETE fails (e.g., body stripped or method blocked), fall back to POST
+      if (!response.ok) {
+        console.warn('DELETE recall failed, attempting POST fallback...', response.status);
+        response = await fetch(`${API_BASE_URL}/mysql-subsections/recall-transfer`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            employeeId: String(empId),
+            sub_section_id: selectedSubSection._id
+          })
+        });
+      }
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
 
       const result = await response.json();
 
-      // Remove from transferred list
-      setTransferredEmployees(prev => 
-        prev.filter(t => !(String(t.employeeId) === String(empId) && t.sub_section_id === selectedSubSection._id))
-      );
+      // Remove from internal transferred IDs cache (only affects session-added transfers)
+      setTransferredEmployees(prev => prev.filter(t => !(String(t.employeeId) === String(empId) && String(t.sub_section_id) === String(selectedSubSection._id))));
+
+      // Re-fetch authoritative transferred list to ensure consistency even for legacy entries
+      try {
+        await fetchTransferredEmployees(selectedSubSection._id, token);
+      } catch (e) {
+        console.warn('⚠️ Failed to refresh transferred list after recall:', e);
+      }
+
+      // If the add-employee modal is open, reinsert the recalled employee (avoid duplicates)
+      setEmployeeList(prev => {
+        const exists = prev.some(e => String(e?.EMP_NUMBER || e?.empNumber || e?.EMP_ID || '') === String(empId));
+        if (exists) return prev; // already present
+        return [...prev, recallEmployee];
+      });
 
       setShowRecallConfirm(false);
       setRecallEmployee(null);
@@ -618,9 +636,8 @@ const SectionManagement = () => {
 
       console.log('✅ Recall successful:', result);
 
-      // If we're in the transferred employees modal, refresh the list
+      // Refresh visible transferred employees modal if still open
       if (showTransferredEmployeesModal) {
-        // Re-fetch transferred employees
         await handleShowTransferredEmployees(selectedSubSection);
       }
 
@@ -662,7 +679,7 @@ const SectionManagement = () => {
       console.log('🔍 Fetching transferred employees for subsection:', subSection._id);
 
       // Fetch transferred employees from MongoDB
-      const response = await fetch(`${API_BASE_URL}/subsections/transferred/${subSection._id}`, {
+  const response = await fetch(`${API_BASE_URL}/mysql-subsections/transferred/${subSection._id}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -675,13 +692,23 @@ const SectionManagement = () => {
         throw new Error(`HTTP ${response.status}`);
       }
 
-      const data = await response.json();
-      const transfers = data?.data || [];
+  const data = await response.json();
+  const transfers = data?.data || [];
       
       console.log('📊 Transferred employees:', transfers);
 
       // Extract employee data from transfer records
-      const employeeDataList = transfers.map(transfer => transfer.employeeData || {});
+      const employeeDataList = transfers.map(transfer => {
+        // Support both Mongo-style 'employeeData' and MySQL 'employee_data'
+        const raw = transfer.employeeData ?? transfer.employee_data ?? null;
+        if (!raw) return {};
+        try {
+          // MySQL may return JSON as string; parse if needed
+          return typeof raw === 'string' ? JSON.parse(raw) : raw;
+        } catch (_) {
+          return {};
+        }
+      });
       
       setTransferredEmployeesList(employeeDataList);
       setTransferredLoading(false);
@@ -1107,7 +1134,7 @@ const SectionManagement = () => {
 
       console.log('🔍 Subsection Payload:', JSON.stringify(payload, null, 2));
 
-      const resp = await fetch(`${API_BASE_URL}/subsections`, {
+  const resp = await fetch(`${API_BASE_URL}/mysql-subsections`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

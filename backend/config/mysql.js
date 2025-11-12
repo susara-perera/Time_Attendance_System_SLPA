@@ -35,5 +35,61 @@ const testMySQLConnection = async () => {
 
 module.exports = {
   createMySQLConnection,
-  testMySQLConnection
+  testMySQLConnection,
+  ensureMySQLSchema
 };
+
+// Ensure MySQL schema objects required by the app exist
+async function ensureMySQLSchema() {
+  const ddlSubsections = `
+    CREATE TABLE IF NOT EXISTS subsections (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      division_id VARCHAR(50) NOT NULL,
+      division_code VARCHAR(50) NULL,
+      division_name VARCHAR(150) NULL,
+      section_id VARCHAR(50) NOT NULL,
+      section_code VARCHAR(50) NULL,
+      section_name VARCHAR(150) NULL,
+      sub_name VARCHAR(100) NOT NULL,
+      sub_code VARCHAR(20) NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_section_subcode (section_id, sub_code),
+      INDEX idx_section_id (section_id),
+      INDEX idx_division_id (division_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `;
+  const ddlTransfers = `
+    CREATE TABLE IF NOT EXISTS subsection_transfers (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      employee_id VARCHAR(50) NOT NULL,
+      employee_name VARCHAR(150) NULL,
+      division_code VARCHAR(50) NULL,
+      division_name VARCHAR(150) NULL,
+      section_code VARCHAR(50) NULL,
+      section_name VARCHAR(150) NULL,
+      sub_section_id INT NOT NULL,
+      sub_hie_code VARCHAR(20) NULL,
+      sub_hie_name VARCHAR(100) NULL,
+      transferred_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      transferred_by VARCHAR(50) NULL,
+      employee_data JSON NULL,
+      UNIQUE KEY uniq_emp_sub (employee_id, sub_section_id),
+      INDEX idx_sub_section_id (sub_section_id),
+      INDEX idx_employee_id (employee_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `;
+
+  let conn;
+  try {
+    conn = await createMySQLConnection();
+    await conn.execute(ddlSubsections);
+    console.log('🛠️  Ensured MySQL table exists: subsections');
+  await conn.execute(ddlTransfers);
+  console.log('🛠️  Ensured MySQL table exists: subsection_transfers');
+  } catch (err) {
+    console.error('❌ Failed ensuring MySQL schema:', err.message);
+  } finally {
+    if (conn) await conn.end();
+  }
+}
