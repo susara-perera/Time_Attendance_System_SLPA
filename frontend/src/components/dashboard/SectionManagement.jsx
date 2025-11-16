@@ -63,6 +63,10 @@ const SectionManagement = () => {
   const [recallSubmitting, setRecallSubmitting] = useState(false);
   // Transferred employees modal state
   const [showTransferredEmployeesModal, setShowTransferredEmployeesModal] = useState(false);
+  // Bulk recall selection state
+  const [selectedTransferredEmployeeIds, setSelectedTransferredEmployeeIds] = useState(new Set());
+  const [showBulkRecallConfirm, setShowBulkRecallConfirm] = useState(false);
+  const [bulkRecallSubmitting, setBulkRecallSubmitting] = useState(false);
   const [transferredEmployeesList, setTransferredEmployeesList] = useState([]);
   const [transferredLoading, setTransferredLoading] = useState(false);
   // Search state for employee modals
@@ -198,12 +202,12 @@ const SectionManagement = () => {
 
   const submitEditSubSection = async () => {
     if (!editingSubSection) return;
-    
+
     // Validate
     const errors = {};
     if (!editSubForm.name.trim()) errors.name = 'Sub-section name is required';
     if (!editSubForm.code.trim()) errors.code = 'Sub-section code is required';
-    
+
     if (Object.keys(errors).length > 0) {
       setEditSubErrors(errors);
       return;
@@ -213,40 +217,54 @@ const SectionManagement = () => {
     const token = localStorage.getItem('token');
     if (!token) {
       setEditSubSubmitting(false);
-      return showToast({ type: 'error', title: 'Auth', message: 'Token missing. Please login.' });
+      showToast({ type: 'error', title: 'Auth', message: 'Token missing. Please login.' });
+      return;
     }
 
     try {
-  const resp = await fetch(`${API_BASE_URL}/mysql-subsections/${editingSubSection.subSection._id}`, {
+      const subSectionId = editingSubSection?.subSection?._id || editingSubSection?.subSection?._id || editingSubSection?.subSection?.id || editingSubSection?.subSection?.section_id || '';
+      const payload = {
+        // Provide multiple keys for compatibility with different backend routes
+        sub_hie_name: editSubForm.name.trim(),
+        sub_hie_code: editSubForm.code.trim(),
+        hie_name: editSubForm.name.trim(),
+        hie_code: editSubForm.code.trim(),
+        name: editSubForm.name.trim(),
+        code: editSubForm.code.trim()
+      };
+
+      const resp = await fetch(`${API_BASE_URL}/mysql-subsections/${encodeURIComponent(subSectionId)}`, {
         method: 'PUT',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
         credentials: 'include',
-        body: JSON.stringify({ 
-          sub_hie_name: editSubForm.name.trim(), 
-          sub_hie_code: editSubForm.code.trim(),
-          // Keep backward compatibility
-          hie_name: editSubForm.name.trim(), 
-          hie_code: editSubForm.code.trim(),
-          name: editSubForm.name.trim(), 
-          code: editSubForm.code.trim() 
-        })
+        body: JSON.stringify(payload)
       });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      
+
+      if (!resp.ok) {
+        let msg = `Failed to update sub-section (HTTP ${resp.status})`;
+        try { const j = await resp.json(); msg = j?.message || msg; } catch (_) {}
+        throw new Error(msg);
+      }
+
+      // Close and reset
       setShowEditSubModal(false);
       setEditingSubSection(null);
       setEditSubForm({ name: '', code: '' });
       setEditSubSubmitting(false);
-      
+
       setTimeout(() => {
         showToast({ type: 'success', title: 'Success!', message: 'Sub-section updated successfully.' });
       }, 150);
-      
+
+      // Refresh sub-section list
       await fetchSubSections(editingSubSection.sectionId, { force: true });
     } catch (e) {
       console.error('Edit sub-section failed:', e);
       setEditSubSubmitting(false);
-      showToast({ type: 'error', title: 'Failed', message: 'Could not update sub-section.' });
+      showToast({ type: 'error', title: 'Failed', message: (e?.message || 'Could not update sub-section.') });
     }
   };
 
@@ -776,6 +794,13 @@ const SectionManagement = () => {
         return [...prev, recallEmployee];
       });
 
+      // Remove this id from the selected transferred set, if present
+      setSelectedTransferredEmployeeIds(prev => {
+        const next = new Set(Array.from(prev));
+        if (next.has(String(empId))) next.delete(String(empId));
+        return next;
+      });
+
       setShowRecallConfirm(false);
       setRecallEmployee(null);
       setRecallSubmitting(false);
@@ -810,6 +835,74 @@ const SectionManagement = () => {
     setRecallEmployee(null);
   };
 
+  // Bulk recall confirm
+  const confirmBulkRecall = async () => {
+    if (!selectedSubSection || selectedTransferredEmployeeIds.size === 0) return;
+    setBulkRecallSubmitting(true);
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setBulkRecallSubmitting(false);
+      setShowBulkRecallConfirm(false);
+      return showToast({ type: 'error', title: 'Auth', message: 'Token missing. Please login.' });
+    }
+
+    try {
+      const employees = Array.from(selectedTransferredEmployeeIds);
+      const recalls = employees.map(id => ({ employeeId: String(id), sub_section_id: selectedSubSection._id }));
+
+      // Try bulk recall endpoint first
+      let response = await fetch(`${API_BASE_URL}/mysql-subsections/recall-transfer/bulk`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify(recalls)
+      });
+
+      if (!response.ok) {
+        console.warn('Bulk recall failed; falling back to individual recals', response.status);
+        // fallback: sequential recalls using existing endpoint
+        const results = [];
+        for (const r of recalls) {
+          const res = await fetch(`${API_BASE_URL}/mysql-subsections/recall-transfer`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            credentials: 'include',
+            body: JSON.stringify(r)
+          });
+          results.push(res);
+        }
+        const anyFailed = results.some(r => !r.ok);
+        if (anyFailed) throw new Error('One or more individual recalls failed during fallback');
+      } else {
+        // success bulk
+        const bulkResult = await response.json();
+        console.log('Bulk recall result:', bulkResult);
+      }
+
+      // Remove recalled employees from local array list and global state
+      setTransferredEmployeesList(prev => prev.filter(emp => !selectedTransferredEmployeeIds.has(String(emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || emp?.emp_id || ''))));
+      setTransferredEmployees(prev => prev.filter(t => !selectedTransferredEmployeeIds.has(String(t.employeeId || t.employee_id || t.empId || t.emp_id))));
+      setSelectedTransferredEmployeeIds(new Set());
+      setShowBulkRecallConfirm(false);
+      setBulkRecallSubmitting(false);
+
+      showToast({ type: 'success', title: 'Recalled', message: `${employees.length} transfer${employees.length !== 1 ? 's' : ''} recalled successfully` });
+      // refresh authoritative transfers for this subsection
+      try { await fetchTransferredEmployees(selectedSubSection._id, token); } catch (e) { console.warn('Failed to refresh transferred employees after bulk recall', e); }
+    } catch (error) {
+      console.error('Bulk recall failed:', error);
+      setBulkRecallSubmitting(false);
+      setShowBulkRecallConfirm(false);
+      showToast({ type: 'error', title: 'Recall Failed', message: 'Bulk recall failed. Check console for details.' });
+    }
+  };
+
   const cancelDeleteSubSection = () => {
     setShowDeleteConfirm(false);
     setDeleteTarget(null);
@@ -819,6 +912,7 @@ const SectionManagement = () => {
   const handleShowTransferredEmployees = async (subSection) => {
     setSelectedSubSection(subSection);
     setShowTransferredEmployeesModal(true);
+    setSelectedTransferredEmployeeIds(new Set());
     setTransferredLoading(true);
     setTransferredEmployeesList([]);
 
@@ -881,6 +975,8 @@ const SectionManagement = () => {
     setSelectedSubSection(null);
     setTransferredEmployeesList([]);
     setTransferredSearchQuery('');
+    setSelectedTransferredEmployeeIds(new Set());
+    setShowBulkRecallConfirm(false);
   };
 
   // Helpers: string normalization and defaults
@@ -3652,30 +3748,7 @@ const SectionManagement = () => {
                   );
                 })()}
               </div>
-              <button
-                onClick={closeEmployeeModal}
-                style={{
-                  padding: '10px 24px',
-                  border: '2px solid #d1d5db',
-                  borderRadius: '8px',
-                  backgroundColor: 'white',
-                  color: '#6b7280',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease'
-                }}
-                onMouseOver={(e) => {
-                  e.target.style.borderColor = '#9ca3af';
-                  e.target.style.color = '#374151';
-                }}
-                onMouseOut={(e) => {
-                  e.target.style.borderColor = '#d1d5db';
-                  e.target.style.color = '#6b7280';
-                }}
-              >
-                Close
-              </button>
+              {/* Footer Close button removed per request; use header X to close modal */}
               <button
                 onClick={() => setShowBulkTransferConfirm(true)}
                 disabled={selectedEmployeeIds.size === 0}
@@ -4074,6 +4147,40 @@ const SectionManagement = () => {
                   }}>
                     <thead>
                       <tr style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' }}>
+                            <th style={{ padding: '14px 16px', width: '40px', textAlign: 'center' }}>
+                              <input
+                                type="checkbox"
+                                checked={(() => {
+                                  try {
+                                    const filteredTransferred = transferredEmployeesList.filter(emp => {
+                                      if (!transferredSearchQuery.trim()) return true;
+                                      const searchLower = transferredSearchQuery.toLowerCase().trim();
+                                      const empId = String(emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || emp?.emp_id || '').toLowerCase();
+                                      const empName = String(emp?.FULLNAME || emp?.fullName || emp?.CALLING_NAME || emp?.calling_name || emp?.name || '').toLowerCase();
+                                      return empId.includes(searchLower) || empName.includes(searchLower);
+                                    });
+                                    return filteredTransferred.length > 0 && selectedTransferredEmployeeIds.size === filteredTransferred.length;
+                                  } catch (e) { return false; }
+                                })()}
+                                onChange={(e) => {
+                                  const checked = !!e.target.checked;
+                                  const filteredTransferred = transferredEmployeesList.filter(emp => {
+                                    if (!transferredSearchQuery.trim()) return true;
+                                    const searchLower = transferredSearchQuery.toLowerCase().trim();
+                                    const empId = String(emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || emp?.emp_id || '').toLowerCase();
+                                    const empName = String(emp?.FULLNAME || emp?.fullName || emp?.CALLING_NAME || emp?.calling_name || emp?.name || '').toLowerCase();
+                                    return empId.includes(searchLower) || empName.includes(searchLower);
+                                  });
+                                  if (checked) {
+                                    const ids = new Set(filteredTransferred.map(emp => String(emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || emp?.emp_id || '')));
+                                    setSelectedTransferredEmployeeIds(ids);
+                                  } else {
+                                    setSelectedTransferredEmployeeIds(new Set());
+                                  }
+                                }}
+                                title="Select all visible transferred employees"
+                              />
+                            </th>
                         <th style={{ padding: '14px 16px', textAlign: 'left', color: 'white', fontWeight: '600', fontSize: '13px' }}>
                           EMPLOYEE ID
                         </th>
@@ -4099,6 +4206,22 @@ const SectionManagement = () => {
                             onMouseOver={(e) => e.currentTarget.style.background = '#fef3c7'}
                             onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
                           >
+                            <td style={{ padding: '12px 10px', textAlign: 'center' }}>
+                              <input
+                                type="checkbox"
+                                checked={selectedTransferredEmployeeIds.has(String(empId))}
+                                onChange={() => {
+                                  const id = String(empId);
+                                  setSelectedTransferredEmployeeIds(prev => {
+                                    const next = new Set(Array.from(prev));
+                                    if (next.has(id)) next.delete(id);
+                                    else next.add(id);
+                                    return next;
+                                  });
+                                }}
+                                title="Select transferred employee for recall"
+                              />
+                            </td>
                             <td style={{ padding: '12px 16px', fontSize: '14px', color: '#1f2937', fontWeight: '600' }}>
                               {empId || 'N/A'}
                             </td>
@@ -4183,29 +4306,24 @@ const SectionManagement = () => {
                   );
                 })()}
               </div>
+              {/* Removed footer Close button per request; modal can still be closed via header X */}
               <button
-                onClick={closeTransferredEmployeesModal}
+                onClick={() => setShowBulkRecallConfirm(true)}
+                disabled={selectedTransferredEmployeeIds.size === 0}
                 style={{
                   padding: '10px 24px',
-                  border: '2px solid #d1d5db',
+                  border: 'none',
                   borderRadius: '8px',
-                  backgroundColor: 'white',
-                  color: '#6b7280',
+                  background: selectedTransferredEmployeeIds.size === 0 ? '#d1d5db' : 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                  color: 'white',
                   fontSize: '14px',
                   fontWeight: '600',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease'
-                }}
-                onMouseOver={(e) => {
-                  e.target.style.borderColor = '#9ca3af';
-                  e.target.style.color = '#374151';
-                }}
-                onMouseOut={(e) => {
-                  e.target.style.borderColor = '#d1d5db';
-                  e.target.style.color = '#6b7280';
+                  cursor: selectedTransferredEmployeeIds.size === 0 ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s ease',
+                  marginLeft: '12px'
                 }}
               >
-                Close
+                Recall Selected
               </button>
             </div>
           </div>
@@ -4401,6 +4519,102 @@ const SectionManagement = () => {
                   )}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Recall Confirmation Modal */}
+      {showBulkRecallConfirm && selectedSubSection && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10001,
+          padding: '20px'
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: '16px',
+            maxWidth: '700px',
+            width: '100%',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+              padding: '20px 28px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px'
+            }}>
+              <i className="bi bi-arrow-counterclockwise" style={{ fontSize: '22px', color: 'white' }}></i>
+              <h3 style={{ margin: 0, color: 'white', fontSize: '18px', fontWeight: '600' }}>
+                Confirm Bulk Recall ({selectedTransferredEmployeeIds.size} selected)
+              </h3>
+            </div>
+            <div style={{ padding: '24px' }}>
+              <p style={{ fontSize: '14px', color: '#374151', marginBottom: '12px' }}>
+                You're about to recall the transfer for <strong>{selectedTransferredEmployeeIds.size}</strong> employee{selectedTransferredEmployeeIds.size !== 1 ? 's' : ''} from:
+              </p>
+              <div style={{ padding: '12px 16px', background: '#fef2f2', borderRadius: '8px', border: '1px solid #fecaca' }}>
+                <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '600' }}>{selectedSubSection?.subSection?.sub_hie_name || selectedSubSection?.subSection?.hie_name || 'N/A'}</div>
+                <div style={{ fontSize: '13px', color: '#6b7280' }}>{selectedSubSection?.parentSection?.hie_name || 'Section: N/A'}</div>
+                <div style={{ fontSize: '13px', color: '#6b7280' }}>{selectedSubSection?.parentDivision?.division_name || 'Division: N/A'}</div>
+              </div>
+              <div style={{ marginTop: '18px' }}>
+                <strong style={{ color: '#374151' }}>Selected employees preview:</strong>
+                <div style={{ marginTop: '8px', maxHeight: '160px', overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '8px' }}>
+                  {Array.from(selectedTransferredEmployeeIds).slice(0, 10).map((id, idx) => {
+                    const emp = transferredEmployeesList.find(e => String(e?.EMP_NUMBER || e?.empNumber || e?.EMP_ID || e?.emp_id || '') === id);
+                    const name = emp?.FULLNAME || emp?.fullName || emp?.CALLING_NAME || emp?.calling_name || emp?.name || id;
+                    return (
+                      <div key={id + idx} style={{ padding: '6px 8px', borderBottom: '1px dashed #e5e7eb', fontSize: '13px' }}>{id} - {name}</div>
+                    );
+                  })}
+                  {selectedTransferredEmployeeIds.size > 10 && (
+                    <div style={{ padding: '6px 8px', color: '#6b7280', fontSize: '13px' }}>+ {selectedTransferredEmployeeIds.size - 10} more...</div>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div style={{ padding: '20px 28px', borderTop: '1px solid #e5e7eb', background: '#f9fafb', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button
+                onClick={() => setShowBulkRecallConfirm(false)}
+                disabled={bulkRecallSubmitting}
+                style={{
+                  padding: '10px 20px',
+                  border: '2px solid #d1d5db',
+                  borderRadius: '8px',
+                  backgroundColor: 'white',
+                  color: '#6b7280',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  cursor: bulkRecallSubmitting ? 'not-allowed' : 'pointer'
+                }}
+              >Cancel</button>
+              <button
+                onClick={confirmBulkRecall}
+                disabled={bulkRecallSubmitting}
+                style={{
+                  padding: '10px 20px',
+                  border: 'none',
+                  borderRadius: '8px',
+                  background: bulkRecallSubmitting ? '#9ca3af' : 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                  color: 'white',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  cursor: bulkRecallSubmitting ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {bulkRecallSubmitting ? 'Recalling...' : `Confirm (${selectedTransferredEmployeeIds.size})`}
+              </button>
             </div>
           </div>
         </div>

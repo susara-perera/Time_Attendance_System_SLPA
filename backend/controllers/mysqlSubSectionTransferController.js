@@ -189,3 +189,74 @@ exports.recallTransfer = async (req, res, next) => {
     if (conn) await conn.end();
   }
 };
+
+// Recall multiple transfers (bulk delete) - accepts array of { employeeId, sub_section_id } or array of ids
+exports.recallTransfersBulk = async (req, res, next) => {
+  let conn;
+  try {
+    // Accept multiple shapes: body could be array, or { transfers: [] }
+    const body = req.body || {};
+    let transfers = [];
+    if (Array.isArray(body)) transfers = body;
+    else if (Array.isArray(body.transfers)) transfers = body.transfers;
+    else if (body.ids && Array.isArray(body.ids)) {
+      // Allow list of DB row IDs (numeric)
+      const ids = body.ids.map(i => parseInt(i, 10)).filter(i => !Number.isNaN(i));
+      if (ids.length === 0) return res.status(400).json({ success: false, message: 'No valid IDs provided' });
+      conn = await createMySQLConnection();
+      await conn.beginTransaction();
+      const [result] = await conn.execute(
+        `DELETE FROM subsection_transfers WHERE id IN (${ids.map(() => '?').join(',')})`,
+        ids
+      );
+      await conn.commit();
+      return res.json({ success: true, message: `Deleted ${result.affectedRows} transfers`, data: { deleted: result.affectedRows } });
+    } else if (body.employeeIds && Array.isArray(body.employeeIds) && body.sub_section_id) {
+      // Accept bulk delete by array of employeeIds and single sub_section_id
+      transfers = body.employeeIds.map(empId => ({ employeeId: empId, sub_section_id: body.sub_section_id }));
+    }
+
+    if (!Array.isArray(transfers) || transfers.length === 0) {
+      return res.status(400).json({ success: false, message: 'An array of transfers is required' });
+    }
+
+    // Minimal validation: each transfer must carry an employeeId and sub_section_id (or id handled above)
+    const invalid = transfers.some(t => !(t.employeeId && t.sub_section_id));
+    if (invalid) {
+      return res.status(400).json({ success: false, message: 'Each transfer must include employeeId and sub_section_id' });
+    }
+
+    // Group by sub_section_id for efficient deletions
+    const groups = new Map();
+    transfers.forEach(t => {
+      const sub = String(t.sub_section_id);
+      const emp = String(t.employeeId);
+      if (!groups.has(sub)) groups.set(sub, new Set());
+      groups.get(sub).add(emp);
+    });
+
+    conn = await createMySQLConnection();
+    await conn.beginTransaction();
+    let totalDeleted = 0;
+    for (const [subSectionId, empSet] of groups.entries()) {
+      const empArr = Array.from(empSet);
+      if (!empArr.length) continue;
+      const placeholders = empArr.map(() => '?').join(',');
+      const params = [parseInt(subSectionId, 10), ...empArr];
+      // DELETE WHERE sub_section_id = ? AND employee_id IN (?, ?, ...)
+      const sql = `DELETE FROM subsection_transfers WHERE sub_section_id = ? AND employee_id IN (${placeholders})`;
+      const [result] = await conn.execute(sql, params);
+      totalDeleted += result.affectedRows || 0;
+    }
+    await conn.commit();
+    return res.json({ success: true, message: `Bulk recall completed, ${totalDeleted} records deleted`, data: { deleted: totalDeleted } });
+  } catch (err) {
+    if (conn) {
+      try { await conn.rollback(); } catch (e) { /* ignore rollback errors */ }
+    }
+    console.error('[MySQL] recallTransfersBulk failed:', err);
+    next(err);
+  } finally {
+    if (conn) await conn.end();
+  }
+};

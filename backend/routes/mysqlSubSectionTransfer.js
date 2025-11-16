@@ -13,5 +13,8 @@ router.post('/transfer/bulk', auth, auditTrail('mysql_employee_transferred_bulk'
 router.delete('/recall-transfer', auth, auditTrail('mysql_transfer_recalled', 'TransferToSubsection'), ctrl.recallTransfer);
 // Allow POST fallback for environments that don't send bodies with DELETE
 router.post('/recall-transfer', auth, auditTrail('mysql_transfer_recalled', 'TransferToSubsection'), ctrl.recallTransfer);
+// Bulk recall (delete multiple transfers)
+router.delete('/recall-transfer/bulk', auth, auditTrail('mysql_transfer_recalled_bulk', 'TransferToSubsection'), ctrl.recallTransfersBulk);
+router.post('/recall-transfer/bulk', auth, auditTrail('mysql_transfer_recalled_bulk', 'TransferToSubsection'), ctrl.recallTransfersBulk);
 
 module.exports = router;
