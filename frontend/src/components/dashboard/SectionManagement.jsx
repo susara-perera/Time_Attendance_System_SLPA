@@ -45,6 +45,9 @@ const SectionManagement = () => {
   const [deleteTarget, setDeleteTarget] = useState(null); // { sectionId, subSectionId }
   // Employee list modal state
   const [showEmployeeModal, setShowEmployeeModal] = useState(false);
+  // Bulk transfer selection state
+  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState(new Set());
+  const [showBulkTransferConfirm, setShowBulkTransferConfirm] = useState(false);
   const [employeeList, setEmployeeList] = useState([]);
   const [employeeLoading, setEmployeeLoading] = useState(false);
   const [selectedSubSection, setSelectedSubSection] = useState(null);
@@ -346,6 +349,7 @@ const SectionManagement = () => {
   const handleAddEmployeeToSubSection = async (subSection) => {
     setSelectedSubSection(subSection);
     setShowEmployeeModal(true);
+    setSelectedEmployeeIds(new Set());
     setEmployeeLoading(true);
     setEmployeeList([]);
 
@@ -453,6 +457,28 @@ const SectionManagement = () => {
     setSelectedSubSection(null);
     setEmployeeList([]);
     setEmployeeSearchQuery('');
+    setSelectedEmployeeIds(new Set());
+    setShowBulkTransferConfirm(false);
+  };
+
+  // Toggle selection of employee for bulk transfer
+  const toggleSelectEmployee = (employee) => {
+    const id = String(employee?.EMP_NUMBER || employee?.empNumber || employee?.EMP_ID || employee?.emp_id || '');
+    setSelectedEmployeeIds(prev => {
+      const next = new Set(Array.from(prev));
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllCurrent = (allChecked, currentEmployeeList) => {
+    if (allChecked) {
+      const allIds = new Set((currentEmployeeList || employeeList).map(emp => String(emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || emp?.emp_id || '')));
+      setSelectedEmployeeIds(allIds);
+    } else {
+      setSelectedEmployeeIds(new Set());
+    }
   };
 
   // Handle transfer button click
@@ -513,6 +539,12 @@ const SectionManagement = () => {
       const newTransfer = { employeeId: transferData.employeeId, sub_section_id: transferData.sub_section_id };
       setTransferredEmployees(prev => [...prev, newTransfer]);
       setEmployeeList(prev => prev.filter(e => String(e?.EMP_NUMBER || e?.empNumber || e?.EMP_ID || '') !== String(transferData.employeeId)));
+      // Remove from the selection set if present
+      setSelectedEmployeeIds(prev => {
+        const next = new Set(Array.from(prev));
+        if (next.has(String(transferData.employeeId))) next.delete(String(transferData.employeeId));
+        return next;
+      });
       setShowTransferConfirm(false);
       setTransferEmployee(null);
       setTransferSubmitting(false);
@@ -540,6 +572,126 @@ const SectionManagement = () => {
   const cancelTransfer = () => {
     setShowTransferConfirm(false);
     setTransferEmployee(null);
+  };
+
+  // Bulk transfer state
+  const [bulkTransferSubmitting, setBulkTransferSubmitting] = useState(false);
+
+  const confirmBulkTransfer = async () => {
+    if (!selectedSubSection || selectedEmployeeIds.size === 0) return;
+    setBulkTransferSubmitting(true);
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setBulkTransferSubmitting(false);
+      setShowBulkTransferConfirm(false);
+      return showToast({ type: 'error', title: 'Auth', message: 'Token missing. Please login.' });
+    }
+
+    try {
+      // build array of transfer objects
+      const selectedIdsArray = Array.from(selectedEmployeeIds);
+      const selectedEmployees = employeeList.filter(emp => selectedIdsArray.includes(String(emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || emp?.emp_id || '')));
+      const transfers = selectedEmployees.map(emp => ({
+        employeeId: String(emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || emp?.emp_id || ''),
+        employeeName: emp?.FULLNAME || emp?.fullName || emp?.CALLING_NAME || emp?.calling_name || emp?.name || '',
+        division_code: selectedSubSection?.parentDivision?.division_code || '',
+        division_name: selectedSubSection?.parentDivision?.division_name || '',
+        hie_code: selectedSubSection?.parentSection?.hie_code || '',
+        hie_name: selectedSubSection?.parentSection?.hie_name || '',
+        sub_section_id: selectedSubSection?._id || '',
+        sub_hie_code: selectedSubSection?.subSection?.sub_hie_code || selectedSubSection?.subSection?.hie_code || '',
+        sub_hie_name: selectedSubSection?.subSection?.sub_hie_name || selectedSubSection?.subSection?.hie_name || '',
+        transferredAt: new Date().toISOString(),
+        employeeData: emp
+      }));
+
+      // Try bulk endpoint first
+      let response = await fetch(`${API_BASE_URL}/mysql-subsections/transfer/bulk`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify(transfers)
+      });
+
+      if (!response.ok) {
+        console.warn('Bulk transfer failed, will fallback to single inserts if supported. Status:', response.status);
+        // If not ok and status not 404, check 404 or fallback
+        if (response.status === 404 || response.status === 501 || response.status === 405) {
+          // fallback to sequential single transfers
+          const singleResults = [];
+          for (const t of transfers) {
+            const r = await fetch(`${API_BASE_URL}/mysql-subsections/transfer`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              },
+              credentials: 'include',
+              body: JSON.stringify(t)
+            });
+            singleResults.push(r);
+          }
+          const failed = singleResults.some(r => !r.ok);
+          if (failed) throw new Error('One or more single transfers failed in fallback');
+        } else {
+          // For other failures: attempt fallback too
+          const singleResults = [];
+          for (const t of transfers) {
+            const r = await fetch(`${API_BASE_URL}/mysql-subsections/transfer`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              },
+              credentials: 'include',
+              body: JSON.stringify(t)
+            });
+            singleResults.push(r);
+          }
+          const failed = singleResults.some(r => !r.ok);
+          if (failed) throw new Error('One or more single transfers failed in fallback');
+        }
+      } else {
+        // bulk ok
+        const bulkResult = await response.json();
+        console.log('Bulk transfer result:', bulkResult);
+      }
+
+      // Update local state: mark employees as transferred and remove from employeeList
+      setTransferredEmployees(prev => {
+        const newEntries = transfers.map(t => ({ employeeId: String(t.employeeId), sub_section_id: String(t.sub_section_id) }));
+        // Remove duplicates
+        const combined = [...prev, ...newEntries];
+        const uniq = [];
+        const seen = new Set();
+        combined.forEach(c => {
+          const key = `${c.employeeId}_${c.sub_section_id}`;
+          if (!seen.has(key)) { seen.add(key); uniq.push(c); }
+        });
+        return uniq;
+      });
+
+      setEmployeeList(prev => prev.filter(emp => !selectedEmployeeIds.has(String(emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || emp?.emp_id || ''))));
+      setSelectedEmployeeIds(new Set());
+      setShowBulkTransferConfirm(false);
+      setBulkTransferSubmitting(false);
+
+      showToast({ type: 'success', title: 'Bulk Transfer Completed', message: `${transfers.length} employee${transfers.length !== 1 ? 's were' : ' was'} transferred successfully.` });
+      // Refresh authoritative transferred list for this sub-section
+      try {
+        await fetchTransferredEmployees(selectedSubSection._id, token);
+      } catch (e) {
+        console.warn('Failed to refresh transfers after bulk operation', e);
+      }
+    } catch (error) {
+      console.error('Bulk transfer failed:', error);
+      setShowBulkTransferConfirm(false);
+      setBulkTransferSubmitting(false);
+      showToast({ type: 'error', title: 'Transfer Failed', message: 'Bulk transfer failed. Check console for details.' });
+    }
   };
 
   // Handle recall button click - show confirmation modal
@@ -1334,6 +1486,102 @@ const SectionManagement = () => {
             >
               <i className="bi bi-x-lg"></i>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Transfer Confirmation Modal */}
+      {showBulkTransferConfirm && selectedSubSection && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10001,
+          padding: '20px'
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: '16px',
+            maxWidth: '700px',
+            width: '100%',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              padding: '20px 28px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px'
+            }}>
+              <i className="bi bi-people-fill" style={{ fontSize: '22px', color: 'white' }}></i>
+              <h3 style={{ margin: 0, color: 'white', fontSize: '18px', fontWeight: '600' }}>
+                Confirm Bulk Transfer ({selectedEmployeeIds.size} selected)
+              </h3>
+            </div>
+            <div style={{ padding: '24px' }}>
+              <p style={{ fontSize: '14px', color: '#374151', marginBottom: '12px' }}>
+                You're about to transfer <strong>{selectedEmployeeIds.size}</strong> employee{selectedEmployeeIds.size !== 1 ? 's' : ''} to:
+              </p>
+              <div style={{ padding: '12px 16px', background: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '600' }}>{selectedSubSection?.subSection?.sub_hie_name || selectedSubSection?.subSection?.hie_name || 'N/A'}</div>
+                <div style={{ fontSize: '13px', color: '#6b7280' }}>{selectedSubSection?.parentSection?.hie_name || 'Section: N/A'}</div>
+                <div style={{ fontSize: '13px', color: '#6b7280' }}>{selectedSubSection?.parentDivision?.division_name || 'Division: N/A'}</div>
+              </div>
+              <div style={{ marginTop: '18px' }}>
+                <strong style={{ color: '#374151' }}>Selected employees preview:</strong>
+                <div style={{ marginTop: '8px', maxHeight: '160px', overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '8px' }}>
+                  {Array.from(selectedEmployeeIds).slice(0, 10).map((id, idx) => {
+                    const emp = employeeList.find(e => String(e?.EMP_NUMBER || e?.empNumber || e?.EMP_ID || e?.emp_id || '') === id);
+                    const name = emp?.FULLNAME || emp?.fullName || emp?.CALLING_NAME || emp?.calling_name || emp?.name || id;
+                    return (
+                      <div key={id + idx} style={{ padding: '6px 8px', borderBottom: '1px dashed #e5e7eb', fontSize: '13px' }}>{id} - {name}</div>
+                    );
+                  })}
+                  {selectedEmployeeIds.size > 10 && (
+                    <div style={{ padding: '6px 8px', color: '#6b7280', fontSize: '13px' }}>+ {selectedEmployeeIds.size - 10} more...</div>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div style={{ padding: '20px 28px', borderTop: '1px solid #e5e7eb', background: '#f9fafb', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button
+                onClick={() => setShowBulkTransferConfirm(false)}
+                disabled={bulkTransferSubmitting}
+                style={{
+                  padding: '10px 20px',
+                  border: '2px solid #d1d5db',
+                  borderRadius: '8px',
+                  backgroundColor: 'white',
+                  color: '#6b7280',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  cursor: bulkTransferSubmitting ? 'not-allowed' : 'pointer'
+                }}
+              >Cancel</button>
+              <button
+                onClick={confirmBulkTransfer}
+                disabled={bulkTransferSubmitting}
+                style={{
+                  padding: '10px 20px',
+                  border: 'none',
+                  borderRadius: '8px',
+                  background: bulkTransferSubmitting ? '#9ca3af' : 'linear-gradient(135deg, #10b981, #059669)',
+                  color: 'white',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  cursor: bulkTransferSubmitting ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {bulkTransferSubmitting ? 'Transferring...' : `Confirm (${selectedEmployeeIds.size})`}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -3263,6 +3511,36 @@ const SectionManagement = () => {
                   }}>
                     <thead>
                       <tr style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+                        <th style={{ padding: '14px 16px', width: '40px', textAlign: 'center' }}>
+                          <input
+                            type="checkbox"
+                            checked={(() => {
+                              try {
+                                const filteredEmployees = employeeList.filter(emp => {
+                                  if (!employeeSearchQuery.trim()) return true;
+                                  const searchLower = employeeSearchQuery.toLowerCase().trim();
+                                  const empId = String(emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || emp?.emp_id || '').toLowerCase();
+                                  const empName = String(emp?.FULLNAME || emp?.fullName || emp?.CALLING_NAME || emp?.calling_name || emp?.name || '').toLowerCase();
+                                  return empId.includes(searchLower) || empName.includes(searchLower);
+                                });
+                                return filteredEmployees.length > 0 && selectedEmployeeIds.size === filteredEmployees.length;
+                              } catch (e) { return false; }
+                            })()}
+                            onChange={(e) => {
+                              const checked = !!e.target.checked;
+                              // find current filtered list
+                              const filteredEmployees = employeeList.filter(emp => {
+                                if (!employeeSearchQuery.trim()) return true;
+                                const searchLower = employeeSearchQuery.toLowerCase().trim();
+                                const empId = String(emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || emp?.emp_id || '').toLowerCase();
+                                const empName = String(emp?.FULLNAME || emp?.fullName || emp?.CALLING_NAME || emp?.calling_name || emp?.name || '').toLowerCase();
+                                return empId.includes(searchLower) || empName.includes(searchLower);
+                              });
+                              selectAllCurrent(checked, filteredEmployees);
+                            }}
+                            title="Select all visible employees"
+                          />
+                        </th>
                         <th style={{ padding: '14px 16px', textAlign: 'left', color: 'white', fontWeight: '600', fontSize: '13px' }}>
                           EMPLOYEE ID
                         </th>
@@ -3288,6 +3566,14 @@ const SectionManagement = () => {
                             onMouseOver={(e) => e.currentTarget.style.background = '#f9fafb'}
                             onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
                           >
+                            <td style={{ padding: '12px 10px', textAlign: 'center' }}>
+                              <input
+                                type="checkbox"
+                                checked={selectedEmployeeIds.has(String(empId))}
+                                onChange={() => toggleSelectEmployee(emp)}
+                                title="Select employee for bulk transfer"
+                              />
+                            </td>
                             <td style={{ padding: '12px 16px', fontSize: '14px', color: '#1f2937', fontWeight: '600' }}>
                               {empId || 'N/A'}
                             </td>
@@ -3389,6 +3675,24 @@ const SectionManagement = () => {
                 }}
               >
                 Close
+              </button>
+              <button
+                onClick={() => setShowBulkTransferConfirm(true)}
+                disabled={selectedEmployeeIds.size === 0}
+                style={{
+                  padding: '10px 24px',
+                  border: 'none',
+                  borderRadius: '8px',
+                  background: selectedEmployeeIds.size === 0 ? '#d1d5db' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  color: 'white',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: selectedEmployeeIds.size === 0 ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s ease',
+                  marginLeft: '12px'
+                }}
+              >
+                Transfer Selected
               </button>
             </div>
           </div>

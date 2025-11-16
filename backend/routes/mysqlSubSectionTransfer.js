@@ -8,6 +8,8 @@ const ctrl = require('../controllers/mysqlSubSectionTransferController');
 router.get('/transferred/all/list', auth, auditTrail('mysql_transfers_all_listed', 'TransferToSubsection'), ctrl.getAllTransferredEmployees);
 router.get('/transferred/:subSectionId', auth, auditTrail('mysql_transfers_listed', 'TransferToSubsection'), ctrl.getTransferredEmployees);
 router.post('/transfer', auth, auditTrail('mysql_employee_transferred', 'TransferToSubsection'), ctrl.transferEmployeeToSubSection);
+// Bulk transfer: accept array of transfers
+router.post('/transfer/bulk', auth, auditTrail('mysql_employee_transferred_bulk', 'TransferToSubsection'), ctrl.transferEmployeesToSubSectionBulk);
 router.delete('/recall-transfer', auth, auditTrail('mysql_transfer_recalled', 'TransferToSubsection'), ctrl.recallTransfer);
 // Allow POST fallback for environments that don't send bodies with DELETE
 router.post('/recall-transfer', auth, auditTrail('mysql_transfer_recalled', 'TransferToSubsection'), ctrl.recallTransfer);
