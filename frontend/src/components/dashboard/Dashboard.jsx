@@ -13,12 +13,23 @@ import ApiDataViewer from './ApiDataViewer';
 import Settings from './Settings';
 import Footer from './Footer';
 import './Dashboard.css';
+import logo from '../../assets/logo.jpg';
 
 const Dashboard = () => {
   const [activeSection, setActiveSection] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const { user, logout } = useContext(AuthContext);
+
+  // Helper to display possibly-object profile fields safely
+  const getDisplay = (v) => {
+    if (v === null || v === undefined) return 'N/A';
+    if (typeof v === 'string' || typeof v === 'number') return String(v);
+    if (typeof v === 'object') {
+      return v.name || v.code || v.fullCode || v._id || JSON.stringify(v);
+    }
+    return String(v);
+  };
   
 
   const handleLogout = async () => {
@@ -230,13 +241,6 @@ const Dashboard = () => {
     // return roles.includes(user?.role);
   };
 
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good Morning';
-    if (hour < 17) return 'Good Afternoon';
-    return 'Good Evening';
-  };
-
   return (
     <div className="modern-dashboard">
       {/* Sidebar */}
@@ -244,11 +248,11 @@ const Dashboard = () => {
         <div className="sidebar-header">
           <div className="sidebar-brand">
             <div className="brand-icon">
-              <i className="bi bi-clock-history"></i>
+              <img src={logo} alt="SLPA Logo" className="brand-logo" />
             </div>
             <div className="brand-text">
-              <h3>TimeTrack</h3>
-              <span>SLPA System</span>
+              <h3>ATTENDANCE SYSTEM</h3>
+              <span>@Powered By IS Division</span>
             </div>
           </div>
           <button 
@@ -310,11 +314,11 @@ const Dashboard = () => {
             
             <div className="nav-brand">
               <div className="brand-icon">
-                <i className="bi bi-clock-history"></i>
+                <img src={logo} alt="SLPA Logo" className="brand-logo" />
               </div>
               <div className="brand-text">
-                <h1>TimeTrack</h1>
-                <span>SLPA Attendance System</span>
+                <h1>SLPA TIME ATTENDANCE SYSTEM</h1>
+                <span>Created By: IS Division</span>
               </div>
             </div>
           </div>
@@ -362,7 +366,7 @@ const Dashboard = () => {
                 </div>
                 <div className="profile-info">
                   <h3>{user?.firstName || 'User'} {user?.lastName || ''}</h3>
-                  <p className="profile-role">{user?.role?.replace('_', ' ') || 'Super Admin'}</p>
+                  <p className="profile-role">{(typeof user?.role === 'string' ? user.role.replace('_', ' ') : getDisplay(user?.role)) || 'Super Admin'}</p>
                 </div>
               </div>
               <div className="profile-dropdown-body">
@@ -376,11 +380,11 @@ const Dashboard = () => {
                 </div>
                 <div className="profile-detail">
                   <i className="bi bi-building"></i>
-                  <span>{user?.division || 'N/A'}</span>
+                  <span>{getDisplay(user?.division)}</span>
                 </div>
                 <div className="profile-detail">
                   <i className="bi bi-diagram-3"></i>
-                  <span>{user?.section || 'N/A'}</span>
+                  <span>{getDisplay(user?.section)}</span>
                 </div>
               </div>
               <div className="profile-dropdown-footer">

@@ -77,6 +77,8 @@ const getToken = async () => {
 const readData = async (collection, filter_array = {}, project = '', paginate = false) => {
   try {
     const authToken = await getToken();
+    console.log(`[HRIS readData] Calling ${collection} with filter:`, JSON.stringify(filter_array));
+    
     const response = await axios.post(
       READ_DATA_URL,
       {
@@ -93,10 +95,21 @@ const readData = async (collection, filter_array = {}, project = '', paginate = 
       }
     );
 
+    console.log(`[HRIS readData] Response status: ${response.status}`);
+    console.log(`[HRIS readData] Response data structure:`, {
+      hasData: !!response.data,
+      hasDataField: !!(response.data && response.data.data),
+      dataType: response.data ? typeof response.data.data : 'N/A',
+      isArray: response.data && response.data.data ? Array.isArray(response.data.data) : false,
+      length: response.data && response.data.data && Array.isArray(response.data.data) ? response.data.data.length : 0
+    });
+
     if (response.data && response.data.data) {
       return response.data.data;
     } else {
       console.warn(`⚠️ No data received from HRIS API for collection: ${collection}`);
+      console.warn(`[HRIS readData] No data received from HRIS API for collection: ${collection}`);
+      console.warn(`[HRIS readData] Full response:`, JSON.stringify(response.data, null, 2));
       return [];
     }
   } catch (error) {

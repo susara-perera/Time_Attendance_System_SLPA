@@ -664,126 +664,84 @@ const toggleDivisionStatus = async (req, res) => {
   }
 };
 
-// @desc    Get division sections from MySQL (for attendance reports)
+// @desc    Get division sections from HRIS API (for attendance reports)
 // @route   GET /api/divisions/:id/mysql-sections
 // @access  Private
 const getDivisionMySQLSections = async (req, res) => {
   try {
-    const { createMySQLConnection } = require('../config/mysql');
+    const hrisApiService = require('../services/hrisApiService');
     const divisionId = req.params.id;
 
-    // Validate division ID
-    if (!divisionId || divisionId === 'all') {
-      return res.status(400).json({
+    console.log(`Getting HRIS sections for division ID: ${divisionId}`);
+
+    // Fetch all sections from HRIS API
+    let allSections = [];
+    try {
+      allSections = await hrisApiService.readData('hr_section_v', {}, '', false);
+      console.log(`Fetched ${allSections.length} sections from HRIS API`);
+    } catch (error) {
+      console.error('Error fetching sections from HRIS:', error);
+      return res.status(500).json({
         success: false,
-        message: 'Valid division ID is required'
+        message: 'Failed to fetch sections from HRIS API'
       });
     }
 
-    console.log(`Getting MySQL sections for division ID: ${divisionId}`);
+    // If divisionId is 'all', return all sections
+    if (!divisionId || divisionId === 'all') {
+      const formattedSections = allSections.map(section => ({
+        _id: String(section.section_code || section.hie_code || section.code || ''),
+        section_id: String(section.section_code || section.hie_code || section.code || ''),
+        section_name: section.section_name || section.hie_name || section.name || 'Unknown Section',
+        name: section.section_name || section.hie_name || section.name || 'Unknown Section',
+        division_id: String(section.division_code || section.DIVISION_CODE || ''),
+        division_name: section.division_name || section.DIVISION_NAME || '',
+        isActive: true
+      }));
 
-    // Check if this is a MongoDB ObjectId (24 character hex string)
-    const isMongoId = divisionId.length === 24 && /^[0-9a-fA-F]{24}$/.test(divisionId);
-    let mysqlDivisionId = divisionId;
-
-    if (isMongoId) {
-      // This is a MongoDB ID, we need to map it to MySQL ID
-      console.log('MongoDB ID detected, mapping to MySQL ID...');
-      
-      // First, get the division name from MongoDB
-      const Division = require('../models/Division');
-      const mongoDiv = await Division.findById(divisionId);
-      
-      if (!mongoDiv) {
-        return res.status(404).json({
-          success: false,
-          message: 'Division not found in MongoDB'
-        });
-      }
-
-      console.log(`MongoDB division name: ${mongoDiv.name}`);
-
-      // Now find the corresponding MySQL division by name
-      const connection = await createMySQLConnection();
-      
-      // Map common name variations
-      let searchName = mongoDiv.name.trim().toUpperCase();
-      if (searchName === 'INFORMATION SYSTEM') {
-        searchName = 'INFORMATION SYSTEMS';
-      }
-      
-      const [mysqlDivisions] = await connection.execute(`
-        SELECT division_id, division_name 
-        FROM divisions 
-        WHERE UPPER(division_name) = ? OR UPPER(division_name) LIKE ?
-        LIMIT 1
-      `, [searchName, `%${searchName}%`]);
-
-      if (mysqlDivisions.length === 0) {
-        await connection.end();
-        console.log(`No MySQL division found for name: ${searchName}`);
-        
-        // Return empty sections instead of error for divisions that don't exist in MySQL
-        return res.status(200).json({
-          success: true,
-          data: [], // Empty sections array
-          count: 0,
-          message: `No MySQL sections found for division: ${mongoDiv.name}`,
-          mapping: {
-            mongoId: divisionId,
-            mysqlId: null,
-            reason: 'Division not found in MySQL database'
-          }
-        });
-      }
-
-      mysqlDivisionId = mysqlDivisions[0].division_id;
-      console.log(`Mapped to MySQL division ID: ${mysqlDivisionId}`);
-      
-      await connection.end();
+      return res.status(200).json({
+        success: true,
+        data: formattedSections,
+        count: formattedSections.length
+      });
     }
 
-    // Now get sections for the MySQL division ID
-    const connection = await createMySQLConnection();
-
-    const [sections] = await connection.execute(`
-      SELECT s.section_id, s.section_name, s.division_id, d.division_name
-      FROM sections s
-      LEFT JOIN divisions d ON s.division_id = d.division_id
-      WHERE s.division_id = ?
-      ORDER BY s.section_name ASC
-    `, [mysqlDivisionId]);
-
-    await connection.end();
+    // Filter sections by division ID/code
+    const filteredSections = allSections.filter(section => {
+      const sectionDiv = String(section.division_code || section.DIVISION_CODE || section.hie_relationship || '');
+      const divCode = String(divisionId);
+      
+      // Match by division code or partial match
+      return sectionDiv === divCode || 
+             sectionDiv.toLowerCase().includes(divCode.toLowerCase()) ||
+             divCode.toLowerCase().includes(sectionDiv.toLowerCase());
+    });
 
     // Format for frontend compatibility
-    const formattedSections = sections.map(section => ({
-      _id: section.section_id.toString(), // Use MySQL ID as _id for compatibility
-      section_id: section.section_id,
-      section_name: section.section_name,
-      name: section.section_name, // Alternative property name
-      division_id: section.division_id,
-      division_name: section.division_name,
-      isActive: true // Default for MySQL sections
+    const formattedSections = filteredSections.map(section => ({
+      _id: String(section.section_code || section.hie_code || section.code || ''),
+      section_id: String(section.section_code || section.hie_code || section.code || ''),
+      section_name: section.section_name || section.hie_name || section.name || 'Unknown Section',
+      name: section.section_name || section.hie_name || section.name || 'Unknown Section',
+      division_id: String(section.division_code || section.DIVISION_CODE || ''),
+      division_name: section.division_name || section.DIVISION_NAME || '',
+      isActive: true
     }));
 
-    console.log(`Found ${formattedSections.length} MySQL sections for division ${mysqlDivisionId}`);
+    console.log(`Found ${formattedSections.length} HRIS sections for division ${divisionId}`);
 
     res.status(200).json({
       success: true,
       data: formattedSections,
-      count: formattedSections.length,
-      mapping: isMongoId ? {
-        mongoId: divisionId,
-        mysqlId: mysqlDivisionId
-      } : null
+      count: formattedSections.length
     });
 
   } catch (error) {
-    console.error('Get division MySQL sections error:', error);
+    console.error('Get division HRIS sections error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error getting division sections from MySQL'
+      message: 'Server error getting division sections from HRIS API',
+      error: error.message
     });
   }
 };

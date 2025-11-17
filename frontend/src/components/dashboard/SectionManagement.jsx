@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import usePermission from '../../hooks/usePermission';
 
 const SectionManagement = () => {
   const [sections, setSections] = useState([]);
   const [divisions, setDivisions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [isHrisSource, setIsHrisSource] = useState(true); // Read-only when showing HRIS data
+  // HRIS source flag removed (was unused) - keep rawSections/rawDivisions for snapshots
   const [selectedDivision, setSelectedDivision] = useState(''); // division _id or 'all'
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -33,7 +33,7 @@ const SectionManagement = () => {
   const [formErrors, setFormErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   // Sub-sections display state
-  const [expandedSections, setExpandedSections] = useState({}); // { [sectionId]: boolean }
+  // expandedSections removed (not used)
   const [subSectionsBySection, setSubSectionsBySection] = useState({}); // { [sectionId]: Array }
   const [subSectionsLoading, setSubSectionsLoading] = useState({}); // { [sectionId]: boolean }
   const [subSectionsError, setSubSectionsError] = useState({}); // { [sectionId]: string }
@@ -77,8 +77,6 @@ const SectionManagement = () => {
   const toastTimerRef = useRef(null);
   const canView = usePermission('sections', 'read');
   const canCreate = usePermission('sections', 'create');
-  const canUpdate = usePermission('sections', 'update');
-  const canDelete = usePermission('sections', 'delete');
   const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
   // Toast helpers
@@ -95,7 +93,9 @@ const SectionManagement = () => {
       clearTimeout(toastTimerRef.current);
       toastTimerRef.current = null;
     }
-    setToast({ show: true, type, title, message });
+    // Ensure message is a string to avoid React rendering objects as children
+    const safeMessage = (message && typeof message === 'object') ? (message.message || JSON.stringify(message)) : String(message || '');
+    setToast({ show: true, type, title, message: safeMessage });
     toastTimerRef.current = setTimeout(() => {
       setToast((t) => ({ ...t, show: false }));
       toastTimerRef.current = null;
@@ -995,7 +995,7 @@ const SectionManagement = () => {
   };
 
   // Fetch sections and divisions from HRIS APIs (read-only)
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const token = localStorage.getItem('token');
       
@@ -1043,8 +1043,7 @@ const SectionManagement = () => {
             _raw: s,
           };
         }).sort((a, b) => a.name.localeCompare(b.name));
-        setSections(normalizedSections);
-        setIsHrisSource(true);
+  setSections(normalizedSections);
       } else {
         console.error('Failed to fetch HRIS sections:', sectionsResponse.status, sectionsResponse.statusText);
         setSections([]);
@@ -1074,7 +1073,7 @@ const SectionManagement = () => {
       console.error('Error fetching data:', error);
       setLoading(false);
     }
-  };
+  }, [API_BASE_URL]);
 
   // Helper: get division name from id/code or populated object
   const getDivisionName = (divisionRef) => {
@@ -1121,8 +1120,8 @@ const SectionManagement = () => {
   // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
-    // Front-end permission safeguard
-    if (!canCreate && !canUpdate) {
+    // Front-end permission safeguard (create-only on this view)
+    if (!canCreate) {
       alert('You do not have permission to perform this action.');
       return;
     }
@@ -1255,69 +1254,7 @@ const SectionManagement = () => {
   };
 
   // Handle opening edit modal
-  const handleEdit = (section) => {
-    console.log('Editing section:', section);
-    setCurrentSection(section);
-    setFormData({
-      name: section.name || '',
-      division: section.division?._id || section.division || ''
-    });
-    setFormErrors({});
-    setShowEditModal(true);
-  };
-
-  // Handle delete section
-  const handleDelete = async (section) => {
-    if (window.confirm(`Are you sure you want to delete "${section.name}" section? This action cannot be undone.`)) {
-      try {
-        const token = localStorage.getItem('token');
-        
-        if (!token) {
-          alert('Authentication token not found. Please log in again.');
-          return;
-        }
-
-        const response = await fetch(`http://localhost:5000/api/sections/${section._id}`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          credentials: 'include'
-        });
-
-        if (response.ok) {
-          console.log('Section deleted:', section._id);
-          
-          // Refresh data to get updated information
-          await fetchData();
-          alert('Section deleted successfully!');
-        } else {
-          let errorMessage = 'Unknown error';
-          try {
-            const errorData = await response.json();
-            console.error('Failed to delete section:', response.status, errorData);
-            
-            if (errorData.errors && Array.isArray(errorData.errors)) {
-              errorMessage = errorData.errors.map(err => err.message).join(', ');
-            } else if (errorData.error) {
-              errorMessage = errorData.error;
-            } else if (errorData.message) {
-              errorMessage = errorData.message;
-            }
-          } catch (jsonError) {
-            console.error('Error parsing response:', jsonError);
-            errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-          }
-          
-          alert(`Failed to delete section: ${errorMessage}`);
-        }
-      } catch (error) {
-        console.error('Error deleting section:', error);
-        alert('Error deleting section. Please try again.');
-      }
-    }
-  };
+  // Edit/Delete removed: this view is read-only for sections (only sub-sections can be created/viewed)
 
   // Handle create sub-section
   const handleCreateSubSection = (section) => {
@@ -1393,15 +1330,14 @@ const SectionManagement = () => {
       });
 
       if (resp.ok) {
-        let created;
-        try { const j = await resp.json(); created = j?.data; } catch (_) {}
+        // consume response body if present but do not keep unused reference
+        await resp.json().catch(() => {});
         closeSubModal();
         showToast({ type: 'success', title: 'Success', message: 'Sub-section created successfully.' });
-        // Refresh and expand the parent section's sub-sections
+        // Refresh the parent section's sub-sections
         const parentId = subParentSection?._id;
         if (parentId) {
           await fetchSubSections(parentId, { force: true });
-          // Keep collapsed by default as requested
         }
       } else {
         let msg = 'Failed to create sub-section';
@@ -1417,12 +1353,7 @@ const SectionManagement = () => {
   };
 
   // Handle opening add modal
-  const handleAdd = () => {
-    setCurrentSection(null);
-    setFormData({ name: '', division: '' });
-    setFormErrors({});
-    setShowAddModal(true);
-  };
+  // Add/Edit removed from main UI; modal remains but opening is only via other flows if required.
 
   // Handle closing modals
   const handleCloseModal = () => {
@@ -1435,7 +1366,7 @@ const SectionManagement = () => {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   if (loading) {
     return (
@@ -1450,9 +1381,9 @@ const SectionManagement = () => {
     if (!canView) {
       return (
         <div className="section-management">
-          <div className="section-header">
-            <h2><i className="bi bi-diagram-3"></i> Section Management</h2>
-          </div>
+            <div className="section-header">
+              <h2><i className="bi bi-diagram-3"></i> Section Management</h2>
+            </div>
           <div className="professional-card">
             <div className="no-data">
               <p>You do not have permission to view sections. Contact a Super Admin for access.</p>
@@ -1815,25 +1746,25 @@ const SectionManagement = () => {
                     {section.createdAt ? (parseHrisDate(section.createdAt) || 'N/A') : 'N/A'}
                   </td>
                   <td>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button 
-                        className="btn-professional btn-success"
-                        onClick={canCreate ? () => handleCreateSubSection(section) : undefined}
-                        title={!canCreate ? 'No permission to create sub sections' : 'Create Sub-Section'}
-                        disabled={!canCreate}
-                        style={{ padding: '8px 12px', fontSize: '12px', cursor: canCreate ? 'pointer' : 'not-allowed' }}
-                      >
-                        <i className="bi bi-plus"></i>
-                      </button>
-                      <button 
-                        className="btn-professional btn-light"
-                        onClick={() => toggleSubSections(section)}
-                        title="View Sub-Sections"
-                        style={{ padding: '8px 12px', fontSize: '12px' }}
-                      >
-                        <i className="bi bi-chevron-right"></i>
-                      </button>
-                    </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button 
+                          className="btn-professional btn-success"
+                          onClick={canCreate ? () => handleCreateSubSection(section) : undefined}
+                          title={!canCreate ? 'No permission to create sub sections' : 'Create Sub-Section'}
+                          disabled={!canCreate}
+                          style={{ padding: '8px 12px', fontSize: '12px', cursor: canCreate ? 'pointer' : 'not-allowed' }}
+                        >
+                          <i className="bi bi-plus"></i>
+                        </button>
+                        <button 
+                          className="btn-professional btn-light"
+                          onClick={() => toggleSubSections(section)}
+                          title="View Sub-Sections"
+                          style={{ padding: '8px 12px', fontSize: '12px' }}
+                        >
+                          <i className="bi bi-chevron-right"></i>
+                        </button>
+                      </div>
                   </td>
                 </tr>
               ))}
@@ -1843,7 +1774,7 @@ const SectionManagement = () => {
 
         {sections.length === 0 && (
           <div className="no-data">
-            <p>No sections found. Click "Add Section" to create the first section.</p>
+            <p>No sections found.</p>
           </div>
         )}
       </div>
@@ -1913,9 +1844,9 @@ const SectionManagement = () => {
                 <button 
                   type="submit"
                   className="btn-professional btn-success"
-                  disabled={submitting || (!canCreate && !canUpdate)}
-                  aria-disabled={submitting || (!canCreate && !canUpdate)}
-                  title={!canCreate && !canUpdate ? 'You do not have permission to perform this action' : ''}
+                  disabled={submitting || !canCreate}
+                  aria-disabled={submitting || !canCreate}
+                  title={!canCreate ? 'You do not have permission to perform this action' : ''}
                 >
                   <i className={`bi ${currentSection ? "bi-check-circle" : "bi-plus-circle"}`}></i>
                   {submitting ? (

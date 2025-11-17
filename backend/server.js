@@ -189,6 +189,8 @@ app.use('/api/divisions', require('./routes/division'));
 app.use('/api/sections', require('./routes/section'));
 app.use('/api/employees', require('./routes/employee'));
 app.use('/api/meals', require('./routes/meal'));
+// Sub-sections routes (list/create/update/delete)
+app.use('/api/subsections', require('./routes/subSection'));
 app.use('/api/reports', require('./routes/report'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/mysql', require('./routes/mysql'));
