@@ -5,14 +5,23 @@ import './ReportGeneration.css';
 const EmployeeManagement = () => {
   const [divisions, setDivisions] = useState([]);
   const [sections, setSections] = useState([]);
+  const [subSections, setSubSections] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [allEmployees, setAllEmployees] = useState([]);
+  const [transferredEmployees, setTransferredEmployees] = useState([]);
+  const [transferMatchesCount, setTransferMatchesCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedEmployeeDivision, setSelectedEmployeeDivision] = useState('all');
   const [selectedSection, setSelectedSection] = useState('all');
+  const [selectedSubSection, setSelectedSubSection] = useState('all');
   const [availableSections, setAvailableSections] = useState([]);
+  const [availableSubSections, setAvailableSubSections] = useState([]);
+  // raw HRIS rows (unfiltered) -- used to lookup employees for transfers even if they don't match Colombo filter
   const [rawEmployees, setRawEmployees] = useState([]);
+  // normalized list of *all* HRIS employees (not Colombo filtered), used for matching transfers and cross-check
+  const [normalizedAllHrisEmployees, setNormalizedAllHrisEmployees] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
@@ -242,20 +251,56 @@ const EmployeeManagement = () => {
         'Content-Type': 'application/json'
       };
 
-      const requests = [
-        axios.get(`${API_BASE_URL}/users/hris`, { headers }),
-        axios.get(`${API_BASE_URL}/sections/hris`, { headers }),
-        axios.get(`${API_BASE_URL}/divisions/hris`, { headers }),
+      // Log base URL and token state for easier debugging of 404s
+      console.log('Fetching HRIS data', { API_BASE_URL, tokenPresent: !!token });
+
+      const endpoints = [
+        { key: 'employees', url: `${API_BASE_URL}/users/hris` },
+        { key: 'sections', url: `${API_BASE_URL}/sections/hris` },
+        { key: 'divisions', url: `${API_BASE_URL}/divisions/hris` },
+        // Use MySQL-backed subsections endpoint (MongoDB subsections route disabled on server)
+        { key: 'subsections', url: `${API_BASE_URL}/mysql-subsections` },
       ];
 
-      const [employeeResponse, sectionResponse, divisionResponse] = await Promise.all(requests);
+      // Execute requests without failing them all if a single endpoint returns an error
+      const results = await Promise.allSettled(endpoints.map(ep => axios.get(ep.url, { headers })));
+      const responses = {};
+      const failedEndpoints = [];
+      results.forEach((r, idx) => {
+        const ep = endpoints[idx];
+        if (r.status === 'fulfilled') {
+          responses[ep.key] = r.value;
+          console.log(`${ep.key} OK:`, ep.url);
+        } else {
+          failedEndpoints.push({ key: ep.key, url: ep.url, reason: r.reason });
+          console.warn(`${ep.key} failed:`, ep.url, r.reason?.response?.status || r.reason?.message);
+          responses[ep.key] = null;
+        }
+      });
 
-      console.log('Division Response:', divisionResponse.data);
-      console.log('Section Response:', sectionResponse.data);
-      console.log('Employee Response:', employeeResponse.data);
+      const employeeResponse = responses.employees;
+      const sectionResponse = responses.sections;
+      const divisionResponse = responses.divisions;
+      const subSectionResponse = responses.subsections;
+
+      // If some endpoints failed, create a helpful aggregated message for the UI
+      if (failedEndpoints.length) {
+        const failList = failedEndpoints.map(f => {
+          const status = f.reason?.response?.status || 'network_error';
+          return `${f.key} (${status})`;
+        }).join(', ');
+        const anySuccess = Object.values(responses).some(r => !!r);
+        const endpointWarning = anySuccess ? `⚠️ Some endpoints failed: ${failList}` : `Failed to fetch: ${failList}`;
+        // If no other error already set, set the aggregated message
+        setError(prev => prev ?? endpointWarning);
+      }
+
+      console.log('Division Response:', divisionResponse?.data);
+      console.log('Section Response:', sectionResponse?.data);
+      console.log('Employee Response:', employeeResponse?.data);
 
       // Process Divisions
-      if (divisionResponse.data.success) {
+      if (divisionResponse?.data?.success) {
         const apiRows = divisionResponse.data.data || [];
         console.log('Raw divisions:', apiRows.length);
         const normalizedDivisions = normalizeDivisions(apiRows);
@@ -264,12 +309,14 @@ const EmployeeManagement = () => {
         if (divisionResponse.data.fallback) {
           setError(`⚠️ ${divisionResponse.data.message}`);
         }
+      } else if (!divisionResponse) {
+        setError(prev => prev ?? `Failed to fetch divisions: endpoint not reachable (404/Network)`);
       } else {
-        setError('Failed to fetch divisions from HRIS API');
+        setError(prev => prev ?? 'Failed to fetch divisions from HRIS API');
       }
 
       // Process Sections
-      if (sectionResponse.data.success) {
+      if (sectionResponse?.data?.success) {
         const apiRows = sectionResponse.data.data || [];
         console.log('Raw sections:', apiRows.length);
         const sectionData = normalizeSections(apiRows);
@@ -278,26 +325,66 @@ const EmployeeManagement = () => {
         if (sectionResponse.data.fallback) {
           setError(prev => prev ?? `⚠️ ${sectionResponse.data.message}`);
         }
+      } else if (!sectionResponse) {
+        setError(prev => prev ?? `Failed to fetch sections: endpoint not reachable (404/Network)`);
       } else {
-        setError('Failed to fetch sections from HRIS API');
+        setError(prev => prev ?? 'Failed to fetch sections from HRIS API');
+      }
+
+      // Process Sub-Sections
+      if (subSectionResponse?.data?.success) {
+        const apiRows = subSectionResponse.data.data || [];
+        console.log('Raw sub-sections:', apiRows.length);
+        console.log('Sub-sections data:', apiRows);
+        if (apiRows.length > 0) {
+          console.log('Sample sub-section:', apiRows[0]);
+        }
+        setSubSections(apiRows);
+      } else if (!subSectionResponse) {
+        console.warn('Failed to fetch sub-sections: endpoint not reachable (404/Network)');
+      } else {
+        console.warn('Failed to fetch sub-sections');
       }
 
       // Process Employees
-      if (employeeResponse.data.success) {
+      if (employeeResponse?.data?.success) {
         const apiRows = employeeResponse.data.data || [];
-        console.log('Raw employees:', apiRows.length);
+        console.log('Raw (HRIS) employees total:', apiRows.length);
+        // keep full HRIS list (normalized) for transfer lookups and other fallbacks
+        const allNormalized = normalizeEmployees(apiRows);
+        setNormalizedAllHrisEmployees(allNormalized);
+
+        // Apply existing Colombo filter for default UI list
         const filteredApiRows = apiRows.filter(isColomboEmployeeRaw);
-        console.log('Filtered Colombo employees:', filteredApiRows.length);
+        console.log('Filtered (Colombo) HRIS employees:', filteredApiRows.length);
         setRawEmployees(filteredApiRows);
         const normalizedEmployees = normalizeEmployees(filteredApiRows);
-        console.log('Normalized employees:', normalizedEmployees.length);
+        console.log('Normalized (Colombo) employees:', normalizedEmployees.length);
         setAllEmployees(normalizedEmployees);
         setEmployees(normalizedEmployees);
         if (employeeResponse.data.fallback) {
           setError(prev => prev ?? `⚠️ ${employeeResponse.data.message}`);
         }
+      } else if (!employeeResponse) {
+        setError(prev => prev ?? `Failed to fetch employees: endpoint not reachable (404/Network)`);
       } else {
-        setError('Failed to fetch employees from HRIS API');
+        setError(prev => prev ?? 'Failed to fetch employees from HRIS API');
+      }
+
+      // Fetch all transferred employees
+      // Use MySQL-backed transfer endpoint
+      const transferResponse = await axios.get(`${API_BASE_URL}/mysql-subsections/transferred/all/list`, { headers }).catch(err => {
+        console.warn('transfer endpoint fetch failed:', err?.response?.status || err?.message);
+        return null;
+      });
+      if (transferResponse?.data?.success) {
+        const transferredData = transferResponse.data.data || [];
+        console.log('Transferred employees:', transferredData.length);
+        console.log('Transferred employees data:', transferredData);
+        if (transferredData.length > 0) {
+          console.log('Sample transferred employee:', transferredData[0]);
+        }
+        setTransferredEmployees(transferredData);
       }
 
     } catch (error) {
@@ -317,23 +404,86 @@ const EmployeeManagement = () => {
     const selectedDiv = event.target.value;
     setSelectedEmployeeDivision(selectedDiv);
     setSelectedSection('all'); // Reset section when division changes
+    setSelectedSubSection('all'); // Reset sub-section when division changes
   };
 
   // Handle employee section selection change
   const handleSectionChange = (event) => {
     const selectedSec = event.target.value;
     setSelectedSection(selectedSec);
+    setSelectedSubSection('all'); // Reset sub-section when section changes
+  };
+
+  // Handle sub-section selection change
+  const handleSubSectionChange = (event) => {
+    const selectedSubSec = event.target.value;
+    setSelectedSubSection(selectedSubSec);
   };
 
   useEffect(() => {
     if (selectedEmployeeDivision === 'all') {
       setAvailableSections([]);
+      setAvailableSubSections([]);
       return;
     }
 
     const sectionsForDivision = deriveSectionsForDivision(selectedEmployeeDivision);
     setAvailableSections(sectionsForDivision);
   }, [selectedEmployeeDivision, sections, allEmployees]);
+
+  // Update available sub-sections when section changes
+  useEffect(() => {
+    if (selectedSection === 'all' || !selectedSection) {
+      setAvailableSubSections([]);
+      return;
+    }
+
+    // Get the selected section object to access its code and name
+    const selectedSectionObj = sections.find(s => String(s.id) === String(selectedSection));
+    
+    console.log('Selected section object:', selectedSectionObj);
+    console.log('All sub-sections:', subSections.length);
+    
+    if (!selectedSectionObj) {
+      console.warn('Selected section not found:', selectedSection);
+      setAvailableSubSections([]);
+      return;
+    }
+
+    // Filter sub-sections by matching:
+    // 1. parentSection.id === selectedSection (direct match)
+    // 2. parentSection.hie_code === section.code (match by code)
+    // 3. parentSection.id === section.code (alternate match)
+    const subSectionsForSection = subSections.filter(subSec => {
+      const parentSecId = String(subSec.parentSection?.id || '');
+      const parentSecCode = String(subSec.parentSection?.hie_code || '');
+      const selectedSecId = String(selectedSection);
+      const selectedSecCode = String(selectedSectionObj.code || '');
+      
+      const matchById = parentSecId === selectedSecId;
+      const matchByCode = parentSecCode && selectedSecCode && parentSecCode === selectedSecCode;
+      const matchByIdToCode = parentSecId && selectedSecCode && parentSecId === selectedSecCode;
+      
+      const isMatch = matchById || matchByCode || matchByIdToCode;
+      
+      if (isMatch) {
+        console.log(`✅ SubSection match found: ${subSec.subSection?.sub_hie_name}`, {
+          parentSecId,
+          parentSecCode,
+          selectedSecId,
+          selectedSecCode,
+          matchById,
+          matchByCode,
+          matchByIdToCode
+        });
+      }
+      
+      return isMatch;
+    });
+    
+    console.log('Sub-sections for section', selectedSection, ':', subSectionsForSection.length);
+    setAvailableSubSections(subSectionsForSection);
+  }, [selectedSection, subSections, sections]);
 
   // Auto-select default division 'IS' (Information Systems) when available
   const autoSelectedDivisionRef = useRef(false);
@@ -379,32 +529,110 @@ const EmployeeManagement = () => {
   useEffect(() => {
     let filtered = allEmployees;
 
-    if (selectedEmployeeDivision !== 'all') {
-      const maps = buildDivisionMaps();
-      filtered = filtered.filter(emp => getEmployeeDivisionKey(emp, maps) === String(selectedEmployeeDivision));
+    // Special handling for sub-section selection
+    if (selectedSubSection !== 'all') {
+      console.log('=== Sub-section filtering active ===');
+      console.log('Selected sub-section:', selectedSubSection);
+      console.log('Total transferred employees:', transferredEmployees.length);
+      console.log('Total HRIS employees:', allEmployees.length);
+      
+      // Get transferred employees for this sub-section
+      const transfersInSubSection = transferredEmployees.filter(transfer => 
+        String(transfer.sub_section_id) === String(selectedSubSection)
+      );
+      setTransferMatchesCount(transfersInSubSection.length);
+      
+      console.log('Transfers in this sub-section:', transfersInSubSection.length);
+      transfersInSubSection.forEach(t => {
+        console.log('  - transfer record:', {
+          employeeId: t.employeeId || t.employee_id || t.employeeId || t.empId,
+          employeeName: t.employeeName || t.employee_name || t.employeeName,
+          divisionCode: t.division_code || t.divisionCode,
+          divisionName: t.division_name || t.divisionName,
+          sectionCode: t.hie_code || t.section_code || t.sectionCode,
+          sectionName: t.hie_name || t.section_name || t.sectionName,
+          sub_section_id: t.sub_section_id
+        });
+      });
+      
+      const transferredEmployeeIds = transfersInSubSection.map(t => String(
+        t.employeeId || t.employee_id || t.employeeId || t.empId || t.employeeId || t.employee_id
+      ));
+      console.log('Transferred employee IDs:', transferredEmployeeIds);
+
+      // Match with the full normalized HRIS dataset regardless of Colombo filter, so transferred employees show even if
+      // they aren't in the Colombo-only `allEmployees` set used for the main grid.
+      const hrisToSearch = (normalizedAllHrisEmployees && normalizedAllHrisEmployees.length) ? normalizedAllHrisEmployees : allEmployees;
+      // Also collect a set of parsed integer values of transfer ids for numeric ID matching
+      const transferIdsAsNumbers = new Set(transferredEmployeeIds.map(id => {
+        const n = Number(id);
+        return (isNaN(n) ? id : String(n));
+      }));
+      filtered = hrisToSearch.filter(emp => {
+        const empId = String(emp.empNumber || emp.EMP_NUMBER || emp.employeeId || emp.employee_ID || emp.employee_id || '');
+        const isMatch = transferredEmployeeIds.includes(empId) || transferIdsAsNumbers.has(empId);
+        if (isMatch) {
+          console.log(`✅ Found employee: ${emp.fullName} (${empId})`);
+        }
+        return isMatch;
+      });
+      
+      console.log(`Matched ${filtered.length} employees for sub-section`);
+      if (transfersInSubSection.length > 0 && filtered.length === 0) {
+        console.warn('No HRIS employee records found for transferred employee IDs in this sub-section', transfersInSubSection.map(t => t.employeeId));
+      }
+    } else {
+      // Normal division/section filtering (when no sub-section is selected)
+      if (selectedEmployeeDivision !== 'all') {
+        const maps = buildDivisionMaps();
+        filtered = filtered.filter(emp => getEmployeeDivisionKey(emp, maps) === String(selectedEmployeeDivision));
+      }
+      if (selectedSection !== 'all') {
+        const selObj = availableSections.find(s => String(s.id) === String(selectedSection));
+        const selNameKey = String(selObj?.name || '').toLowerCase().trim().replace(/\s+/g, ' ');
+        filtered = filtered.filter(emp => {
+          const byIdOrCode = String(emp.sectionId || emp.sectionCode) === String(selectedSection);
+          if (byIdOrCode) return true;
+          const empNameKey = String(emp.sectionHierarchyName || emp.sectionName || '').toLowerCase().trim().replace(/\s+/g, ' ');
+          return selNameKey && empNameKey === selNameKey;
+        });
+      }
     }
-    if (selectedSection !== 'all') {
-      const selObj = availableSections.find(s => String(s.id) === String(selectedSection));
-      const selNameKey = String(selObj?.name || '').toLowerCase().trim().replace(/\s+/g, ' ');
+
+    // If no sub-section is selected, enforce Colombo-only filter to keep the default list Colombo-focused.
+    // If a sub-section is selected, we intentionally skip the Colombo-only filter so transferred employees
+    // (which may belong to other divisions) are still shown.
+    if (selectedSubSection === 'all') {
+      filtered = filtered.filter(isColomboEmployeeNormalized);
+    }
+
+    // Apply search filter
+    if (searchTerm.trim()) {
+      const search = searchTerm.toLowerCase().trim();
       filtered = filtered.filter(emp => {
-        const byIdOrCode = String(emp.sectionId || emp.sectionCode) === String(selectedSection);
-        if (byIdOrCode) return true;
-        const empNameKey = String(emp.sectionHierarchyName || emp.sectionName || '').toLowerCase().trim().replace(/\s+/g, ' ');
-        return selNameKey && empNameKey === selNameKey;
+        const empId = String(emp.empNumber || '').toLowerCase();
+        const empName = String(emp.fullName || '').toLowerCase();
+        const empDesignation = String(emp.designation || '').toLowerCase();
+        const empNic = String(emp.nic || '').toLowerCase();
+        
+        return empId.includes(search) || 
+               empName.includes(search) || 
+               empDesignation.includes(search) ||
+               empNic.includes(search);
       });
     }
 
-    // Ensure Colombo-only is enforced even if source changes
-    filtered = filtered.filter(isColomboEmployeeNormalized);
-
     setEmployees(filtered);
-  }, [allEmployees, selectedEmployeeDivision, selectedSection]);
+  }, [allEmployees, normalizedAllHrisEmployees, selectedEmployeeDivision, selectedSection, selectedSubSection, transferredEmployees, availableSections, searchTerm]);
 
   const refreshData = () => {
     fetchAllData();
     setSelectedEmployeeDivision('all');
     setSelectedSection('all');
+    setSelectedSubSection('all');
     setAvailableSections([]);
+    setAvailableSubSections([]);
+    setSearchTerm('');
   };
 
   return (
@@ -419,111 +647,290 @@ const EmployeeManagement = () => {
         </div>
       </div>
 
-  <div className="report-config" style={{ marginTop: '12px' }}>
-        <div className="d-flex justify-content-between align-items-center mb-3">
-          <div className="d-flex gap-3">
-            {/* Division Filter */}
-            <div className="division-filter d-flex align-items-center">
-              <label htmlFor="employee-division-select" className="form-label mb-0 me-2" style={{ minWidth: '90px' }}>Division:</label>
-              <select 
-                id="employee-division-select"
-                className="form-select" 
-                value={selectedEmployeeDivision} 
-                onChange={handleEmployeeDivisionChange}
-                style={{ width: 'auto', minWidth: '200px' }}
-                disabled={loading}
-              >
-                <option value="all">All Divisions ({allEmployees.length} employees)</option>
-                {!loading && getEmployeeDivisions().map(division => (
-                  <option key={division.key} value={division.key}>
-                    {division.name} ({division.count} employees)
-                  </option>
-                ))}
-              </select>
+      {/* Active Filters Display - Moved before filter section */}
+      {(selectedEmployeeDivision !== 'all' || selectedSection !== 'all' || selectedSubSection !== 'all') && (
+        <div style={{
+          background: 'linear-gradient(135deg, #667eea15 0%, #764ba215 100%)',
+          border: '2px solid #667eea',
+          borderRadius: '8px',
+          padding: '16px 20px',
+          margin: '20px 20px 0 20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px'
+        }}>
+          <i className="bi bi-funnel-fill" style={{ color: '#667eea', fontSize: '20px' }}></i>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: '600', color: '#495057', marginBottom: '4px' }}>Active Filters:</div>
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              {selectedEmployeeDivision !== 'all' && (
+                <span style={{
+                  background: '#667eea',
+                  color: 'white',
+                  padding: '4px 12px',
+                  borderRadius: '20px',
+                  fontSize: '13px',
+                  fontWeight: '500'
+                }}>
+                  {getEmployeeDivisions().find(d => String(d.key) === String(selectedEmployeeDivision))?.name || selectedEmployeeDivision}
+                </span>
+              )}
+              {selectedSection !== 'all' && (
+                <>
+                  <i className="bi bi-chevron-right" style={{ color: '#667eea' }}></i>
+                  <span style={{
+                    background: '#764ba2',
+                    color: 'white',
+                    padding: '4px 12px',
+                    borderRadius: '20px',
+                    fontSize: '13px',
+                    fontWeight: '500'
+                  }}>
+                    {availableSections.find(s => String(s.id) === String(selectedSection))?.name || selectedSection}
+                  </span>
+                </>
+              )}
+              {selectedSubSection !== 'all' && (
+                <>
+                  <i className="bi bi-chevron-right" style={{ color: '#667eea' }}></i>
+                  <span style={{
+                    background: '#f093fb',
+                    color: 'white',
+                    padding: '4px 12px',
+                    borderRadius: '20px',
+                    fontSize: '13px',
+                    fontWeight: '500'
+                  }}>
+                    {availableSubSections.find(ss => String(ss._id) === String(selectedSubSection))?.subSection?.sub_hie_name || 
+                     availableSubSections.find(ss => String(ss._id) === String(selectedSubSection))?.subSection?.hie_name || 
+                     selectedSubSection}
+                  </span>
+                </>
+              )}
             </div>
-            {/* Section Filter */}
-            <div className="section-filter d-flex align-items-center">
-              <label htmlFor="employee-section-select" className="form-label mb-0 me-2" style={{ minWidth: '90px' }}>Section:</label>
-              <select 
-                id="employee-section-select"
-                className="form-select" 
-                value={selectedSection} 
-                onChange={handleSectionChange}
-                style={{ width: 'auto', minWidth: '200px' }}
-                disabled={!selectedEmployeeDivision || selectedEmployeeDivision === 'all'}
-              >
+          </div>
+          <div style={{
+            background: 'white',
+            padding: '8px 16px',
+            borderRadius: '20px',
+            fontWeight: '600',
+            color: '#667eea',
+            fontSize: '14px',
+            border: '2px solid #667eea'
+          }}>
+            {employees.length} of {allEmployees.length} employees
+          </div>
+        </div>
+      )}
+
+      <div className="report-config" style={{ padding: '16px 20px', background: 'white', borderRadius: '8px', margin: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.08)' }}>
+        {/* Compact Filters Section */}
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          {/* Division Filter */}
+          <div style={{ flex: '1', minWidth: '200px' }}>
+            <label htmlFor="employee-division-select" style={{ 
+              fontWeight: '600', 
+              color: '#495057',
+              fontSize: '12px',
+              display: 'block',
+              marginBottom: '4px'
+            }}>
+              Division
+            </label>
+            <select 
+              id="employee-division-select"
+              className="form-select" 
+              value={selectedEmployeeDivision} 
+              onChange={handleEmployeeDivisionChange}
+              style={{ 
+                padding: '8px 10px',
+                fontSize: '13px',
+                border: '1px solid #dee2e6',
+                borderRadius: '4px'
+              }}
+              disabled={loading}
+            >
+              <option value="all">All Divisions</option>
+              {!loading && getEmployeeDivisions().map(division => (
+                <option key={division.key} value={division.key}>
+                  {division.name} ({division.count})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Section Filter */}
+          <div style={{ flex: '1', minWidth: '200px' }}>
+            <label htmlFor="employee-section-select" style={{ 
+              fontWeight: '600', 
+              color: '#495057',
+              fontSize: '12px',
+              display: 'block',
+              marginBottom: '4px'
+            }}>
+              Section
+            </label>
+            <select 
+              id="employee-section-select"
+              className="form-select" 
+              value={selectedSection} 
+              onChange={handleSectionChange}
+              style={{ 
+                padding: '8px 10px',
+                fontSize: '13px',
+                border: '1px solid #dee2e6',
+                borderRadius: '4px'
+              }}
+              disabled={!selectedEmployeeDivision || selectedEmployeeDivision === 'all'}
+            >
                 {!selectedEmployeeDivision || selectedEmployeeDivision === 'all' ? (
-                  <option value="all">Select a division first</option>
+                  <option value="all">Select division first</option>
                 ) : (
                   <>
-                    <option value="all">All Sections ({employees.length} employees)</option>
+                    <option value="all">All Sections</option>
                     {availableSections.length ? (
-                      availableSections.map(section => {
-                        // Count employees in this section - match by ID, code, or name
-                        const maps = buildDivisionMaps();
-                        const normalizeTextKey = (s) => String(s || '').toLowerCase().trim().replace(/\s+/g, ' ');
-                        const sectionNameKey = normalizeTextKey(section.name);
-                        
-                        const count = allEmployees.filter(emp => {
-                          // Must be in the selected division first
-                          if (getEmployeeDivisionKey(emp, maps) !== String(selectedEmployeeDivision)) {
-                            return false;
-                          }
-                          
-                          // Match by section ID or code
-                          const byIdOrCode = String(emp.sectionId || emp.sectionCode) === String(section.id);
-                          if (byIdOrCode) return true;
-                          
-                          // Match by section name (normalized)
-                          const empSectionName = normalizeTextKey(emp.sectionHierarchyName || emp.sectionName || '');
-                          return sectionNameKey && empSectionName === sectionNameKey;
-                        }).length;
-                        
-                        return (
-                          <option key={section.id} value={section.id}>
-                            {section.name} ({count} employees)
-                          </option>
-                        );
-                      })
+                      availableSections.map(section => (
+                        <option key={section.id} value={section.id}>
+                          {section.name}
+                        </option>
+                      ))
                     ) : (
-                      <option value="__no_sections" disabled>No sections available</option>
+                      <option value="__no_sections" disabled>No sections</option>
                     )}
                   </>
                 )}
               </select>
+          </div>
+
+          {/* Sub-Section Filter */}
+          <div style={{ flex: '1', minWidth: '200px' }}>
+            <label htmlFor="employee-subsection-select" style={{ 
+              fontWeight: '600', 
+              color: '#495057',
+              fontSize: '12px',
+              display: 'block',
+              marginBottom: '4px'
+            }}>
+              Sub-Section
+            </label>
+            <select 
+              id="employee-subsection-select"
+              className="form-select" 
+              value={selectedSubSection} 
+              onChange={handleSubSectionChange}
+              style={{ 
+                padding: '8px 10px',
+                fontSize: '13px',
+                border: '1px solid #dee2e6',
+                borderRadius: '4px'
+              }}
+              disabled={!selectedSection || selectedSection === 'all'}
+            >
+                {!selectedSection || selectedSection === 'all' ? (
+                  <option value="all">Select section first</option>
+                ) : (
+                  <>
+                    <option value="all">All Sub-Sections</option>
+                    {availableSubSections.length ? (
+                      availableSubSections.map(subSection => (
+                        <option key={subSection._id} value={subSection._id}>
+                          {subSection.subSection?.sub_hie_name || subSection.subSection?.hie_name || 'Unnamed'}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="__no_subsections" disabled>No sub-sections</option>
+                    )}
+                  </>
+                )}
+              </select>
+          </div>
+
+          {/* Search Bar */}
+          <div style={{ flex: '1.5', minWidth: '250px' }}>
+            <label htmlFor="employee-search" style={{ 
+              fontWeight: '600', 
+              color: '#495057',
+              fontSize: '12px',
+              display: 'block',
+              marginBottom: '4px'
+            }}>
+              Search
+            </label>
+            <div style={{ position: 'relative' }}>
+              <i className="bi bi-search" style={{
+                position: 'absolute',
+                left: '10px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#6c757d',
+                fontSize: '14px'
+              }}></i>
+              <input
+                id="employee-search"
+                type="text"
+                className="form-control"
+                placeholder="Search by ID, Name, Designation, NIC..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                style={{
+                  padding: '8px 10px 8px 32px',
+                  fontSize: '13px',
+                  border: '1px solid #dee2e6',
+                  borderRadius: '4px'
+                }}
+              />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm('')}
+                  style={{
+                    position: 'absolute',
+                    right: '8px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    color: '#6c757d',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    fontSize: '16px'
+                  }}
+                  title="Clear search"
+                >
+                  <i className="bi bi-x-circle-fill"></i>
+                </button>
+              )}
             </div>
           </div>
-          <button 
-            className="btn btn-outline-primary refresh-btn"
-            onClick={refreshData}
-            disabled={loading}
-          >
-            <i className="bi bi-arrow-clockwise"></i>
-            Refresh
-          </button>
-        </div>
 
-        {/* Filter Status Info */}
-        {(selectedEmployeeDivision !== 'all' || selectedSection !== 'all') && (
-          <div className="alert alert-info mb-3">
-            <i className="bi bi-filter"></i>
-            Showing employees from: 
-            {selectedEmployeeDivision !== 'all' && (
-              <strong className="ms-1">
-                {getEmployeeDivisions().find(d => String(d.key) === String(selectedEmployeeDivision))?.name || selectedEmployeeDivision}
-              </strong>
-            )}
-            {selectedSection !== 'all' && (
-              <>
-                <i className="bi bi-arrow-right mx-2"></i>
-                <strong>
-                  {availableSections.find(s => String(s.id) === String(selectedSection))?.name || selectedSection}
-                </strong>
-              </>
-            )}
-            <span className="ms-2">({employees.length} of {allEmployees.length} employees)</span>
+          {/* Refresh Button */}
+          <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+            <button 
+              onClick={refreshData}
+              disabled={loading}
+              style={{
+                padding: '8px 16px',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                fontSize: '13px',
+                fontWeight: '600',
+                cursor: loading ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                transition: 'all 0.2s',
+                opacity: loading ? 0.6 : 1,
+                height: '34px'
+              }}
+              onMouseOver={(e) => !loading && (e.target.style.transform = 'translateY(-1px)')}
+              onMouseOut={(e) => (e.target.style.transform = 'translateY(0)')}
+            >
+              <i className="bi bi-arrow-clockwise"></i>
+              Refresh
+            </button>
           </div>
-        )}
+        </div>
       </div>
 
       {error && (
@@ -534,44 +941,166 @@ const EmployeeManagement = () => {
       )}
 
       {loading ? (
-        <div className="loading-container" style={{padding: 16}}>
-          <div className="spinner-border text-primary" role="status">
+        <div style={{ 
+          padding: '60px 20px', 
+          textAlign: 'center',
+          background: 'white',
+          margin: '20px',
+          borderRadius: '8px',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.08)'
+        }}>
+          <div className="spinner-border" style={{ color: '#667eea', width: '3rem', height: '3rem' }} role="status">
             <span className="visually-hidden">Loading...</span>
           </div>
-          <p>Fetching data from HRIS API...</p>
+          <p style={{ marginTop: '20px', color: '#6c757d', fontSize: '16px' }}>Fetching employee data from HRIS API...</p>
         </div>
       ) : (
-        <div style={{padding: 16}}>
-          <div className="table-responsive">
-            <table className="table table-striped">
-              <thead>
-                <tr>
-                  <th>Employee ID</th>
-                  <th>Full Name</th>
-                  <th>Designation</th>
-                  <th>Gender</th>
-                  <th>NIC</th>
-                  <th>Division</th>
-                  <th>Section</th>
-                </tr>
-              </thead>
-              <tbody>
-                {employees.map((employee) => (
-                  <tr key={employee.empNumber}>
-                    <td>{employee.empNumber}</td>
-                    <td>{employee.fullName}</td>
-                    <td>{employee.designation}</td>
-                    <td>{employee.gender}</td>
-                    <td>{employee.nic}</td>
-                    <td>{employee.divisionHierarchyName || employee.divisionName || '-'}</td>
-                    <td>{employee.sectionHierarchyName || employee.sectionName || '-'}</td>
+        <div style={{ padding: '0 20px 20px 20px' }}>
+          {selectedSubSection !== 'all' && transferMatchesCount > 0 && (
+            <div style={{ margin: '12px 0 8px 12px', color: '#495057', fontSize: '14px', fontWeight: 600 }}>
+              <i className="bi bi-arrow-repeat" style={{ marginRight: 8, color: '#667eea' }}></i>
+              Showing <strong style={{ color: '#333' }}>{transferMatchesCount}</strong> transferred employee{transferMatchesCount > 1 ? 's' : ''}
+            </div>
+          )}
+          <div style={{
+            background: 'white',
+            borderRadius: '8px',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.08)',
+            overflow: 'hidden'
+          }}>
+            <div className="table-responsive">
+              <table className="table" style={{ marginBottom: 0 }}>
+                <thead>
+                  <tr style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+                    <th style={{ 
+                      color: 'white !important', 
+                      fontWeight: '600', 
+                      padding: '14px 16px',
+                      fontSize: '13px',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                      border: 'none',
+                      whiteSpace: 'nowrap'
+                    }}>Employee ID</th>
+                    <th style={{ 
+                      color: 'white !important', 
+                      fontWeight: '600', 
+                      padding: '14px 16px',
+                      fontSize: '13px',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                      border: 'none',
+                      whiteSpace: 'nowrap'
+                    }}>Full Name</th>
+                    <th style={{ 
+                      color: 'white !important', 
+                      fontWeight: '600', 
+                      padding: '14px 16px',
+                      fontSize: '13px',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                      border: 'none',
+                      whiteSpace: 'nowrap'
+                    }}>Designation</th>
+                    <th style={{ 
+                      color: 'white !important', 
+                      fontWeight: '600', 
+                      padding: '14px 16px',
+                      fontSize: '13px',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                      border: 'none',
+                      whiteSpace: 'nowrap'
+                    }}>Gender</th>
+                    <th style={{ 
+                      color: 'white !important', 
+                      fontWeight: '600', 
+                      padding: '14px 16px',
+                      fontSize: '13px',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                      border: 'none',
+                      whiteSpace: 'nowrap'
+                    }}>NIC</th>
                   </tr>
-                ))}
-                {employees.length === 0 && (
-                  <tr><td colSpan={7} style={{textAlign: 'center', padding: 24}}>No employees found</td></tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {employees.map((employee, index) => (
+                    <tr key={employee.empNumber} style={{
+                      background: index % 2 === 0 ? '#ffffff' : '#f8f9fa',
+                      transition: 'all 0.2s',
+                      cursor: 'default'
+                    }}
+                    onMouseOver={(e) => {
+                      e.currentTarget.style.background = '#667eea15';
+                      e.currentTarget.style.transform = 'scale(1.01)';
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.style.background = index % 2 === 0 ? '#ffffff' : '#f8f9fa';
+                      e.currentTarget.style.transform = 'scale(1)';
+                    }}>
+                      <td style={{ 
+                        padding: '12px 16px',
+                        fontSize: '13px',
+                        color: '#495057',
+                        fontWeight: '600',
+                        borderBottom: '1px solid #e9ecef'
+                      }}>{employee.empNumber}</td>
+                      <td style={{ 
+                        padding: '12px 16px',
+                        fontSize: '13px',
+                        color: '#212529',
+                        fontWeight: '500',
+                        borderBottom: '1px solid #e9ecef'
+                      }}>{employee.fullName}</td>
+                      <td style={{ 
+                        padding: '12px 16px',
+                        fontSize: '13px',
+                        color: '#6c757d',
+                        borderBottom: '1px solid #e9ecef'
+                      }}>{employee.designation}</td>
+                      <td style={{ 
+                        padding: '12px 16px',
+                        fontSize: '13px',
+                        color: '#6c757d',
+                        borderBottom: '1px solid #e9ecef'
+                      }}>
+                        <span style={{
+                          background: employee.gender === 'Male' ? '#e3f2fd' : employee.gender === 'Female' ? '#fce4ec' : '#f5f5f5',
+                          color: employee.gender === 'Male' ? '#1976d2' : employee.gender === 'Female' ? '#c2185b' : '#757575',
+                          padding: '4px 10px',
+                          borderRadius: '12px',
+                          fontSize: '12px',
+                          fontWeight: '500'
+                        }}>
+                          {employee.gender}
+                        </span>
+                      </td>
+                      <td style={{ 
+                        padding: '12px 16px',
+                        fontSize: '13px',
+                        color: '#6c757d',
+                        fontFamily: 'monospace',
+                        borderBottom: '1px solid #e9ecef'
+                      }}>{employee.nic}</td>
+                    </tr>
+                  ))}
+                  {employees.length === 0 && (
+                    <tr>
+                      <td colSpan={5} style={{
+                        textAlign: 'center', 
+                        padding: '60px 24px',
+                        color: '#9e9e9e',
+                        fontSize: '16px'
+                      }}>
+                        <i className="bi bi-inbox" style={{ fontSize: '48px', display: 'block', marginBottom: '16px', opacity: 0.5 }}></i>
+                        No employees found
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}

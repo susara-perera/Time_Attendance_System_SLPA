@@ -13,6 +13,41 @@ const ReportGeneration = () => {
   const [divisions, setDivisions] = useState([]);
   const [sections, setSections] = useState([]);
   const [allSections, setAllSections] = useState([]);
+  const [subSections, setSubSections] = useState([]);
+  const [subSectionId, setSubSectionId] = useState('all');
+  // Fetch sub sections when section changes (only for group scope and when section is selected)
+  useEffect(() => {
+    if (reportScope === 'group' && sectionId && sectionId !== 'all') {
+      console.log(`Fetching sub sections for section: ${sectionId}`);
+      const token = localStorage.getItem('token');
+      fetch(`http://localhost:5000/api/subsections?sectionId=${sectionId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+        .then(res => res.json())
+        .then(data => {
+          console.log('Sub sections response:', data);
+          if (data.success && Array.isArray(data.data)) {
+            setSubSections(data.data);
+            setSubSectionId('all');
+          } else {
+            setSubSections([]);
+            setSubSectionId('all');
+          }
+        })
+        .catch((error) => {
+          console.error('Error fetching sub sections:', error);
+          setSubSections([]);
+          setSubSectionId('all');
+        });
+    } else {
+      // Clear sub sections when no specific section is selected
+      setSubSections([]);
+      setSubSectionId('all');
+    }
+  }, [reportScope, sectionId]);
   const [dateRange, setDateRange] = useState({
     startDate: '',
     endDate: ''
@@ -65,6 +100,27 @@ const ReportGeneration = () => {
       setEmployeeId('');
     }
   }, [reportScope]);
+
+  // When division changes, reset section and sub-section
+  useEffect(() => {
+    if (divisionId === 'all') {
+      setSectionId('all');
+      setSubSectionId('all');
+    } else {
+      // Keep section selection if valid, otherwise reset
+      setSectionId('all');
+      setSubSectionId('all');
+    }
+  }, [divisionId]);
+
+  // When section changes, reset sub-section
+  useEffect(() => {
+    if (sectionId === 'all' || divisionId === 'all') {
+      setSubSectionId('all');
+    } else {
+      setSubSectionId('all');
+    }
+  }, [sectionId, divisionId]);
 
   const fetchSectionsByDivision = useCallback(async (divId) => {
     try {
@@ -1008,29 +1064,29 @@ const ReportGeneration = () => {
               >
                 <option value="individual">Individual Report</option>
                 <option value="group">Group Report</option>
+                <option value="audit">Audit</option>
               </select>
             </div>
 
-            {/* Employee ID - always visible, required only for individual scope */}
-            <div className="form-group" style={{gridColumn: 'span 1'}}>
-              <label htmlFor="employeeId">
-                <i className="bi bi-person-badge"></i>
-                Employee ID
-              </label>
-              <input
-                type="text"
-                id="employeeId"
-                value={employeeId}
-                onChange={(e) => setEmployeeId(e.target.value)}
-                className="form-control"
-                placeholder="Enter employee ID"
-                required={reportScope === 'individual'}
-                disabled={reportScope === 'group'}
-                aria-disabled={reportScope === 'group'}
-                title={reportScope === 'group' ? 'Disabled for Group reports' : 'Enter employee ID'}
-                style={{ cursor: reportScope === 'group' ? 'not-allowed' : 'text' }}
-              />
-            </div>
+            {/* Employee ID - only visible for individual scope */}
+            {reportScope === 'individual' && (
+              <div className="form-group" style={{gridColumn: 'span 1'}}>
+                <label htmlFor="employeeId">
+                  <i className="bi bi-person-badge"></i>
+                  Employee ID
+                </label>
+                <input
+                  type="text"
+                  id="employeeId"
+                  value={employeeId}
+                  onChange={(e) => setEmployeeId(e.target.value)}
+                  className="form-control"
+                  placeholder="Enter employee ID"
+                  required={reportScope === 'individual'}
+                  title="Enter employee ID"
+                />
+              </div>
+            )}
 
             {/* Division and Section - only visible for group scope */}
             {reportScope === 'group' && (
@@ -1069,13 +1125,41 @@ const ReportGeneration = () => {
                     value={sectionId}
                     onChange={(e) => setSectionId(e.target.value)}
                     className="form-control"
-                    disabled={reportScope === 'individual'}
-                    style={{ cursor: reportScope === 'individual' ? 'not-allowed' : 'pointer' }}
+                    disabled={reportScope === 'individual' || divisionId === 'all'}
+                    style={{ cursor: (reportScope === 'individual' || divisionId === 'all') ? 'not-allowed' : 'pointer' }}
+                    title={divisionId === 'all' ? 'All Divisions selected - Section must be All' : 'Select a section'}
                   >
-                    <option value="all">All Sections</option>
-                    {(Array.isArray(sections) ? sections : []).map(section => (
+                    <option value="all">
+                      {divisionId === 'all' ? 'All Sections' : 'All Sections'}
+                    </option>
+                    {divisionId !== 'all' && (Array.isArray(sections) ? sections : []).map(section => (
                       <option key={section._id || section.id} value={section._id || section.id}>
                         {section.name || section.section_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {/* Sub Section - only visible for group scope */}
+                <div className="form-group" style={{gridColumn: 'span 1'}}>
+                  <label htmlFor="subSectionId">
+                    <i className="bi bi-diagram-2"></i>
+                    Sub Section
+                  </label>
+                  <select
+                    id="subSectionId"
+                    value={subSectionId}
+                    onChange={e => setSubSectionId(e.target.value)}
+                    className="form-control"
+                    disabled={reportScope !== 'group' || sectionId === 'all' || divisionId === 'all'}
+                    style={{ cursor: (reportScope !== 'group' || sectionId === 'all' || divisionId === 'all') ? 'not-allowed' : 'pointer' }}
+                    title={divisionId === 'all' ? 'All Divisions selected - Sub Section must be All' : sectionId === 'all' ? 'Please select a section first' : 'Select a sub section'}
+                  >
+                    <option value="all">
+                      {divisionId === 'all' ? 'All Sub Sections' : sectionId === 'all' ? 'Select Section First' : 'All Sub Sections'}
+                    </option>
+                    {sectionId !== 'all' && divisionId !== 'all' && (Array.isArray(subSections) ? subSections : []).map(sub => (
+                      <option key={sub._id || sub.id} value={sub._id || sub.id}>
+                        {sub.subSection?.sub_hie_name || sub.subSection?.name || sub.subSection?.hie_name || sub.subSection?.sub_hie_code || sub.subSection?.code || 'Unnamed'}
                       </option>
                     ))}
                   </select>

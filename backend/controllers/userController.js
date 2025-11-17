@@ -3,7 +3,15 @@ const Division = require('../models/Division');
 const Section = require('../models/Section');
 const AuditLog = require('../models/AuditLog');
 const mongoose = require('mongoose');
-const { readData } = require('../services/hrisApiService');
+const { 
+  readData, 
+  getCachedOrFetch, 
+  getCachedEmployees,
+  getCachedDivisions,
+  getCachedSections,
+  isCacheInitialized,
+  initializeCache 
+} = require('../services/hrisApiService');
 
 // @desc    Get all users
 // @route   GET /api/users
@@ -861,22 +869,27 @@ const unlockAllUsers = async (req, res) => {
 // @access  Public (for now)
 const getHrisEmployees = async (req, res) => {
   try {
-    console.log('Attempting to fetch employees from HRIS API...');
+    console.log('📥 Fetching employees from HRIS (using cache)...');
+    
+    // Ensure cache is initialized
+    if (!isCacheInitialized()) {
+      console.log('🔄 Cache not initialized, initializing now...');
+      await initializeCache();
+    }
     
     const { emp_number, division, section } = req.query;
-    let filter = {};
     
-    if (emp_number) {
-      // The API expects an array of numbers for EMP_NUMBER filter
-      const empNumbers = Array.isArray(emp_number) ? emp_number.map(Number) : [Number(emp_number)];
-      filter = { EMP_NUMBER: empNumbers };
+    // Get employees from cache
+    let allEmployees = getCachedEmployees();
+    
+    // If not in cache, fetch and cache
+    if (!allEmployees) {
+      console.log('⚠️ Employees not in cache, fetching from API...');
+      allEmployees = await getCachedOrFetch('employee', {});
     }
-
-    // Fetch all employees (avoid filter issues)
-    const allEmployees = await readData('employee', {});
     
-    // Get hierarchy data for division and section mapping
-    const allHierarchy = await readData('company_hierarchy', {});
+    // Get hierarchy data from cache for division and section mapping
+    const allHierarchy = await getCachedOrFetch('company_hierarchy', {});
     const divisions = allHierarchy.filter(item => item.DEF_LEVEL === 3 || item.DEF_LEVEL === '3');
     const sections = allHierarchy.filter(item => item.DEF_LEVEL === 4 || item.DEF_LEVEL === '4');
     

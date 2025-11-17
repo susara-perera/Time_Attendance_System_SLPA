@@ -7,12 +7,12 @@ const subSectionSchema = new mongoose.Schema({
       required: [true, 'Parent division ID is required'],
       trim: true
     },
-    code: {
+    division_code: {
       type: String,
       trim: true,
       default: ''
     },
-    name: {
+    division_name: {
       type: String,
       trim: true,
       default: ''
@@ -24,25 +24,25 @@ const subSectionSchema = new mongoose.Schema({
       required: [true, 'Parent section ID is required'],
       trim: true
     },
-    code: {
+    hie_code: {
       type: String,
       trim: true,
       default: ''
     },
-    name: {
+    hie_name: {
       type: String,
       trim: true,
       default: ''
     }
   },
   subSection: {
-    name: {
+    sub_hie_name: {
       type: String,
       required: [true, 'Sub-section name is required'],
       trim: true,
       maxlength: [100, 'Sub-section name cannot exceed 100 characters']
     },
-    code: {
+    sub_hie_code: {
       type: String,
       required: [true, 'Sub-section code is required'],
       trim: true,
@@ -78,28 +78,33 @@ const subSectionSchema = new mongoose.Schema({
 subSectionSchema.index({ 'parentSection.id': 1 });
 
 // Index for unique constraint on sub-section code within parent section
+// Use partialFilterExpression to ignore legacy documents that may not have sub_hie_code
 subSectionSchema.index({ 
   'parentSection.id': 1, 
-  'subSection.code': 1 
-}, { unique: true });
+  'subSection.sub_hie_code': 1 
+}, { 
+  unique: true,
+  name: 'parentSection.id_1_subSection.sub_hie_code_1',
+  partialFilterExpression: { 'subSection.sub_hie_code': { $type: 'string' } }
+});
 
 // Virtual for full sub-section identifier
 subSectionSchema.virtual('fullCode').get(function() {
-  return `${this.parentSection.code}-${this.subSection.code}`;
+  return `${this.parentSection.hie_code}-${this.subSection.sub_hie_code}`;
 });
 
 // Pre-save middleware to ensure code is uppercase
 subSectionSchema.pre('save', function(next) {
-  if (this.subSection && this.subSection.code) {
-    this.subSection.code = this.subSection.code.toUpperCase();
+  if (this.subSection && this.subSection.sub_hie_code) {
+    this.subSection.sub_hie_code = this.subSection.sub_hie_code.toUpperCase();
   }
   next();
 });
 
 // Pre-update middleware to ensure code is uppercase
 subSectionSchema.pre(['findOneAndUpdate', 'updateOne', 'updateMany'], function(next) {
-  if (this.getUpdate().$set && this.getUpdate().$set['subSection.code']) {
-    this.getUpdate().$set['subSection.code'] = this.getUpdate().$set['subSection.code'].toUpperCase();
+  if (this.getUpdate().$set && this.getUpdate().$set['subSection.sub_hie_code']) {
+    this.getUpdate().$set['subSection.sub_hie_code'] = this.getUpdate().$set['subSection.sub_hie_code'].toUpperCase();
   }
   next();
 });
