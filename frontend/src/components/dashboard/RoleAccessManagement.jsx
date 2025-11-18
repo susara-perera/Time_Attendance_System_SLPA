@@ -18,6 +18,8 @@ const RoleAccessManagement = () => {
   const [loading, setLoading] = useState(true);
   const [showRoleManagement, setShowRoleManagement] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [savingToggles, setSavingToggles] = useState({}); // keyed by `${category}_${id}`
+  const isSavingAny = Object.keys(savingToggles || {}).length > 0;
 
   useEffect(() => {
     fetchRoles();
@@ -53,7 +55,17 @@ const RoleAccessManagement = () => {
   useEffect(() => {
     if (selectedRole) {
       const role = roles.find(r => r.value === selectedRole);
-      setFormData(role?.permissions || {});
+      // Map legacy permissions: if 'subsections' contains transfer/recall but 'transfer_recall' is empty,
+      // migrate those flags into the 'transfer_recall' category for UI consumption (no DB migration).
+      const perms = role?.permissions || {};
+      const mapped = { ...perms };
+      if (perms.subsections && (perms.subsections.transfer || perms.subsections.recall) && !perms.transfer_recall) {
+        mapped.transfer_recall = {
+          transfer: !!perms.subsections.transfer,
+          recall: !!perms.subsections.recall
+        };
+      }
+      setFormData(mapped);
     }
   }, [selectedRole, roles]);
 
@@ -71,6 +83,7 @@ const RoleAccessManagement = () => {
   // Permission checks
   const hasRoleReadPermission = () => isSuperAdmin || user?.permissions?.roles?.read;
   const hasRoleUpdatePermission = () => isSuperAdmin || user?.permissions?.roles?.update;
+  const hasRoleManageReadPermission = () => isSuperAdmin || (user?.permissions?.roles?.read === true) || (user?.permissions?.rolesManage?.read === true);
 
   // Fetch roles from backend
   const fetchRoles = async (showRefreshIndicator = false) => {
@@ -122,13 +135,91 @@ const RoleAccessManagement = () => {
   };
 
   // Stats
-  const getTotalAvailablePermissions = () =>
-    permissionCatalog.reduce((sum, cat) => sum + (cat.permissions?.length || 0), 0);
+  const visiblePermissionCatalog = (() => {
+    const base = permissionCatalog.map(cat => {
+      if (cat.category === 'divisions' || cat.category === 'sections' || cat.category === 'employees' || cat.category === 'attendance') {
+        // Only show the 'read' permission for divisions and sections (view only)
+        return { ...cat, permissions: (cat.permissions || []).filter(p => p.id === 'read') };
+      }
+      if (cat.category === 'reports') {
+        // Report management should show 'create' (generate), 'read' (download), and 'view' (view)
+        const perms = (cat.permissions || []).filter(p => ['create', 'read'].includes(p.id)).map(p =>
+          p.id === 'read'
+            ? { ...p, name: 'Download Report' }
+            : p
+        );
+        // Add 'View Report' field
+        perms.push({ id: 'view', name: 'View Report' });
+        return {
+          ...cat,
+          permissions: perms
+        };
+      }
+      if (cat.category === 'subsections') {
+        // For subsections, only show create/read/update/delete (no transfer/recall here)
+        return { ...cat, permissions: (cat.permissions || []).filter(p => ['create', 'read', 'update', 'delete'].includes(p.id)) };
+      }
+      if (cat.category === 'transfer_recall') {
+        // Transfer & Recall card only shows transfer and recall actions
+        return { ...cat, permissions: (cat.permissions || []).filter(p => ['transfer', 'recall'].includes(p.id)) };
+      }
+      return cat;
+    });
 
-  const getTotalEnabledPermissions = () =>
-    Object.values(formData)
-      .flatMap(cat => Object.values(cat))
-      .filter(Boolean).length;
+    // If backend doesn't expose 'subsections' yet, append a default category
+    const hasSubsections = base.some(c => c.category === 'subsections');
+    if (!hasSubsections) {
+      base.push({
+        category: 'subsections',
+        name: 'Sub-Section Management',
+        permissions: [
+          { id: 'create', name: 'Create Sub-Sections' },
+          { id: 'read', name: 'View Sub-Sections' },
+          { id: 'update', name: 'Update Sub-Sections' },
+          { id: 'delete', name: 'Delete Sub-Sections' }
+        ]
+      });
+    }
+
+    // Add Transfer & Recall card fallback if backend doesn't expose it
+    const hasTransferRecall = base.some(c => c.category === 'transfer_recall');
+    if (!hasTransferRecall) {
+      base.push({
+        category: 'transfer_recall',
+        name: 'Transfer & Recall Management',
+        permissions: [
+          { id: 'transfer', name: 'Transfer Employee to Sub-Section' },
+          { id: 'recall', name: 'Recall Transferred Employee' }
+        ]
+      });
+    }
+
+    // Ensure 'sections' and 'employees' are adjacent so they appear on the same row
+    const sectionsIndex = base.findIndex(c => c.category === 'sections');
+    const employeesIndex = base.findIndex(c => c.category === 'employees');
+    if (sectionsIndex !== -1 && employeesIndex !== -1 && Math.abs(sectionsIndex - employeesIndex) !== 1) {
+      // Pull out employees and insert right after sections
+      const emp = base.splice(employeesIndex, 1)[0];
+      const insertAt = base.findIndex(c => c.category === 'sections') + 1;
+      base.splice(insertAt, 0, emp);
+    }
+
+    return base;
+  })();
+
+  const getTotalAvailablePermissions = () =>
+    visiblePermissionCatalog.reduce((sum, cat) => sum + (cat.permissions?.length || 0), 0);
+
+  const getTotalEnabledPermissions = () => {
+    let enabled = 0;
+    visiblePermissionCatalog.forEach(cat => {
+      const perms = cat.permissions || [];
+      perms.forEach(p => {
+        if (formData[cat.category]?.[p.id]) enabled++;
+      });
+    });
+    return enabled;
+  };
 
   // Helper functions for better UX
   const getPermissionIcon = (category) => {
@@ -138,6 +229,8 @@ const RoleAccessManagement = () => {
       reports: 'bi-bar-chart-fill',
       divisions: 'bi-building-fill',
       sections: 'bi-diagram-3-fill',
+      subsections: 'bi-list-check',
+      transfer_recall: 'bi-arrow-left-right',
       roles: 'bi-shield-fill-check',
       settings: 'bi-gear-fill',
       employees: 'bi-person-badge-fill'
@@ -152,6 +245,8 @@ const RoleAccessManagement = () => {
       reports: 'Generate, view, and manage various system reports',
       divisions: 'Create and manage organizational divisions and departments',
       sections: 'Organize and manage different sections within divisions',
+      subsections: 'Create and manage sub-sections within sections',
+      transfer_recall: 'Manage transferring and recalling employees to and from sub-sections',
       roles: 'Define user roles and assign permission levels',
       settings: 'Configure system-wide settings and preferences',
       employees: 'Manage employee information and employment records'
@@ -161,10 +256,14 @@ const RoleAccessManagement = () => {
 
   const getPermissionDetailDescription = (permissionId, category) => {
     const descriptions = {
-      create: `Add new ${category === 'users' ? 'user accounts' : category === 'employees' ? 'employee records' : category}`,
-      read: `View and browse existing ${category === 'users' ? 'user information' : category === 'employees' ? 'employee data' : category}`,
-      update: `Edit and modify existing ${category === 'users' ? 'user details' : category === 'employees' ? 'employee information' : category}`,
-      delete: `Remove and delete ${category === 'users' ? 'user accounts' : category === 'employees' ? 'employee records' : category}`,
+      create: `Add new ${category === 'users' ? 'user accounts' : category === 'employees' ? 'employee records' : category === 'subsections' ? 'sub-section' : category}`,
+      read: category === 'reports'
+        ? 'Download and export existing reports'
+        : `View and browse existing ${category === 'users' ? 'user information' : category === 'employees' ? 'employee data' : category === 'subsections' ? 'sub-section' : category}`,
+      update: `Edit and modify existing ${category === 'users' ? 'user details' : category === 'employees' ? 'employee information' : category === 'subsections' ? 'sub-section' : category}`,
+      delete: `Remove and delete ${category === 'users' ? 'user accounts' : category === 'employees' ? 'employee records' : category === 'subsections' ? 'sub-section' : category}`,
+      transfer: `Transfer employee to ${category === 'subsections' || category === 'transfer_recall' ? 'sub-section' : 'that module'}`,
+      recall: `Recall transferred employees from ${category === 'subsections' || category === 'transfer_recall' ? 'sub-section' : 'that module'}`,
       manage: `Full administrative access to ${category} management`
     };
     return descriptions[permissionId] || `Perform ${permissionId} operations`;
@@ -175,21 +274,87 @@ const RoleAccessManagement = () => {
     setSelectedRole(e.target.value);
   };
 
-  const handlePermissionChange = (category, id) => {
+  const handlePermissionChange = async (category, id) => {
+    if (!hasRoleUpdatePermission()) return;
+    if (!selectedRole) return;
+
+    const roleObj = roles.find(r => r.value === selectedRole);
+    if (!roleObj) return;
+
+    const key = `${category}_${id}`;
+    const oldVal = !!formData[category]?.[id];
+
+    // Optimistic UI update
     setFormData(prev => ({
       ...prev,
       [category]: {
         ...prev[category],
-        [id]: !prev[category]?.[id]
+        [id]: !oldVal
       }
     }));
+
+    // Mark this toggle as saving
+    setSavingToggles(s => ({ ...s, [key]: true }));
+
+    try {
+      const token = localStorage.getItem('token');
+      // Merge existing role permissions and apply the change
+      const mergedPermissions = { ...(roleObj.permissions || {}) };
+      mergedPermissions[category] = { ...(mergedPermissions[category] || {}) };
+      mergedPermissions[category][id] = !oldVal;
+
+      const response = await fetch(`http://localhost:5000/api/permissions/roles/${roleObj._id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ permissions: mergedPermissions })
+      });
+
+      if (!response.ok) {
+        // Revert optimistic update on failure
+        setFormData(prev => ({
+          ...prev,
+          [category]: {
+            ...prev[category],
+            [id]: oldVal
+          }
+        }));
+        console.error('Failed to update permission toggle', await response.text());
+      } else {
+        // Update local roles list to reflect backend change
+        const data = await response.json().catch(() => ({}));
+        if (data && data.data) {
+          setRoles(prev => prev.map(r => (r._id === roleObj._id ? data.data : r)));
+          // Notify other components about permission change
+          window.dispatchEvent(new CustomEvent('permissionsChanged'));
+        }
+      }
+    } catch (err) {
+      // Revert optimistic update on error
+      setFormData(prev => ({
+        ...prev,
+        [category]: {
+          ...prev[category],
+          [id]: oldVal
+        }
+      }));
+      console.error('Error updating permission toggle:', err);
+    } finally {
+      setSavingToggles(s => {
+        const copy = { ...s };
+        delete copy[key];
+        return copy;
+      });
+    }
   };
 
   const handleSelectAll = () => {
     const allEnabled = getTotalEnabledPermissions() !== getTotalAvailablePermissions();
-    const updated = {};
-    permissionCatalog.forEach(cat => {
-      updated[cat.category] = {};
+    const updated = { ...formData };
+    visiblePermissionCatalog.forEach(cat => {
+      updated[cat.category] = updated[cat.category] || {};
       cat.permissions.forEach(p => {
         updated[cat.category][p.id] = allEnabled;
       });
@@ -201,20 +366,32 @@ const RoleAccessManagement = () => {
     setShowConfirm(false);
     const roleObj = roles.find(r => r.value === selectedRole);
     if (!roleObj) return;
-    
+
     try {
       const token = localStorage.getItem('token');
-      await fetch(`http://localhost:5000/api/roles/${roleObj._id}`, {
+      // Preserve any permissions that are not shown in the UI (hidden permissions)
+      const mergedPermissions = { ...(roleObj.permissions || {}) };
+      Object.keys(formData).forEach(cat => {
+        mergedPermissions[cat] = { ...mergedPermissions[cat], ...formData[cat] };
+      });
+
+      await fetch(`http://localhost:5000/api/permissions/roles/${roleObj._id}`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
-        body: JSON.stringify({ permissions: formData })
+        body: JSON.stringify({ permissions: mergedPermissions })
       });
+      // Refresh local roles to reflect the change
+      await fetchRoles();
+      // Notify other parts of the app (AuthContext will poll/refresh current user)
+      window.dispatchEvent(new CustomEvent('permissionsChanged'));
       setShowSuccessModal(true);
     } catch (error) {
       console.error('Error saving permissions:', error);
+      // On failure, try to re-sync
+      try { await fetchRoles(); } catch (err) { console.error('Error refreshing roles after failed save:', err); }
     }
   };
 
@@ -231,29 +408,17 @@ const RoleAccessManagement = () => {
 
   return (
     <div className="role-access-wrapper">
-      {showRoleManagement ? (
-        <>
-          <div style={{ marginBottom: '16px' }}>
-            <button className="btn-manage-roles btn-secondary" onClick={() => setShowRoleManagement(false)}>
-              <i className="bi bi-arrow-left" style={{ marginRight: '6px', fontSize: '1.1rem' }}></i> Back
-            </button>
-          </div>
-          <RoleManagement />
-        </>
-      ) : (
-        <>
           <div className="section-header">
             <h2>
               <i className="bi bi-people-fill"></i>
               Role Access Management
             </h2>
             <div className="header-actions">
-              <button className="btn-manage-roles" onClick={() => setShowRoleManagement(true)}>
+              <button className="btn-manage-roles" onClick={() => hasRoleManageReadPermission() ? setShowRoleManagement(true) : undefined} disabled={!hasRoleManageReadPermission()} title={!hasRoleManageReadPermission() ? "You need 'roles.read' access to manage roles" : "Manage Roles"}>
                 <i className="bi bi-gear" style={{ marginRight: '6px', fontSize: '1.1rem' }}></i> Manage Roles
               </button>
             </div>
           </div>
-
           {hasRoleReadPermission() ? (
             <>
               <div className="stats-section">
@@ -324,7 +489,7 @@ const RoleAccessManagement = () => {
                   </div>
 
                   <div className="permissions-grid">
-                    {permissionCatalog.map(category => (
+                    {visiblePermissionCatalog.map(category => (
                       <div key={category.category} className="permission-card">
                         <div className="permission-card-header">
                           <div className="permission-icon">
@@ -344,6 +509,7 @@ const RoleAccessManagement = () => {
                         <div className="permission-card-body">
                           {category.permissions.map(permission => {
                             const isChecked = formData[category.category]?.[permission.id] || false;
+                            const toggleKey = `${category.category}_${permission.id}`;
                             return (
                               <div key={`${category.category}_${permission.id}`} className={`permission-toggle ${isChecked ? 'active' : ''}`}>
                                 <label className="permission-switch">
@@ -351,12 +517,16 @@ const RoleAccessManagement = () => {
                                     type="checkbox"
                                     checked={isChecked}
                                     onChange={() => handlePermissionChange(category.category, permission.id)}
-                                    disabled={!hasRoleUpdatePermission()}
+                                    disabled={!hasRoleUpdatePermission() || !!savingToggles[toggleKey]}
+                                    title={`${permission.name} - ${getPermissionDetailDescription(permission.id, category.category)}`}
                                   />
                                   <span className="slider"></span>
                                 </label>
                                 <div className="permission-info">
                                   <span className="permission-name">{permission.name}</span>
+                                  {savingToggles[toggleKey] && (
+                                    <span className="save-indicator ml-2" title="Saving...">🔄</span>
+                                  )}
                                   <span className="permission-desc">{getPermissionDetailDescription(permission.id, category.category)}</span>
                                 </div>
                               </div>
@@ -378,9 +548,9 @@ const RoleAccessManagement = () => {
                         <span className="stat-label">permissions restricted</span>
                       </div>
                     </div>
-                    <button className="btn-save-permissions" onClick={openConfirm} disabled={!hasRoleUpdatePermission()}>
+                    <button className="btn-save-permissions" onClick={openConfirm} disabled={!hasRoleUpdatePermission() || isSavingAny}>
                       <i className="bi bi-shield-check"></i>
-                      Save Permission Changes
+                      {isSavingAny ? 'Applying...' : 'Save Permission Changes'}
                     </button>
                   </div>
                 </div>
@@ -391,25 +561,23 @@ const RoleAccessManagement = () => {
               <i className="bi bi-lock-fill mr-2"></i>
               You do not have permission to view role access management. Contact a Super Admin for "roles.read" access.
             </div>
-          )}
-        </>
-      )}
+            )}
 
       {/* Confirm Modal */}
       {showConfirm && (
-        <div className="modal-overlay" onClick={() => setShowConfirm(false)}>
+        <div className="modal-overlay confirm-overlay" onClick={() => setShowConfirm(false)}>
           <div className="modal-content confirm-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h4>Confirm Save</h4>
+              <h4 className="confirm-title">Confirm Save</h4>
             </div>
             <div className="modal-body">
               <p>Are you sure you want to save these permission changes for <strong>{roles.find(r => r.value === selectedRole)?.label || selectedRole}</strong>?</p>
             </div>
             <div className="modal-footer">
-              <button className="btn-save-modern btn-secondary" onClick={() => setShowConfirm(false)}>
+              <button className="btn-save-modern btn-secondary btn-confirm-cancel" onClick={() => setShowConfirm(false)}>
                 Cancel
               </button>
-              <button className="btn-save-modern btn-success" onClick={confirmAndSave}>
+              <button className="btn-save-modern btn-success btn-confirm-confirm" onClick={confirmAndSave}>
                 Yes, Save
               </button>
             </div>

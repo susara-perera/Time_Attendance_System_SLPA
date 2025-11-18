@@ -20,25 +20,25 @@ const RoleManagement = () => {
 
   const isSuperAdmin = user?.role === 'super_admin';
 
-  // Add permission check functions for rolesManage
+  // Add permission check functions for role management. Some deployments use 'roles' while older versions used 'rolesManage'.
   const hasRoleManageReadPermission = () => {
     if (isSuperAdmin) return true;
-    return user?.permissions?.rolesManage?.read === true;
+    return (user?.permissions?.roles?.read === true) || (user?.permissions?.rolesManage?.read === true);
   };
 
   const hasRoleManageCreatePermission = () => {
     if (isSuperAdmin) return true;
-    return user?.permissions?.rolesManage?.create === true;
+    return (user?.permissions?.roles?.create === true) || (user?.permissions?.rolesManage?.create === true);
   };
 
   const hasRoleManageUpdatePermission = () => {
     if (isSuperAdmin) return true;
-    return user?.permissions?.rolesManage?.update === true;
+    return (user?.permissions?.roles?.update === true) || (user?.permissions?.rolesManage?.update === true);
   };
 
   const hasRoleManageDeletePermission = () => {
     if (isSuperAdmin) return true;
-    return user?.permissions?.rolesManage?.delete === true;
+    return (user?.permissions?.roles?.delete === true) || (user?.permissions?.rolesManage?.delete === true);
   };
 
   // Show success modal with message
@@ -329,13 +329,13 @@ const RoleManagement = () => {
                     if (hasRoleManageCreatePermission()) {
                       setShowAddRoleModal(true);
                     } else {
-                      setMessage('You do not have permission to create roles. Contact a Super Admin for "rolesManage.create" access.');
+                      setMessage('You do not have permission to create roles. Contact a Super Admin for "roles.create" access.');
                       setMessageType('error');
                       setToastVisible(true);
                       setTimeout(() => setToastVisible(false), 4000);
                     }
                   }}
-                  title={hasRoleManageCreatePermission() ? "Add New Role" : "You need 'rolesManage.create' permission to add roles"}
+                  title={hasRoleManageCreatePermission() ? "Add New Role" : "You need 'roles.create' permission to add roles"}
                   style={{ 
                     padding: '10px 16px', 
                     fontSize: '14px',
@@ -367,9 +367,9 @@ const RoleManagement = () => {
 
             {/* Access Control Messages */}
             {!hasRoleManageReadPermission() && (
-              <div className="alert alert-warning">
+                <div className="alert alert-warning">
                 <i className="bi bi-lock-fill mr-2"></i>
-                You do not have permission to view role management. Contact a Super Admin for "rolesManage.read" access.
+                You do not have permission to view role management. Contact a Super Admin for "roles.read" access.
               </div>
             )}            {hasRoleManageReadPermission() && !hasRoleManageCreatePermission() && !hasRoleManageUpdatePermission() && !hasRoleManageDeletePermission() && (
               <div className="alert alert-info">
@@ -415,13 +415,13 @@ const RoleManagement = () => {
                                     if (hasRoleManageUpdatePermission()) {
                                       openEditModal(role);
                                     } else {
-                                      setMessage('You do not have permission to edit roles. Contact a Super Admin for "rolesManage.update" access.');
+                                      setMessage('You do not have permission to edit roles. Contact a Super Admin for "roles.update" access.');
                                       setMessageType('error');
                                       setToastVisible(true);
                                       setTimeout(() => setToastVisible(false), 4000);
                                     }
                                   }}
-                                  title={hasRoleManageUpdatePermission() ? "Edit Role" : "You need 'rolesManage.update' permission to edit roles"}
+                                  title={hasRoleManageUpdatePermission() ? "Edit Role" : "You need 'roles.update' permission to edit roles"}
                                   style={{ 
                                     padding: '6px 10px', 
                                     fontSize: '12px',
@@ -442,13 +442,13 @@ const RoleManagement = () => {
                                       console.log('Delete button clicked for role:', role);
                                       openDeleteConfirm(role);
                                     } else {
-                                      setMessage('You do not have permission to delete roles. Contact a Super Admin for "rolesManage.delete" access.');
+                                      setMessage('You do not have permission to delete roles. Contact a Super Admin for "roles.delete" access.');
                                       setMessageType('error');
                                       setToastVisible(true);
                                       setTimeout(() => setToastVisible(false), 4000);
                                     }
                                   }}
-                                  title={hasRoleManageDeletePermission() ? "Delete Role" : "You need 'rolesManage.delete' permission to delete roles"}
+                                  title={hasRoleManageDeletePermission() ? "Delete Role" : "You need 'roles.delete' permission to delete roles"}
                                   style={{ 
                                     padding: '6px 10px', 
                                     fontSize: '12px',
@@ -589,10 +589,10 @@ const RoleManagement = () => {
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
-        <div className="modal-overlay" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="modal-overlay confirm-overlay" onClick={() => setShowDeleteConfirm(false)}>
           <div className="modal-content confirm-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h4>Confirm Role Deletion</h4>
+                <h4 className="confirm-title">Confirm Role Deletion</h4>
             </div>
             <div className="modal-body">
               <p>Are you sure you want to delete the role <strong>"{roleToDelete?.label}"</strong>?</p>
