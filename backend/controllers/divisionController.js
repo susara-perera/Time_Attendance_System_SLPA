@@ -674,11 +674,20 @@ const getDivisionMySQLSections = async (req, res) => {
 
     console.log(`Getting HRIS sections for division ID: ${divisionId}`);
 
-    // Fetch all sections from HRIS API
+    // Fetch all sections from HRIS API using company_hierarchy (same as getHrisSections)
     let allSections = [];
+    let divisions = [];
     try {
-      allSections = await hrisApiService.readData('hr_section_v', {}, '', false);
+      const allHierarchy = await hrisApiService.getCachedOrFetch('company_hierarchy', {});
+      allSections = allHierarchy.filter(item => item.DEF_LEVEL === 4 || item.DEF_LEVEL === '4');
+      divisions = allHierarchy.filter(item => item.DEF_LEVEL === 3 || item.DEF_LEVEL === '3');
+      
       console.log(`Fetched ${allSections.length} sections from HRIS API`);
+      
+      // Debug: Show sample section structure
+      if (allSections.length > 0) {
+        console.log('Sample HRIS section:', JSON.stringify(allSections[0], null, 2));
+      }
     } catch (error) {
       console.error('Error fetching sections from HRIS:', error);
       return res.status(500).json({
@@ -687,15 +696,23 @@ const getDivisionMySQLSections = async (req, res) => {
       });
     }
 
+    // Build division name map for reference
+    const divisionMap = {};
+    divisions.forEach(div => {
+      divisionMap[div.HIE_CODE] = div.HIE_NAME;
+    });
+
     // If divisionId is 'all', return all sections
     if (!divisionId || divisionId === 'all') {
       const formattedSections = allSections.map(section => ({
-        _id: String(section.section_code || section.hie_code || section.code || ''),
-        section_id: String(section.section_code || section.hie_code || section.code || ''),
-        section_name: section.section_name || section.hie_name || section.name || 'Unknown Section',
-        name: section.section_name || section.hie_name || section.name || 'Unknown Section',
-        division_id: String(section.division_code || section.DIVISION_CODE || ''),
-        division_name: section.division_name || section.DIVISION_NAME || '',
+        _id: String(section.HIE_CODE || ''),
+        section_id: String(section.HIE_CODE || ''),
+        section_code: String(section.HIE_CODE || ''),
+        section_name: section.HIE_NAME || 'Unknown Section',
+        name: section.HIE_NAME || 'Unknown Section',
+        division_id: String(section.HIE_RELATIONSHIP || ''),
+        division_code: String(section.HIE_RELATIONSHIP || ''),
+        division_name: divisionMap[section.HIE_RELATIONSHIP] || '',
         isActive: true
       }));
 
@@ -706,29 +723,92 @@ const getDivisionMySQLSections = async (req, res) => {
       });
     }
 
-    // Filter sections by division ID/code
+    // Try to find division by HIE_CODE first, then by name match
+    console.log(`🔍 Looking for division with ID: "${divisionId}"`);
+    console.log(`Available divisions:`, divisions.slice(0, 5).map(d => ({ code: d.HIE_CODE, name: d.HIE_NAME })));
+    
+    let divisionData = divisions.find(d => 
+      String(d.HIE_CODE) === String(divisionId) ||
+      String(d.HIE_CODE).toLowerCase() === String(divisionId).toLowerCase()
+    );
+    
+    // If not found by code, try exact name match
+    if (!divisionData) {
+      divisionData = divisions.find(d => {
+        const divName = String(d.HIE_NAME || '');
+        return divName === String(divisionId);
+      });
+    }
+    
+    // If still not found, try partial name match
+    if (!divisionData) {
+      const divIdLower = String(divisionId).toLowerCase();
+      divisionData = divisions.find(d => {
+        const divName = String(d.HIE_NAME || '').toLowerCase();
+        const divCode = String(d.HIE_CODE || '').toLowerCase();
+        return divName.includes(divIdLower) || divCode.includes(divIdLower);
+      });
+    }
+    
+    if (divisionData) {
+      console.log(`✅ Found division:`, { code: divisionData.HIE_CODE, name: divisionData.HIE_NAME });
+    } else {
+      console.log(`⚠️ No division found for ID: ${divisionId}`);
+      return res.status(200).json({
+        success: true,
+        data: [],
+        count: 0,
+        message: `No division found with ID: ${divisionId}`
+      });
+    }
+
+    // Use division code for filtering
+    const divCodeToMatch = String(divisionData.HIE_CODE);
+    
+    // Filter sections by division code using HIE_RELATIONSHIP field
     const filteredSections = allSections.filter(section => {
-      const sectionDiv = String(section.division_code || section.DIVISION_CODE || section.hie_relationship || '');
-      const divCode = String(divisionId);
+      const sectionDivCode = String(section.HIE_RELATIONSHIP || '');
+      const divCodeLower = divCodeToMatch.toLowerCase();
+      const divIdLower = String(divisionId).toLowerCase();
       
-      // Match by division code or partial match
-      return sectionDiv === divCode || 
-             sectionDiv.toLowerCase().includes(divCode.toLowerCase()) ||
-             divCode.toLowerCase().includes(sectionDiv.toLowerCase());
+      // Strategy 1: Exact match by division code
+      if (sectionDivCode === divCodeToMatch || sectionDivCode === divisionId) {
+        return true;
+      }
+      
+      // Strategy 2: Case-insensitive match
+      if (sectionDivCode.toLowerCase() === divCodeLower || sectionDivCode.toLowerCase() === divIdLower) {
+        return true;
+      }
+      
+      // Strategy 3: Partial code match
+      if (sectionDivCode.toLowerCase().includes(divCodeLower) || 
+          divCodeLower.includes(sectionDivCode.toLowerCase())) {
+        return true;
+      }
+      
+      return false;
     });
 
     // Format for frontend compatibility
     const formattedSections = filteredSections.map(section => ({
-      _id: String(section.section_code || section.hie_code || section.code || ''),
-      section_id: String(section.section_code || section.hie_code || section.code || ''),
-      section_name: section.section_name || section.hie_name || section.name || 'Unknown Section',
-      name: section.section_name || section.hie_name || section.name || 'Unknown Section',
-      division_id: String(section.division_code || section.DIVISION_CODE || ''),
-      division_name: section.division_name || section.DIVISION_NAME || '',
+      _id: String(section.HIE_CODE || ''),
+      section_id: String(section.HIE_CODE || ''),
+      section_code: String(section.HIE_CODE || ''),
+      section_name: section.HIE_NAME || 'Unknown Section',
+      name: section.HIE_NAME || 'Unknown Section',
+      // Use the requested divisionId for consistent frontend filtering
+      division_id: String(divisionId),
+      division_code: String(section.HIE_RELATIONSHIP || ''),
+      hris_division_code: String(section.HIE_RELATIONSHIP || ''),
+      division_name: divisionMap[section.HIE_RELATIONSHIP] || '',
       isActive: true
     }));
 
     console.log(`Found ${formattedSections.length} HRIS sections for division ${divisionId}`);
+    if (formattedSections.length > 0) {
+      console.log('Sample filtered section:', formattedSections[0]);
+    }
 
     res.status(200).json({
       success: true,

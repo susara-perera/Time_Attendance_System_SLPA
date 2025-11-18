@@ -78,14 +78,13 @@ const subSectionSchema = new mongoose.Schema({
 subSectionSchema.index({ 'parentSection.id': 1 });
 
 // Index for unique constraint on sub-section code within parent section
-// Use partialFilterExpression to ignore legacy documents that may not have sub_hie_code
 subSectionSchema.index({ 
   'parentSection.id': 1, 
   'subSection.sub_hie_code': 1 
 }, { 
   unique: true,
-  name: 'parentSection.id_1_subSection.sub_hie_code_1',
-  partialFilterExpression: { 'subSection.sub_hie_code': { $type: 'string' } }
+  sparse: true,
+  background: true
 });
 
 // Virtual for full sub-section identifier

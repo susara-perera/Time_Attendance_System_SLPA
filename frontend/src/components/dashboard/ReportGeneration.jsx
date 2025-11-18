@@ -15,38 +15,92 @@ const ReportGeneration = () => {
   const [allSections, setAllSections] = useState([]);
   const [subSections, setSubSections] = useState([]);
   const [subSectionId, setSubSectionId] = useState('all');
-  // Fetch sub sections when section changes (only for group scope and when section is selected)
+  
+  // Fetch sections for selected division
   useEffect(() => {
-    if (reportScope === 'group' && sectionId && sectionId !== 'all') {
-      console.log(`Fetching sub sections for section: ${sectionId}`);
-      const token = localStorage.getItem('token');
-      fetch(`http://localhost:5000/api/subsections?sectionId=${sectionId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      })
-        .then(res => res.json())
-        .then(data => {
-          console.log('Sub sections response:', data);
-          if (data.success && Array.isArray(data.data)) {
-            setSubSections(data.data);
-            setSubSectionId('all');
-          } else {
-            setSubSections([]);
-            setSubSectionId('all');
+    const fetchDivisionSections = async () => {
+      if (divisionId === 'all') {
+        // Show all sections if no division is selected
+        setSections(allSections);
+        setSectionId('all');
+        setSubSections([]);
+        setSubSectionId('all');
+      } else {
+        // Fetch sections for the specific division from backend
+        try {
+          const token = localStorage.getItem('token');
+          // Find the selected division and use its HRIS code
+          const selectedDiv = divisions.find(d => (d._id || d.id) === divisionId);
+          
+          if (!selectedDiv) {
+            console.error(`⚠️ Division ${divisionId} not found in divisions array`);
+            setSections([]);
+            return;
           }
-        })
-        .catch((error) => {
-          console.error('Error fetching sub sections:', error);
-          setSubSections([]);
-          setSubSectionId('all');
-        });
-    } else {
-      // Clear sub sections when no specific section is selected
-      setSubSections([]);
-      setSubSectionId('all');
-    }
+          
+          // Use HRIS code (HIE_CODE) for fetching sections
+          const divCode = selectedDiv.hie_code || selectedDiv.code || selectedDiv._id;
+          console.log(`🔍 Fetching sections for division:`, {
+            divisionId,
+            divisionName: selectedDiv.name,
+            hrisCode: divCode
+          });
+          
+          const response = await fetch(`http://localhost:5000/api/divisions/${divCode}/mysql-sections`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            const sectionsArray = data.data || [];
+            console.log(`\n🔍 Division ${divisionId} fetched ${sectionsArray.length} HRIS sections from backend`);
+            console.log(`Sample sections:`, sectionsArray.slice(0, 3).map(s => ({
+              _id: s._id,
+              section_id: s.section_id,
+              name: s.name || s.section_name,
+              section_name: s.section_name,
+              division_name: s.division_name
+            })));
+            console.log(`📋 All section IDs:`, sectionsArray.map(s => s._id || s.section_id));
+            console.log(`Setting sections state - clearing old MongoDB sections\n`);
+            
+            // Important: Clear any old section selection that might be a MongoDB ID
+            if (sectionId !== 'all') {
+              const sectionExists = sectionsArray.some(s => 
+                (s._id || s.section_id) === sectionId
+              );
+              if (!sectionExists) {
+                console.log(`⚠️ Clearing invalid section ID: ${sectionId}`);
+                setSectionId('all');
+              }
+            }
+            
+            setSections(sectionsArray);
+          } else {
+            console.error('Failed to fetch division sections:', response.status);
+            setSections([]);
+          }
+        } catch (error) {
+          console.error('Error fetching division sections:', error);
+          setSections([]);
+        }
+        
+        setSectionId('all'); // Reset section when division changes
+        setSubSections([]);
+        setSubSectionId('all');
+      }
+    };
+    
+    fetchDivisionSections();
+  }, [divisionId, allSections]);
+  
+  // Subsections disabled - only use HRIS sections for reports
+  useEffect(() => {
+    setSubSections([]);
+    setSubSectionId('all');
   }, [reportScope, sectionId]);
   const [dateRange, setDateRange] = useState({
     startDate: '',
@@ -264,45 +318,40 @@ const ReportGeneration = () => {
   const fetchDivisions = async () => {
     try {
       const token = localStorage.getItem('token');
-      // Prefer HRIS divisions endpoint to match SectionManagement
-      let response = await fetch('http://localhost:5000/api/divisions/hris', {
+      console.log('📥 Fetching HRIS divisions...');
+      
+      const response = await fetch('http://localhost:5000/api/divisions/hris', {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       });
 
-      if (!response.ok) {
-        console.warn('HRIS divisions endpoint non-OK, falling back to /api/divisions', response.status);
-        response = await fetch('http://localhost:5000/api/divisions', {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-      }
-
       if (response.ok) {
         const data = await response.json();
-        // Accept multiple response formats and normalize divisions
         let divisionsArray = [];
         if (Array.isArray(data)) {
           divisionsArray = data;
         } else if (data.data && Array.isArray(data.data)) {
           divisionsArray = data.data;
-        } else if (data.divisions && Array.isArray(data.divisions)) {
-          divisionsArray = data.divisions;
         }
 
+        // Normalize divisions like EmployeeManagement does
         const normalized = divisionsArray.map(d => ({
-          _id: String(d._id ?? d.id ?? d.DIVISION_ID ?? d.code ?? d.DIVISION_CODE ?? ''),
-          code: String(d.code ?? d.DIVISION_CODE ?? ''),
-          name: d.name ?? d.DIVISION_NAME ?? d.hie_name ?? d.hie_relationship ?? 'Unknown Division',
+          _id: String(d._id ?? d.id ?? d.hie_code ?? d.code ?? ''),
+          id: String(d._id ?? d.id ?? d.hie_code ?? d.code ?? ''),
+          code: String(d.hie_code ?? d.code ?? ''),
+          name: d.hie_name ?? d.name ?? 'Unknown Division',
+          hie_code: d.hie_code ?? d.code,
+          hie_name: d.hie_name ?? d.name,
+          def_level: d.def_level ?? d.DEF_LEVEL,
           ...d
         })).sort((a, b) => a.name.localeCompare(b.name));
 
+        console.log(`✅ Loaded ${normalized.length} HRIS divisions`);
         setDivisions(normalized);
       } else {
+        console.error('Failed to fetch divisions:', response.status);
         setDivisions([]);
       }
     } catch (err) {
@@ -347,20 +396,37 @@ const ReportGeneration = () => {
 
         // Normalize fields (handle HRIS/raw shapes) so dropdown shows name and id consistently
         const normalized = sectionsArray.map(s => {
-          const divisionId = String(s?.division_id ?? s?.DIVISION_ID ?? s?.division_code ?? s?.DIVISION_CODE ?? s?.hie_code ?? s?.hie_relationship ?? '');
-          const divisionName = s?.division_name ?? s?.DIVISION_NAME ?? s?.hie_name ?? s?.hie_relationship ?? '';
-          const sectionId = String(s?._id ?? s?.id ?? s?.SECTION_ID ?? s?.code ?? s?.hie_code ?? s?.SECTION_CODE ?? s?.section_code ?? '');
-          const sectionName = s?.name || s?.section_name || s?.SECTION_NAME || s?.hie_name || s?.hie_relationship || '';
+          // Extract division ID - prioritize the parent division reference
+          let divisionId = '';
+          if (s.division && typeof s.division === 'object') {
+            divisionId = String(s.division._id || s.division.id || s.division.DIVISION_ID || '');
+          } else if (s.division) {
+            divisionId = String(s.division);
+          } else {
+            divisionId = String(s?.division_id ?? s?.DIVISION_ID ?? s?.parent_division_id ?? s?.divisionId ?? '');
+          }
+          
+          const divisionName = s?.division?.name ?? s?.division_name ?? s?.DIVISION_NAME ?? '';
+          const sectionId = String(s?._id ?? s?.id ?? s?.SECTION_ID ?? s?.code ?? s?.SECTION_CODE ?? '');
+          const sectionName = s?.name || s?.section_name || s?.SECTION_NAME || '';
+          
           return {
             _id: sectionId || undefined,
             name: sectionName || `Section ${sectionId}`,
+            division_id: divisionId, // Store the parent division ID for filtering
             division: divisionName ? { _id: divisionId || undefined, name: divisionName } : (divisionId || ''),
             divisionCode: String(s?.division_code ?? s?.DIVISION_CODE ?? ''),
-            code: String(s?.code ?? s?.SECTION_CODE ?? s?.hie_code ?? s?.section_code ?? ''),
+            code: String(s?.code ?? s?.SECTION_CODE ?? ''),
             _raw: s,
             ...s
           };
         });
+        
+        console.log('Loaded sections with division IDs:', normalized.slice(0, 3).map(s => ({
+          section: s.name,
+          division_id: s.division_id,
+          division_name: s.division?.name
+        })));
 
         setAllSections(normalized);
         setSections(normalized);
@@ -411,9 +477,46 @@ const ReportGeneration = () => {
         if (reportScope === 'individual') {
           payload.employee_id = employeeId;
         } else if (reportScope === 'group') {
-          // For group reports, send division and section filters
-          payload.division_id = divisionId !== 'all' ? divisionId : '';
-          payload.section_id = sectionId !== 'all' ? sectionId : '';
+          // For group reports, send HRIS division and section NAMES for matching against HRIS employee data
+          if (sectionId !== 'all') {
+            // If section is selected, use section's HRIS names
+            const selectedSection = sections.find(s => (s._id || s.id || s.section_id) === sectionId);
+            if (selectedSection) {
+              // Use the HRIS section name (HIE_NAME_3 from HRIS)
+              payload.section_id = selectedSection.section_name || selectedSection.name || '';
+              // Use the HRIS division name (HIE_NAME_2 from HRIS) that this section belongs to
+              payload.division_id = selectedSection.division_name || '';
+              
+              console.log('Selected section details:', {
+                section_id: sectionId,
+                section_name: payload.section_id,
+                division_name: payload.division_id,
+                full_section: selectedSection
+              });
+            }
+          } else if (divisionId !== 'all') {
+            // If only division selected, use division's HRIS name
+            const selectedDivision = divisions.find(d => (d._id || d.id) === divisionId);
+            if (selectedDivision) {
+              // Use the HRIS division name (hie_name)
+              payload.division_id = selectedDivision.hris_name || selectedDivision.name || '';
+              
+              console.log('Selected division details:', {
+                division_id: divisionId,
+                division_name: payload.division_id,
+                full_division: selectedDivision
+              });
+            }
+            payload.section_id = '';
+          } else {
+            payload.division_id = '';
+            payload.section_id = '';
+          }
+          
+          console.log('Sending group report filters:', {
+            division_name: payload.division_id,
+            section_name: payload.section_id
+          });
         }
       } else if (reportType === 'meal') {
         // Use MongoDB API for meal reports
