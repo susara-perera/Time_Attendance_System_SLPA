@@ -143,6 +143,26 @@
   border-color: #667eea;
   outline: none;
 }
+
+/* Simple search input style: compact and minimal to match Export Options */
+.simple-search {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  background: #ffffff;
+  height: 34px;
+  line-height: 1;
+  box-shadow: none;
+}
+.simple-search::placeholder {
+  color: #9aa3af;
+}
+.simple-search:focus {
+  border-color: #667eea;
+  box-shadow: none;
+  outline: none;
+}
 .form-actions {
   display: flex;
   justify-content: flex-end;
