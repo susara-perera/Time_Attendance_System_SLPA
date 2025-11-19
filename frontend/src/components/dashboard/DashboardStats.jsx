@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Doughnut, Bar } from 'react-chartjs-2';
 import {
@@ -25,7 +26,24 @@ ChartJS.register(
   BarElement
 );
 
+const getGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 18) return 'Good afternoon';
+  return 'Good evening';
+};
+
+const quickLinks = [
+  { label: 'Add User', icon: 'bi-people', action: 'users', color: 'success' },
+  { label: 'Employee Management', icon: 'bi-person-badge', action: 'employees', color: 'secondary' },
+  { label: 'Report Generation', icon: 'bi-graph-up', action: 'reports', color: 'info' },
+  { label: 'Meal Management', icon: 'bi-cup-hot', action: 'meals', color: 'orange' },
+  { label: 'Division Management', icon: 'bi-building', action: 'divisions', color: 'warning' },
+  { label: 'Section Management', icon: 'bi-diagram-3', action: 'sections', color: 'purple' },
+];
+
 const DashboardStats = ({ onQuickAction }) => {
+  const [modalOpen, setModalOpen] = useState(false);
   const [stats, setStats] = useState({
     totalEmployees: 12960,
     presentToday: 8547,
@@ -33,37 +51,48 @@ const DashboardStats = ({ onQuickAction }) => {
     activeUsers: 156,
     totalUsers: 234,
     loginRate: 66.7,
-    activeDivisions: 27,
+    totalDivisions: 27,
+    totalSections: 120,
+    totalSubSections: 350,
     avgPerDivision: 480,
     lateArrivals: 24,
-    earlyDepartures: 12
+    earlyDepartures: 12,
+    recentActivities: []
   });
+  const [currentTime, setCurrentTime] = useState(new Date());
 
-  // Fetch dashboard stats from API
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        // Replace with actual API calls
         const response = await fetch('/api/dashboard/stats');
         if (response.ok) {
-          const data = await response.json();
+          const json = await response.json();
+          const payload = json?.data || json;
           setStats(prevStats => ({
             ...prevStats,
-            ...data
+            totalEmployees: payload.hrisTotal ?? payload.totalEmployees ?? payload.totalUsers ?? prevStats.totalEmployees,
+            presentToday: payload.presentToday ?? payload.todayAttendance?.employeesPresent ?? prevStats.presentToday,
+            attendanceRate: payload.attendanceRate ?? prevStats.attendanceRate,
+            totalDivisions: payload.totalDivisions ?? prevStats.totalDivisions,
+            totalSections: payload.totalSections ?? prevStats.totalSections,
+            totalSubSections: payload.totalSubSections ?? prevStats.totalSubSections,
+            activeUsers: payload.activeUsers ?? prevStats.activeUsers,
+            totalUsers: payload.totalUsers ?? prevStats.totalUsers,
+            recentActivities: payload.recentActivities ?? []
           }));
         }
       } catch (error) {
-        console.error('Error fetching dashboard stats:', error);
-        // Keep default/mock data on error
+        // ...existing code...
       }
     };
-
     fetchStats();
-    
-    // Set up interval to refresh stats every 5 minutes
     const interval = setInterval(fetchStats, 5 * 60 * 1000);
-    
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
   }, []);
 
   // Chart data
@@ -122,30 +151,25 @@ const DashboardStats = ({ onQuickAction }) => {
     }
   };
 
+  // ...existing code...
   return (
     <div className="dashboard-overview">
+
       {/* Stats Grid */}
       <div className="stats-grid">
-        {/* Total Employees */}
-        <div className="stat-card primary">
+        <div className="stat-card primary" style={{transition:'transform 0.3s', boxShadow:'0 2px 8px rgba(59,130,246,0.07)'}}>
           <div className="stat-header">
             <div className="stat-title">
               <h3>Total Employees</h3>
-              <p>Registered in system</p>
+              <p>All sub-sections</p>
             </div>
             <div className="stat-icon">
               <i className="bi bi-people"></i>
             </div>
           </div>
-          <div className="stat-value">{stats.totalEmployees.toLocaleString()}</div>
-          <div className="stat-trend positive">
-            <i className="bi bi-arrow-up"></i>
-            <span>+2.5% from last month</span>
-          </div>
+          <div className="stat-value" style={{fontSize:'2.1rem'}}>{Number(stats.totalEmployees || 0).toLocaleString()}</div>
         </div>
-
-        {/* Present Today */}
-        <div className="stat-card success">
+        <div className="stat-card success" style={{transition:'transform 0.3s', boxShadow:'0 2px 8px rgba(16,185,129,0.07)'}}>
           <div className="stat-header">
             <div className="stat-title">
               <h3>Present Today</h3>
@@ -155,54 +179,53 @@ const DashboardStats = ({ onQuickAction }) => {
               <i className="bi bi-person-check"></i>
             </div>
           </div>
-          <div className="stat-value">{stats.presentToday.toLocaleString()}</div>
+          <div className="stat-value" style={{fontSize:'2.1rem'}}>{Number(stats.presentToday || 0).toLocaleString()}</div>
           <div className="stat-trend positive">
             <i className="bi bi-arrow-up"></i>
             <span>{stats.attendanceRate}% attendance rate</span>
           </div>
         </div>
-
-        {/* System Users */}
-        <div className="stat-card info">
-          <div className="stat-header">
-            <div className="stat-title">
-              <h3>Active Users</h3>
-              <p>System logged in</p>
-            </div>
-            <div className="stat-icon">
-              <i className="bi bi-person-gear"></i>
-            </div>
-          </div>
-          <div className="stat-value">{stats.activeUsers}</div>
-          <div className="stat-trend neutral">
-            <i className="bi bi-dash"></i>
-            <span>{stats.loginRate}% of total users</span>
-          </div>
-        </div>
-
-        {/* Divisions */}
-        <div className="stat-card warning">
+        <div className="stat-card warning" style={{transition:'transform 0.3s', boxShadow:'0 2px 8px rgba(234,179,8,0.07)'}}>
           <div className="stat-header">
             <div className="stat-title">
               <h3>Active Divisions</h3>
-              <p>Operational departments</p>
+              <p>All divisions</p>
             </div>
             <div className="stat-icon">
               <i className="bi bi-building"></i>
             </div>
           </div>
-          <div className="stat-value">{stats.activeDivisions}</div>
-          <div className="stat-trend positive">
-            <i className="bi bi-arrow-up"></i>
-            <span>Avg {stats.avgPerDivision} employees</span>
+          <div className="stat-value" style={{fontSize:'2.1rem'}}>{Number(stats.totalDivisions || 0).toLocaleString()}</div>
+        </div>
+        <div className="stat-card info" style={{transition:'transform 0.3s', boxShadow:'0 2px 8px rgba(59,130,246,0.07)'}}>
+          <div className="stat-header">
+            <div className="stat-title">
+              <h3>Total Sections</h3>
+              <p>All sections</p>
+            </div>
+            <div className="stat-icon">
+              <i className="bi bi-diagram-3"></i>
+            </div>
           </div>
+          <div className="stat-value" style={{fontSize:'2.1rem'}}>{Number(stats.totalSections || 0).toLocaleString()}</div>
+        </div>
+        <div className="stat-card info" style={{transition:'transform 0.3s', boxShadow:'0 2px 8px rgba(59,130,246,0.07)'}}>
+          <div className="stat-header">
+            <div className="stat-title">
+              <h3>Total Sub-Sections</h3>
+              <p>All sub-sections</p>
+            </div>
+            <div className="stat-icon">
+              <i className="bi bi-diagram-2"></i>
+            </div>
+          </div>
+          <div className="stat-value" style={{fontSize:'2.1rem'}}>{Number(stats.totalSubSections || 0).toLocaleString()}</div>
         </div>
       </div>
 
       {/* Charts Section */}
       <div className="charts-grid">
-        {/* Attendance Overview */}
-        <div className="chart-card">
+        <div className="chart-card" style={{animation:'modalSlideIn 0.7s'}}>
           <div className="card-header">
             <div className="header-content">
               <h3>
@@ -222,7 +245,7 @@ const DashboardStats = ({ onQuickAction }) => {
               </div>
             </div>
           </div>
-          <div className="chart-container">
+          <div className="chart-container" style={{minHeight:'220px'}}>
             <Doughnut 
               data={attendanceData} 
               options={{
@@ -237,9 +260,7 @@ const DashboardStats = ({ onQuickAction }) => {
             />
           </div>
         </div>
-
-        {/* Monthly Trends */}
-        <div className="chart-card">
+        <div className="chart-card" style={{animation:'modalSlideIn 0.7s'}}>
           <div className="card-header">
             <div className="header-content">
               <h3>
@@ -255,13 +276,11 @@ const DashboardStats = ({ onQuickAction }) => {
               </button>
             </div>
           </div>
-          <div className="chart-container">
+          <div className="chart-container" style={{minHeight:'220px'}}>
             <Bar data={monthlyData} options={chartOptions} />
           </div>
         </div>
-
-        {/* Quick Insights */}
-        <div className="insights-card">
+        <div className="insights-card" style={{animation:'modalSlideIn 0.7s'}}>
           <div className="card-header">
             <h3>
               <i className="bi bi-lightbulb"></i>
@@ -275,7 +294,7 @@ const DashboardStats = ({ onQuickAction }) => {
               </div>
               <div className="insight-content">
                 <h4>High Attendance</h4>
-                <p>87.2% attendance rate today</p>
+                <p>{stats.attendanceRate}% attendance rate today</p>
               </div>
             </div>
             <div className="insight-item">
@@ -298,9 +317,7 @@ const DashboardStats = ({ onQuickAction }) => {
             </div>
           </div>
         </div>
-
-        {/* Recent Activity */}
-        <div className="activity-card">
+        <div className="activity-card" style={{animation:'modalSlideIn 0.7s'}}>
           <div className="card-header">
             <h3>
               <i className="bi bi-activity"></i>
@@ -308,33 +325,51 @@ const DashboardStats = ({ onQuickAction }) => {
             </h3>
           </div>
           <div className="activity-list">
-            <div className="activity-item">
-              <div className="activity-avatar">
-                <i className="bi bi-person-plus"></i>
+            {stats.recentActivities && stats.recentActivities.length > 0 ? (
+              stats.recentActivities.slice(0, 3).map((activity, idx) => (
+                <div className="activity-item" key={idx}>
+                  <div className="activity-avatar">
+                    <i className={activity.icon || "bi bi-activity"}></i>
+                  </div>
+                  <div className="activity-content">
+                    <p><strong>{activity.title}</strong> {activity.description}</p>
+                    <span>{activity.date} {activity.time}</span>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="activity-item">
+                <div className="activity-content">
+                  <p>No recent activities found.</p>
+                </div>
               </div>
-              <div className="activity-content">
-                <p><strong>John Silva</strong> checked in</p>
-                <span>2 minutes ago</span>
+            )}
+            {stats.recentActivities && stats.recentActivities.length > 3 && (
+              <button className="btn-sm" style={{marginTop: '10px'}} onClick={() => setModalOpen(true)}>
+                Show All
+              </button>
+            )}
+            {modalOpen && (
+              <div className="modal-overlay" style={{position: 'fixed', top:0, left:0, width:'100vw', height:'100vh', background:'rgba(0,0,0,0.3)', zIndex:1000}} onClick={() => setModalOpen(false)}>
+                <div className="modal-content" style={{background:'#fff', borderRadius:'8px', maxWidth:'500px', margin:'60px auto', padding:'24px', position:'relative'}} onClick={e => e.stopPropagation()}>
+                  <h3 style={{marginBottom:'16px'}}><i className="bi bi-activity"></i> All Recent Activities (Past Week)</h3>
+                  <div>
+                    {stats.recentActivities.map((activity, idx) => (
+                      <div className="activity-item" key={idx} style={{borderBottom:'1px solid #eee', paddingBottom:'12px', marginBottom:'12px'}}>
+                        <div className="activity-avatar">
+                          <i className={activity.icon || "bi bi-activity"}></i>
+                        </div>
+                        <div className="activity-content">
+                          <p><strong>{activity.title}</strong> {activity.description}</p>
+                          <span>{activity.date} {activity.time}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button className="btn-sm" style={{marginTop:'10px'}} onClick={() => setModalOpen(false)}>Close</button>
+                </div>
               </div>
-            </div>
-            <div className="activity-item">
-              <div className="activity-avatar">
-                <i className="bi bi-file-text"></i>
-              </div>
-              <div className="activity-content">
-                <p><strong>Report generated</strong> for Finance dept</p>
-                <span>15 minutes ago</span>
-              </div>
-            </div>
-            <div className="activity-item">
-              <div className="activity-avatar">
-                <i className="bi bi-building"></i>
-              </div>
-              <div className="activity-content">
-                <p><strong>New division</strong> added to system</p>
-                <span>1 hour ago</span>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </div>
@@ -343,3 +378,4 @@ const DashboardStats = ({ onQuickAction }) => {
 };
 
 export default DashboardStats;
+// ...existing code...

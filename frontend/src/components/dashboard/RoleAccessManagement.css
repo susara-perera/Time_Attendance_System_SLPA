@@ -421,18 +421,106 @@ div.role-access-wrapper div.main-card div.card-header-custom div.header-text h1[
   border-radius: 4px;
 }
 
-/* Confirm Modal Styles */
+/* Confirm Modal Styles (frosted glass look) */
 .confirm-modal .modal-content {
-  max-width: 500px;
-  text-align: center;
+  max-width: 620px;
+  text-align: left;
+  background: linear-gradient(135deg, rgba(255,255,255,0.84), rgba(247,247,247,0.78));
+  border-radius: 18px;
+  padding: 24px 32px 22px 32px;
+  box-shadow: 0 18px 40px rgba(10,12,20,0.48);
+  border: 1px solid rgba(255,255,255,0.08);
+  backdrop-filter: blur(6px) saturate(1.05);
 }
 
-.confirm-modal .modal-header h4 {
-  color: #dc3545;
+.confirm-modal .modal-header {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: flex-start;
+  padding: 6px 10px 12px 6px;
+  margin-bottom: 6px;
+}
+
+.confirm-modal .modal-header::before {
+  content: '';
+  position: absolute;
+  top: -12px;
+  left: 12px;
+  right: 12px;
+  height: 8px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #ff8b8b 0%, #e63946 50%, #ff4a4a 100%);
+}
+
+.confirm-modal .confirm-title {
+  color: #c62828;
+  font-weight: 900;
+  font-size: 1.25rem;
+  margin: 0 0 0 16px;
+}
+
+.confirm-modal .modal-body {
+  padding: 10px 0 6px 0;
+  color: #2c3e50;
+}
+
+.confirm-modal .modal-footer {
+  border-top: none;
+  padding-top: 18px;
+  margin-top: 20px;
+  display: flex;
+  gap: 18px;
   justify-content: center;
+}
+
+.confirm-modal .btn-save-modern {
+  border-radius: 28px;
+  padding: 10px 24px;
+}
+
+.confirm-modal .btn-save-modern.btn-secondary {
+  background: linear-gradient(180deg, #6c757d 0%, #545b62 100%);
+  color: white;
+  min-width: 110px;
+  font-weight: 700;
+  border: none;
+  box-shadow: 0 6px 18px rgba(18,20,22,0.12);
+}
+
+.confirm-modal .btn-save-modern.btn-success {
+  background: linear-gradient(90deg, #33d17a 0%, #21a02a 100%);
+  color: white;
+  min-width: 140px;
+  font-weight: 900;
+  border: none;
+  box-shadow: 0 12px 28px rgba(33,160,42,0.12);
+}
+
+.confirm-modal .btn-confirm-cancel { transform: translateY(1px); }
+.confirm-modal .btn-confirm-confirm { transform: translateY(0); }
+
+/* Also style the generic professional buttons when used in confirm modals */
+.confirm-modal .btn-professional.btn-secondary {
+  background: linear-gradient(180deg, #6c757d 0%, #545b62 100%);
+  color: white;
+  min-width: 110px;
+  font-weight: 700;
+  border: none;
+  border-radius: 28px;
+  padding: 10px 24px;
+  box-shadow: 0 6px 18px rgba(18,20,22,0.12);
+}
+
+.confirm-modal .btn-professional.btn-danger {
+  background: linear-gradient(90deg, #ff706b 0%, #ed3b34 100%);
+  color: #fff;
+  min-width: 140px;
+  font-weight: 800;
+  border: none;
+  border-radius: 28px;
+  padding: 10px 26px;
+  box-shadow: 0 12px 28px rgba(237,59,52,0.11);
 }
 
 .text-warning {
@@ -731,7 +819,8 @@ div.role-access-wrapper div.main-card div.card-header-custom div.header-text h1[
 }
 
 .confirm-modal .modal-content {
-  max-width: 500px;
+  max-width: 620px;
+  text-align: left;
 }
 
 /* Modal Styles */
@@ -743,6 +832,11 @@ div.role-access-wrapper div.main-card div.card-header-custom div.header-text h1[
   display: flex;
   align-items: center;
   justify-content: center;
+}
+/* Emphasize confirm modal overlay when used */
+.modal-overlay.confirm-overlay {
+  background: rgba(9, 12, 16, 0.55);
+  backdrop-filter: blur(6px) saturate(1.1);
 }
 .modal-content {
   background: #fff;
@@ -874,9 +968,12 @@ div.role-access-wrapper div.main-card div.card-header-custom div.header-text h1[
 
 .permissions-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  /* Lower the min width so more cards fit per row. This helps the Section and Employee card fall side-by-side on typical desktop widths. */
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 24px;
   margin-bottom: 32px;
+  /* Allow grid to fill available gaps so adjacent and small cards are placed optimally */
+  grid-auto-flow: dense;
 }
 
 .permission-card {
