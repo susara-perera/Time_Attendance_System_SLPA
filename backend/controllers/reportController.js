@@ -1559,8 +1559,9 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
     console.log('Fetching employee details from HRIS API...');
     let allEmployees = [];
     try {
-      console.log('Calling HRIS API readData for hr_employee_v...');
-      const hrisResult = await hrisApiService.readData('hr_employee_v', {}, '', false);
+      console.log('Calling HRIS API for employees...');
+      // Use getCachedOrFetch to get employees from cache or API
+      const hrisResult = await hrisApiService.getCachedOrFetch('employee', {}, '', false);
       console.log('HRIS API raw result type:', typeof hrisResult);
       console.log('HRIS API raw result is array?', Array.isArray(hrisResult));
       console.log('HRIS API raw result length:', hrisResult ? hrisResult.length : 'null/undefined');
@@ -1580,82 +1581,149 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
       allEmployees = [];
     }
     
-    // Filter employees who have attendance records
-    let employees = allEmployees.filter(emp => {
-      const empId = String(emp.emp_no || emp.employee_no || emp.employee_ID || '');
-      return distinctEmployeeIds.includes(empId) || distinctEmployeeIds.includes(parseInt(empId));
-    });
+    // Step 1: Filter HRIS employees by division/section FIRST (before checking attendance)
+    let filteredByDivisionSection = allEmployees;
     
-    console.log(`Matched ${employees.length} employees from HRIS with attendance records`);
+    console.log(`\n🎯 FILTERING HRIS EMPLOYEES:`);
+    console.log(`   Total HRIS employees: ${allEmployees.length}`);
+    console.log(`   Division filter: "${division_id || 'none'}"`);
+    console.log(`   Section filter: "${section_id || 'none'}"`);
     
-    // If division_id or section_id filters are provided, apply them
-    if (division_id && division_id !== 'all' && division_id !== '') {
-      console.log(`Filtering by division: ${division_id}`);
-      const beforeFilter = employees.length;
+    if (section_id) {
+      // Filter by section name from HRIS  
+      console.log(`\n🔍 Filtering by SECTION: "${section_id}"`);
       
-      // Try multiple matching strategies
-      employees = employees.filter(emp => {
-        const empDiv = String(emp.division || emp.division_code || emp.DIVISION_CODE || emp.div_code || '');
-        const empDivName = String(emp.division_name || emp.DIVISION_NAME || emp.div_name || '').toLowerCase();
-        const divIdStr = String(division_id);
+      // Show unique section names in HRIS for debugging
+      const uniqueSections = [...new Set(allEmployees.map(e => e.currentwork?.HIE_NAME_3).filter(Boolean))];
+      console.log(`   📋 Available HRIS section names (${uniqueSections.length}):`, uniqueSections.sort().slice(0, 20));
+      
+      filteredByDivisionSection = filteredByDivisionSection.filter(emp => {
+        const empSectionName = (emp.currentwork?.HIE_NAME_3 || '').trim();
+        const filterSectionName = String(section_id).trim();
         
-        // Direct match
-        if (empDiv === divIdStr) return true;
+        // Try exact match first, then contains match
+        const exactMatch = empSectionName.toLowerCase() === filterSectionName.toLowerCase();
+        const containsMatch = empSectionName.toLowerCase().includes(filterSectionName.toLowerCase()) ||
+                             filterSectionName.toLowerCase().includes(empSectionName.toLowerCase());
         
-        // Case-insensitive partial match
-        if (empDiv.toLowerCase().includes(divIdStr.toLowerCase())) return true;
-        if (divIdStr.toLowerCase().includes(empDiv.toLowerCase())) return true;
-        
-        // Match by division name (e.g., "IS" or "Information Systems")
-        if (divIdStr === '66' || divIdStr.toLowerCase() === 'is' || divIdStr.toLowerCase().includes('information')) {
-          return empDivName.includes('information') || empDivName.includes('is') || empDiv.toLowerCase() === 'is';
-        }
-        
-        return false;
+        return exactMatch || containsMatch;
       });
-      console.log(`After division filter: ${employees.length} employees (filtered out ${beforeFilter - employees.length})`);
+      console.log(`   ✅ Found ${filteredByDivisionSection.length} HRIS employees in section "${section_id}"`);
       
-      // Debug: Show sample of filtered employees
-      if (employees.length > 0) {
-        console.log('Sample filtered employee divisions:', employees.slice(0, 3).map(e => ({
-          id: e.emp_no || e.employee_no,
-          division: e.division || e.division_code,
-          division_name: e.division_name
+      if (filteredByDivisionSection.length > 0) {
+        console.log(`   Sample employees:`, filteredByDivisionSection.slice(0, 3).map(e => ({
+          id: e.EMP_NUMBER,
+          name: e.FULLNAME,
+          section: e.currentwork?.HIE_NAME_3
+        })));
+      } else {
+        console.log(`   ⚠️  No match! Your filter "${section_id}" doesn't match any HRIS section names`);
+        console.log(`   💡 Try using one of the available HRIS section names listed above`);
+      }
+    } else if (division_id) {
+      // Filter by division name from HRIS
+      console.log(`\n🔍 Filtering by DIVISION: "${division_id}"`);
+      filteredByDivisionSection = filteredByDivisionSection.filter(emp => {
+        const empDivisionName = (emp.currentwork?.HIE_NAME_2 || '').trim();
+        const filterDivisionName = String(division_id).trim();
+        
+        // Try exact match first, then contains match
+        const exactMatch = empDivisionName.toLowerCase() === filterDivisionName.toLowerCase();
+        const containsMatch = empDivisionName.toLowerCase().includes(filterDivisionName.toLowerCase()) ||
+                             filterDivisionName.toLowerCase().includes(empDivisionName.toLowerCase());
+        
+        return exactMatch || containsMatch;
+      });
+      console.log(`   ✅ Found ${filteredByDivisionSection.length} HRIS employees in division "${division_id}"`);
+      
+      if (filteredByDivisionSection.length > 0) {
+        console.log(`   Sample employees:`, filteredByDivisionSection.slice(0, 3).map(e => ({
+          id: e.EMP_NUMBER,
+          name: e.FULLNAME,
+          division: e.currentwork?.HIE_NAME_2
         })));
       }
+    } else {
+      console.log(`   ℹ️  No division/section filter applied - using all employees`);
     }
     
-    if (section_id && section_id !== 'all' && section_id !== '') {
-      console.log(`Filtering by section: ${section_id}`);
-      const beforeFilter = employees.length;
-      employees = employees.filter(emp => {
-        const empSec = String(emp.section || emp.section_code || emp.SECTION_CODE || emp.sec_code || '');
-        const secIdStr = String(section_id);
-        return empSec === secIdStr || empSec.toLowerCase().includes(secIdStr.toLowerCase()) || secIdStr.toLowerCase().includes(empSec.toLowerCase());
+    // Step 2: From filtered employees, keep only those who have attendance records
+    console.log(`\n🔗 MATCHING WITH ATTENDANCE RECORDS:`);
+    console.log(`   Filtered HRIS employees: ${filteredByDivisionSection.length}`);
+    console.log(`   Employees with attendance: ${distinctEmployeeIds.length}`);
+    
+    let employees = filteredByDivisionSection.filter(emp => {
+      const empId = emp.EMP_NUMBER || emp.emp_no || emp.employee_no || emp.employee_ID || emp.empNo || emp.id;
+      if (!empId) return false;
+      
+      const empIdStr = String(empId);
+      const empIdNum = parseInt(empId);
+      
+      // Check if this employee ID exists in attendance records
+      const hasAttendance = distinctEmployeeIds.some(attId => {
+        const attIdStr = String(attId);
+        const attIdNum = parseInt(attId);
+        return attIdStr === empIdStr || attIdNum === empIdNum;
       });
-      console.log(`After section filter: ${employees.length} employees (filtered out ${beforeFilter - employees.length})`);
+      
+      return hasAttendance;
+    });
+    
+    console.log(`   ✅ Final matched employees: ${employees.length}\n`);
+    
+    // Debug: Show samples
+    if (employees.length > 0) {
+      console.log('Sample matched employees:', employees.slice(0, 3).map(e => ({
+        hris_id: e.EMP_NUMBER,
+        name: e.FULLNAME,
+        division: e.currentwork?.HIE_NAME_2,
+        section: e.currentwork?.HIE_NAME_3
+      })));
+    } else if (allEmployees.length > 0 && distinctEmployeeIds.length > 0) {
+      console.log('⚠️ No employees matched! Checking filters...');
+      console.log('Division filter:', division_id);
+      console.log('Section filter:', section_id);
+      
+      // Show unique section names from employees with attendance
+      const employeesWithAttendance = allEmployees.filter(emp => {
+        const empId = emp.EMP_NUMBER || emp.emp_no;
+        return distinctEmployeeIds.some(attId => String(attId) === String(empId));
+      });
+      
+      const uniqueSections = [...new Set(employeesWithAttendance.map(e => e.currentwork?.HIE_NAME_3 || 'No Section'))];
+      console.log(`📊 Unique sections from ${employeesWithAttendance.length} employees with attendance:`, uniqueSections.slice(0, 20));
+      
+      console.log('Sample HRIS employee division/section:', allEmployees.slice(0, 3).map(e => ({
+        id: e.EMP_NUMBER,
+        HIE_CODE_2: e.HIE_CODE_2,
+        division_name: e.currentwork?.HIE_NAME_2,
+        HIE_CODE_3: e.HIE_CODE_3,
+        section_name: e.currentwork?.HIE_NAME_3
+      })));
     }
+    
+    console.log(`Processing report for ${employees.length} employees (with division/section filtering applied)`);
 
+    // If no employees matched, return empty result
     if (employees.length === 0) {
       await connection.end();
-      console.log('No employees left after applying filters');
+      console.log('⚠️ No employees matched from HRIS. Cannot generate report.');
       return {
         reportType: 'group',
         dateRange: { from: from_date, to: to_date },
         dates: [],
+        data: [],
         employees: [],
         summary: { totalEmployees: 0, totalDays: 0 }
       };
     }
 
-    console.log(`Processing report for ${employees.length} employees`);
-
     // Normalize HRIS employee fields to expected shape for report generation
     employees = employees.map(emp => {
-      const id = String(emp.emp_no || emp.employee_no || emp.employee_ID || emp.employeeId || emp.empId || '');
-      const name = emp.employee_name || emp.employeeName || (emp.first_name ? `${emp.first_name} ${emp.last_name || ''}`.trim() : emp.name || emp.full_name || 'Unknown');
-      const divisionName = emp.division_name || emp.division || emp.division_code || emp.DIVISION_NAME || '';
-      const sectionName = emp.section_name || emp.section || emp.section_code || emp.SECTION_NAME || '';
+      const id = String(emp.EMP_NUMBER || emp.emp_no || emp.employee_no || emp.employee_ID || '');
+      const name = emp.FULLNAME || emp.DISPLAY_NAME || emp.CALLING_NAME || emp.employee_name || 'Unknown';
+      const divisionName = emp.currentwork?.HIE_NAME_2 || emp.division_name || '';
+      const sectionName = emp.currentwork?.HIE_NAME_3 || emp.section_name || '';
       return {
         ...emp,
         employee_ID: id,
@@ -1726,10 +1794,15 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
         const dayRecords = attendanceMap[employeeKey] && attendanceMap[employeeKey][date];
         
         if (dayRecords && dayRecords.length > 0) {
-          // Build punches list from dayRecords and a display string
-          const punches = dayRecords.map(r => ({ time: r.time, type: (r.scan_type || '').toUpperCase() }));
+          // Build punches list from dayRecords with proper format for frontend
+          const punches = dayRecords.map(r => ({ 
+            time_: r.time,
+            time: r.time, 
+            scan_type: (r.scan_type || '').toUpperCase(),
+            type: (r.scan_type || '').toUpperCase(),
+            eventDescription: r.scan_type === 'IN' ? 'Check In' : 'Check Out'
+          }));
           punches.sort((a, b) => (a.time || '').localeCompare(b.time || ''));
-          const timesDisplay = punches.map(p => p.time).join('\n');
 
           // Find earliest IN and latest OUT for backward-compatible fields
           const inRecord = dayRecords.find(r => r.scan_type && r.scan_type.toUpperCase() === 'IN');
@@ -1753,23 +1826,11 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
             workingHours = 0;
           }
 
-          employeeAttendance.dailyAttendance[date] = {
-            status: 'present',
-            punches,
-            timesDisplay,
-            checkIn: rawIn || '',
-            checkOut: rawOut || '',
-            workingHours,
-            overtime: 0
-          };
+          // Return punches array directly for this date
+          employeeAttendance.dailyAttendance[date] = punches;
         } else {
-          employeeAttendance.dailyAttendance[date] = {
-            status: 'absent',
-            checkIn: '',
-            checkOut: '',
-            workingHours: 0,
-            overtime: 0
-          };
+          // Return empty array for absent days
+          employeeAttendance.dailyAttendance[date] = [];
         }
       });
 
@@ -1778,6 +1839,14 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
 
     await connection.end();
 
+    console.log(`\n📊 REPORT GENERATION SUMMARY:`);
+    console.log(`   ✅ Generated successfully!`);
+    console.log(`   📅 Date range: ${from_date} to ${to_date} (${dateRange.length} days)`);
+    console.log(`   👥 Total employees: ${reportData.length}`);
+    console.log(`   📍 Division: ${employees[0]?.division_name || 'All Divisions'}`);
+    console.log(`   📂 Section: ${employees[0]?.section_name || 'All Sections'}`);
+    console.log(`   📝 Total attendance records: ${attendanceRecords.length}\n`);
+
     return {
       reportType: 'group',
       dateRange: {
@@ -1785,10 +1854,12 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
         to: to_date
       },
       dates: dateRange,
-      employees: reportData,
+      data: reportData, // Changed from 'employees' to 'data' to match frontend expectations
+      employees: reportData, // Keep for backward compatibility
       summary: {
         totalEmployees: employees.length,
         totalDays: dateRange.length,
+        totalRecords: attendanceRecords.length,
         divisionInfo: employees[0]?.division_name || null,
         sectionInfo: employees[0]?.section_name || null
       }

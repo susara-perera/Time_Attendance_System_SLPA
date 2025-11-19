@@ -10,6 +10,16 @@ import { replaceComCodes } from '../../utils/comMap';
 const GroupReportTable = ({ reportData, formatPunchDate, parseTimeMillis, formatTime }) => {
   if (!reportData || !reportData.data) return null;
 
+  // Debug: Check what data we received
+  console.log('GroupReportTable - reportData:', {
+    hasDates: !!reportData.dates,
+    datesLength: reportData.dates?.length,
+    hasData: !!reportData.data,
+    dataLength: reportData.data?.length,
+    sampleEmployee: reportData.data?.[0],
+    sampleDailyAttendance: reportData.data?.[0]?.dailyAttendance
+  });
+
   return (
     <div className="data-preview">
       <div className="table-responsive">
@@ -37,7 +47,7 @@ const GroupReportTable = ({ reportData, formatPunchDate, parseTimeMillis, format
                   {reportData.data.map((record, empIdx) => {
                     const raw = record.dailyAttendance ? record.dailyAttendance[date] : null;
                     // If raw is an array of scans, render each scan as its own row (first row shows emp details)
-                    if (Array.isArray(raw)) {
+                    if (Array.isArray(raw) && raw.length > 0) {
                       return raw.map((scan, sIdx) => {
                         const scanTime = scan.time_ || scan.time || scan.checkIn || scan.timestamp || '';
                         const scanType = (scan.scan_type || scan.type || '').toUpperCase();

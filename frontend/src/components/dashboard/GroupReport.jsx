@@ -1,6 +1,18 @@
 import React, { forwardRef, useImperativeHandle } from 'react';
 
 const GroupReport = forwardRef(({ reportData, getHeaders, formatRow, reportType, dateRange }, ref) => {
+  // Debug: Log what data we received
+  console.log('GroupReport - reportData:', {
+    hasData: !!reportData,
+    dataLength: reportData?.data?.length,
+    hasDates: !!reportData?.dates,
+    datesLength: reportData?.dates?.length,
+    sampleEmployee: reportData?.data?.[0],
+    sampleDailyAttendance: reportData?.data?.[0]?.dailyAttendance,
+    firstDateKey: reportData?.dates?.[0],
+    firstDateData: reportData?.data?.[0]?.dailyAttendance?.[reportData?.dates?.[0]]
+  });
+
   useImperativeHandle(ref, () => ({
     print: () => {
       if (!reportData || !Array.isArray(reportData.data) || reportData.data.length === 0) {
@@ -42,10 +54,23 @@ const GroupReport = forwardRef(({ reportData, getHeaders, formatRow, reportType,
             });
           } else if (emp.dailyAttendance && emp.dailyAttendance[date]) {
             const dayData = emp.dailyAttendance[date];
-            if (Array.isArray(dayData.punches) && dayData.punches.length) {
+            // Check if dayData is directly an array (backend returns it this way)
+            if (Array.isArray(dayData) && dayData.length) {
+              dayData.forEach((p, pIndex) => {
+                const inferredType = (p && (p.scan_type || p.type || p.direction)) ? (p.scan_type || p.type || p.direction) : (pIndex % 2 === 0 ? 'IN' : 'OUT');
+                punches.push({ 
+                  employee_ID: emp.employeeId || emp.employee_ID || emp.emp_no || emp.empNo, 
+                  employee_name: emp.employeeName || emp.employee_name || emp.name, 
+                  date_: date, 
+                  time_: p.time || p.time_ || '', 
+                  scan_type: inferredType,
+                  eventDescription: p.eventDescription || ''
+                });
+              });
+            } else if (Array.isArray(dayData.punches) && dayData.punches.length) {
               dayData.punches.forEach((p, pIndex) => {
                 const inferredType = (p && (p.scan_type || p.type || p.direction)) ? (p.scan_type || p.type || p.direction) : (pIndex % 2 === 0 ? 'IN' : 'OUT');
-                punches.push({ employee_ID: emp.employeeId || emp.employee_ID || emp.emp_no || emp.empNo, employee_name: emp.employeeName || emp.employee_name || emp.name, date_: date, time_: p.time || '', scan_type: inferredType });
+                punches.push({ employee_ID: emp.employeeId || emp.employee_ID || emp.emp_no || emp.empNo, employee_name: emp.employeeName || emp.employee_name || emp.name, date_: date, time_: p.time || p.time_ || '', scan_type: inferredType });
               });
             } else {
               if (dayData.checkIn) punches.push({ employee_ID: emp.employeeId || emp.employee_ID || emp.emp_no || emp.empNo, employee_name: emp.employeeName || emp.employee_name || emp.name, date_: date, time_: dayData.checkIn, scan_type: 'IN' });
@@ -164,8 +189,22 @@ const GroupReport = forwardRef(({ reportData, getHeaders, formatRow, reportType,
         @media print{@page{margin:0.5in;size:landscape}body{margin:0}thead{display:table-header-group!important}@page{margin-top:0;margin-bottom:0;margin-left:0;margin-right:0}body::before,body::after{display:none!important}}
       </style></head><body>${pages.map((p,idx)=>renderPage(p, idx+1)).join('')}</body></html>`;
 
-      const w = window.open(' ', '', 'width=900,height=700');
-      w.document.open(); w.document.write(html); w.document.close(); w.focus(); w.print(); w.close();
+      const w = window.open('', '_blank', 'width=900,height=700');
+      if (!w) {
+        alert('Pop-up blocked! Please allow pop-ups for this site to print.');
+        return;
+      }
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      
+      // Wait for content to load before triggering print dialog
+      // The print dialog allows user to "Save as PDF" as destination
+      setTimeout(() => {
+        w.focus();
+        w.print();
+        // Note: Window will stay open so user can review or re-print
+      }, 500);
     }
   }));
 
@@ -194,10 +233,23 @@ const GroupReport = forwardRef(({ reportData, getHeaders, formatRow, reportType,
           });
         } else if (emp.dailyAttendance && emp.dailyAttendance[date]) {
           const dayData = emp.dailyAttendance[date];
-          if (Array.isArray(dayData.punches) && dayData.punches.length) {
+          // Check if dayData is directly an array (backend returns it this way)
+          if (Array.isArray(dayData) && dayData.length) {
+            dayData.forEach((p, pIndex) => {
+              const inferredType = (p && (p.scan_type || p.type || p.direction)) ? (p.scan_type || p.type || p.direction) : (pIndex % 2 === 0 ? 'IN' : 'OUT');
+              punches.push({ 
+                employee_ID: emp.employeeId || emp.employee_ID || emp.emp_no || emp.empNo, 
+                employee_name: emp.employeeName || emp.employee_name || emp.name, 
+                date_: date, 
+                time_: p.time || p.time_ || '', 
+                scan_type: inferredType,
+                eventDescription: p.eventDescription || ''
+              });
+            });
+          } else if (Array.isArray(dayData.punches) && dayData.punches.length) {
             dayData.punches.forEach((p, pIndex) => {
               const inferredType = (p && (p.scan_type || p.type || p.direction)) ? (p.scan_type || p.type || p.direction) : (pIndex % 2 === 0 ? 'IN' : 'OUT');
-              punches.push({ employee_ID: emp.employeeId || emp.employee_ID || emp.emp_no || emp.empNo, employee_name: emp.employeeName || emp.employee_name || emp.name, date_: date, time_: p.time || '', scan_type: inferredType });
+              punches.push({ employee_ID: emp.employeeId || emp.employee_ID || emp.emp_no || emp.empNo, employee_name: emp.employeeName || emp.employee_name || emp.name, date_: date, time_: p.time || p.time_ || '', scan_type: inferredType });
             });
           } else {
             if (dayData.checkIn) punches.push({ employee_ID: emp.employeeId || emp.employee_ID || emp.emp_no || emp.empNo, employee_name: emp.employeeName || emp.employee_name || emp.name, date_: date, time_: dayData.checkIn, scan_type: 'IN' });
