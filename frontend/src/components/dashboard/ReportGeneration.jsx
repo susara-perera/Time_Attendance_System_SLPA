@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import usePermission from '../../hooks/usePermission';
 import './ReportGeneration.css';
 import GroupReport from './GroupReport';
 import IndividualReport from './IndividualReport';
+import AuditReport from './AuditReport';
 
 const ReportGeneration = () => {
   const [reportType, setReportType] = useState('attendance');
@@ -16,92 +17,46 @@ const ReportGeneration = () => {
   const [subSections, setSubSections] = useState([]);
   const [subSectionId, setSubSectionId] = useState('all');
   
-  // Fetch sections for selected division
+  // Filter sections for selected division (client-side filtering like EmployeeManagement)
   useEffect(() => {
-    const fetchDivisionSections = async () => {
-      if (divisionId === 'all') {
-        // Show all sections if no division is selected
-        setSections(allSections);
-        setSectionId('all');
-        setSubSections([]);
-        setSubSectionId('all');
-      } else {
-        // Fetch sections for the specific division from backend
-        try {
-          const token = localStorage.getItem('token');
-          // Find the selected division and use its HRIS code
-          const selectedDiv = divisions.find(d => (d._id || d.id) === divisionId);
-          
-          if (!selectedDiv) {
-            console.error(`⚠️ Division ${divisionId} not found in divisions array`);
-            setSections([]);
-            return;
-          }
-          
-          // Use HRIS code (HIE_CODE) for fetching sections
-          const divCode = selectedDiv.hie_code || selectedDiv.code || selectedDiv._id;
-          console.log(`🔍 Fetching sections for division:`, {
-            divisionId,
-            divisionName: selectedDiv.name,
-            hrisCode: divCode
-          });
-          
-          const response = await fetch(`http://localhost:5000/api/divisions/${divCode}/mysql-sections`, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            }
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            const sectionsArray = data.data || [];
-            console.log(`\n🔍 Division ${divisionId} fetched ${sectionsArray.length} HRIS sections from backend`);
-            console.log(`Sample sections:`, sectionsArray.slice(0, 3).map(s => ({
-              _id: s._id,
-              section_id: s.section_id,
-              name: s.name || s.section_name,
-              section_name: s.section_name,
-              division_name: s.division_name
-            })));
-            console.log(`📋 All section IDs:`, sectionsArray.map(s => s._id || s.section_id));
-            console.log(`Setting sections state - clearing old MongoDB sections\n`);
-            
-            // Important: Clear any old section selection that might be a MongoDB ID
-            if (sectionId !== 'all') {
-              const sectionExists = sectionsArray.some(s => 
-                (s._id || s.section_id) === sectionId
-              );
-              if (!sectionExists) {
-                console.log(`⚠️ Clearing invalid section ID: ${sectionId}`);
-                setSectionId('all');
-              }
-            }
-            
-            setSections(sectionsArray);
-          } else {
-            console.error('Failed to fetch division sections:', response.status);
-            setSections([]);
-          }
-        } catch (error) {
-          console.error('Error fetching division sections:', error);
-          setSections([]);
-        }
-        
-        setSectionId('all'); // Reset section when division changes
-        setSubSections([]);
-        setSubSectionId('all');
+    if (divisionId === 'all') {
+      setSections(allSections);
+      setSectionId('all');
+      setSubSections([]);
+      setSubSectionId('all');
+    } else {
+      // Filter sections by matching divisionId (same logic as EmployeeManagement.jsx)
+      const sectionsForDivision = allSections.filter(section => {
+        const sectionDivId = String(section.division_id || section.divisionId || section.DIVISION_ID || '');
+        const selectedDivId = String(divisionId);
+        return sectionDivId === selectedDivId;
+      });
+      
+      console.log(`🔍 Filtered ${sectionsForDivision.length} sections for division ${divisionId}`);
+      if (sectionsForDivision.length > 0) {
+        console.log('Sample sections:', sectionsForDivision.slice(0, 3).map(s => ({
+          id: s._id,
+          name: s.name,
+          division_id: s.division_id
+        })));
       }
-    };
-    
-    fetchDivisionSections();
+      
+      setSections(sectionsForDivision);
+      setSectionId('all'); // Reset section when division changes
+      setSubSections([]);
+      setSubSectionId('all');
+    }
   }, [divisionId, allSections]);
   
-  // Subsections disabled - only use HRIS sections for reports
+  // Fetch subsections when section changes
   useEffect(() => {
-    setSubSections([]);
-    setSubSectionId('all');
-  }, [reportScope, sectionId]);
+    if (sectionId && sectionId !== 'all' && divisionId !== 'all') {
+      fetchSubSections(sectionId);
+    } else {
+      setSubSections([]);
+      setSubSectionId('all');
+    }
+  }, [sectionId, divisionId]);
   const [dateRange, setDateRange] = useState({
     startDate: '',
     endDate: ''
@@ -114,7 +69,58 @@ const ReportGeneration = () => {
   const autoSelectedSectionRef = useRef(false);
   const groupReportRef = useRef(null);
   const individualReportRef = useRef(null);
+  const auditReportRef = useRef(null);
   const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+
+  // Helpers: normalize backend data (same as EmployeeManagement.jsx)
+  const normalizeDivisions = (data = []) => {
+    const out = [];
+    const seen = new Set();
+    data.forEach((d) => {
+      const id = String(d._id ?? d.id ?? d.DIVISION_ID ?? d.code ?? d.hie_code ?? d.DIVISION_CODE ?? '');
+      if (!id) return;
+      if (seen.has(id)) return;
+      seen.add(id);
+      out.push({
+        _id: id,
+        id,
+        code: String(d.code ?? d.DIVISION_CODE ?? d.hie_code ?? d._id ?? d.id ?? id),
+        name: d.name ?? d.DIVISION_NAME ?? d.hie_name ?? d.hie_relationship ?? 'Unknown Division',
+        hie_code: d.hie_code ?? d.code,
+        hie_name: d.hie_name ?? d.name,
+        def_level: d.def_level ?? d.DEF_LEVEL,
+        hie_relationship: d.hie_relationship,
+        isActive: d.isActive ?? d.active ?? true,
+      });
+    });
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  };
+
+  const normalizeSections = (data = []) => {
+    const out = [];
+    const seen = new Set();
+    data.forEach((s) => {
+      const id = String(s._id ?? s.id ?? s.SECTION_ID ?? s.code ?? s.hie_code ?? s.SECTION_CODE ?? s.section_code ?? '');
+      if (!id) return;
+      if (seen.has(id)) return;
+      seen.add(id);
+      const divisionId = String(s.division_id ?? s.DIVISION_ID ?? s.division_code ?? s.DIVISION_CODE ?? s.hie_relationship ?? '');
+      out.push({
+        _id: id,
+        id,
+        code: String(s.code ?? s.SECTION_CODE ?? s.hie_code ?? s.section_code ?? id),
+        name: s.name ?? s.section_name ?? s.SECTION_NAME ?? s.hie_relationship ?? `Section ${id}`,
+        division_id: divisionId || '',
+        divisionId: divisionId || '',
+        DIVISION_ID: divisionId || '',
+        divisionCode: String(s.division_code ?? s.DIVISION_CODE ?? ''),
+        divisionName: s.division_name ?? s.DIVISION_NAME ?? '',
+        def_level: s.def_level ?? s.DEF_LEVEL,
+        isActive: s.isActive ?? s.active ?? true,
+      });
+    });
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  };
 
   // Return DB-provided time strings unchanged. If a Date or ISO string is provided, format to HH:mm:ss.
   const ensureSeconds = (timeVal) => {
@@ -155,6 +161,13 @@ const ReportGeneration = () => {
     }
   }, [reportScope]);
 
+  // When report type changes to audit, automatically set scope to group
+  useEffect(() => {
+    if (reportType === 'audit') {
+      setReportScope('group');
+    }
+  }, [reportType]);
+
   // When division changes, reset section and sub-section
   useEffect(() => {
     if (divisionId === 'all') {
@@ -176,106 +189,7 @@ const ReportGeneration = () => {
     }
   }, [sectionId, divisionId]);
 
-  const fetchSectionsByDivision = useCallback(async (divId) => {
-    try {
-      const token = localStorage.getItem('token');
-      
-      // Use MySQL sections endpoint for attendance reports to get correct section IDs
-      const isAttendanceReport = reportType === 'attendance';
-      const sectionsEndpoint = isAttendanceReport 
-        ? `http://localhost:5000/api/divisions/${divId}/mysql-sections`
-        : `http://localhost:5000/api/divisions/${divId}/sections`;
-      
-      console.log(`Fetching sections from: ${sectionsEndpoint}`); // Debug log
-      
-      const response = await fetch(sectionsEndpoint, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Sections response for division:', divId, data); // Debug log
-        
-        // Handle different response formats for MongoDB and MySQL
-        let sectionsArray = [];
-        if (Array.isArray(data)) {
-          sectionsArray = data;
-        } else if (data.data && Array.isArray(data.data)) {
-          sectionsArray = data.data;
-        } else if (data.sections && Array.isArray(data.sections)) {
-          sectionsArray = data.sections;
-        } else if (data.success && data.sections) {
-          sectionsArray = Array.isArray(data.sections) ? data.sections : [];
-        }
-        
-        console.log('Processed sections array:', sectionsArray); // Debug log
-        setSections(sectionsArray);
-
-        // Reset section selection to 'all' when division changes
-        if (sectionsArray.length > 0) {
-          setSectionId('all');
-        } else {
-          // If endpoint returned empty, try fallback to client-side filtering from allSections
-          const fallback = filterAllSectionsByDivision(divId, allSections, divisions);
-          setSections(fallback);
-          setSectionId('all');
-        }
-      } else {
-        console.error('Failed to fetch sections:', response.status, response.statusText);
-        // Don't show error for divisions that don't have MySQL sections
-        // Just set empty sections array
-        const fallback = filterAllSectionsByDivision(divId, allSections, divisions);
-        setSections(fallback);
-        setSectionId('all');
-      }
-    } catch (err) {
-      console.error('Error fetching sections by division:', err);
-      const fallback = filterAllSectionsByDivision(divId, allSections, divisions);
-      setSections(fallback);
-      setSectionId('all');
-    }
-  }, [reportType, allSections, divisions]); // include allSections/divisions so fallback uses latest
-
-  // Helper: fallback filter to derive sections from allSections when backend endpoint is unavailable
-  const filterAllSectionsByDivision = (divId, allSecs = [], divs = []) => {
-    if (!divId || divId === 'all') return allSecs || [];
-    const normalized = (allSecs || []).filter(s => {
-      if (!s) return false;
-      // section.division may be object or id or name
-      if (typeof s.division === 'object' && s.division?._id) return String(s.division._id) === String(divId);
-      if (typeof s.division === 'string' && s.division) {
-        if (s.division === divId) return true;
-        // maybe division code stored instead of id
-        const byCode = divs.find(d => String(d.code) === String(s.division) || String(d._id) === String(s.division));
-        if (byCode && String(byCode._id) === String(divId)) return true;
-      }
-      // fallback: match by division name if section holds division name
-      const sectionDivName = (typeof s.division === 'object' ? s.division?.name : s.division) || s.divisionName || s.DIVISION_NAME || '';
-      if (sectionDivName) {
-        const divObj = divs.find(d => String(d._id) === String(divId) || normalizeString(d.name) === normalizeString(sectionDivName));
-        if (divObj) return true;
-      }
-      return false;
-    });
-    return normalized;
-  };
-
-  const normalizeString = (v) => (typeof v === 'string' ? v.trim().toLowerCase().replace(/\s+/g, ' ') : '');
-
-  // Fetch sections when division changes
-  useEffect(() => {
-    if (divisionId && divisionId !== 'all') {
-      console.log('Fetching sections for division:', divisionId); // Debug log
-      fetchSectionsByDivision(divisionId);
-    } else {
-      console.log('Setting all sections'); // Debug log
-      setSections(allSections);
-      setSectionId('all');
-    }
-  }, [divisionId, allSections, fetchSectionsByDivision]);
+  // Note: Section filtering is now handled by the useEffect above (client-side filtering)
 
   // Auto-select default division 'IS' (Information Systems) when available
   useEffect(() => {
@@ -336,18 +250,8 @@ const ReportGeneration = () => {
           divisionsArray = data.data;
         }
 
-        // Normalize divisions like EmployeeManagement does
-        const normalized = divisionsArray.map(d => ({
-          _id: String(d._id ?? d.id ?? d.hie_code ?? d.code ?? ''),
-          id: String(d._id ?? d.id ?? d.hie_code ?? d.code ?? ''),
-          code: String(d.hie_code ?? d.code ?? ''),
-          name: d.hie_name ?? d.name ?? 'Unknown Division',
-          hie_code: d.hie_code ?? d.code,
-          hie_name: d.hie_name ?? d.name,
-          def_level: d.def_level ?? d.DEF_LEVEL,
-          ...d
-        })).sort((a, b) => a.name.localeCompare(b.name));
-
+        // Use normalizeDivisions helper (same as EmployeeManagement)
+        const normalized = normalizeDivisions(divisionsArray);
         console.log(`✅ Loaded ${normalized.length} HRIS divisions`);
         setDivisions(normalized);
       } else {
@@ -394,38 +298,13 @@ const ReportGeneration = () => {
           sectionsArray = data.sections;
         }
 
-        // Normalize fields (handle HRIS/raw shapes) so dropdown shows name and id consistently
-        const normalized = sectionsArray.map(s => {
-          // Extract division ID - prioritize the parent division reference
-          let divisionId = '';
-          if (s.division && typeof s.division === 'object') {
-            divisionId = String(s.division._id || s.division.id || s.division.DIVISION_ID || '');
-          } else if (s.division) {
-            divisionId = String(s.division);
-          } else {
-            divisionId = String(s?.division_id ?? s?.DIVISION_ID ?? s?.parent_division_id ?? s?.divisionId ?? '');
-          }
-          
-          const divisionName = s?.division?.name ?? s?.division_name ?? s?.DIVISION_NAME ?? '';
-          const sectionId = String(s?._id ?? s?.id ?? s?.SECTION_ID ?? s?.code ?? s?.SECTION_CODE ?? '');
-          const sectionName = s?.name || s?.section_name || s?.SECTION_NAME || '';
-          
-          return {
-            _id: sectionId || undefined,
-            name: sectionName || `Section ${sectionId}`,
-            division_id: divisionId, // Store the parent division ID for filtering
-            division: divisionName ? { _id: divisionId || undefined, name: divisionName } : (divisionId || ''),
-            divisionCode: String(s?.division_code ?? s?.DIVISION_CODE ?? ''),
-            code: String(s?.code ?? s?.SECTION_CODE ?? ''),
-            _raw: s,
-            ...s
-          };
-        });
-        
-        console.log('Loaded sections with division IDs:', normalized.slice(0, 3).map(s => ({
+        // Use normalizeSections helper (same as EmployeeManagement)
+        const normalized = normalizeSections(sectionsArray);
+        console.log(`✅ Loaded ${normalized.length} HRIS sections`);
+        console.log('Sample sections with division_id:', normalized.slice(0, 3).map(s => ({
           section: s.name,
-          division_id: s.division_id,
-          division_name: s.division?.name
+          section_id: s._id,
+          division_id: s.division_id
         })));
 
         setAllSections(normalized);
@@ -438,6 +317,39 @@ const ReportGeneration = () => {
       console.error('Error fetching sections:', err);
       setAllSections([]);
       setSections([]);
+    }
+  };
+
+  const fetchSubSections = async (sectionId) => {
+    try {
+      const token = localStorage.getItem('token');
+      console.log(`📥 Fetching sub sections for section: ${sectionId}`);
+      
+      const response = await fetch(`http://localhost:5000/api/mysql-subsections?sectionId=${sectionId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        let subSectionsArray = [];
+        if (Array.isArray(data)) {
+          subSectionsArray = data;
+        } else if (data.data && Array.isArray(data.data)) {
+          subSectionsArray = data.data;
+        }
+
+        console.log(`✅ Loaded ${subSectionsArray.length} sub sections for section ${sectionId}`);
+        setSubSections(subSectionsArray);
+      } else {
+        console.error('Failed to fetch sub sections:', response.status);
+        setSubSections([]);
+      }
+    } catch (err) {
+      console.error('Error fetching sub sections:', err);
+      setSubSections([]);
     }
   };
 
@@ -478,7 +390,24 @@ const ReportGeneration = () => {
           payload.employee_id = employeeId;
         } else if (reportScope === 'group') {
           // For group reports, send HRIS division and section NAMES for matching against HRIS employee data
-          if (sectionId !== 'all') {
+          if (subSectionId !== 'all' && sectionId !== 'all') {
+            // If sub section is selected, send the database ID for querying transfers
+            const selectedSubSection = subSections.find(ss => (ss._id || ss.id) === subSectionId);
+            if (selectedSubSection) {
+              // Send the actual database ID (not the name) for querying subsection_transfers table
+              payload.sub_section_id = subSectionId;
+              payload.section_id = selectedSubSection.parentSection?.hie_name || '';
+              payload.division_id = selectedSubSection.parentDivision?.division_name || '';
+              
+              console.log('Selected sub section details:', {
+                sub_section_db_id: subSectionId,
+                sub_section_name: selectedSubSection.subSection?.sub_hie_name || selectedSubSection.subSection?.name || '',
+                section_name: payload.section_id,
+                division_name: payload.division_id,
+                full_sub_section: selectedSubSection
+              });
+            }
+          } else if (sectionId !== 'all') {
             // If section is selected, use section's HRIS names
             const selectedSection = sections.find(s => (s._id || s.id || s.section_id) === sectionId);
             if (selectedSection) {
@@ -499,7 +428,7 @@ const ReportGeneration = () => {
             const selectedDivision = divisions.find(d => (d._id || d.id) === divisionId);
             if (selectedDivision) {
               // Use the HRIS division name (hie_name)
-              payload.division_id = selectedDivision.hris_name || selectedDivision.name || '';
+              payload.division_id = selectedDivision.hie_name || selectedDivision.name || '';
               
               console.log('Selected division details:', {
                 division_id: divisionId,
@@ -518,6 +447,61 @@ const ReportGeneration = () => {
             section_name: payload.section_id
           });
         }
+      } else if (reportType === 'audit') {
+        // Use MySQL API for audit reports
+        apiUrl = 'http://localhost:5000/api/reports/mysql/audit';
+        payload = {
+          from_date: dateRange.startDate,
+          to_date: dateRange.endDate
+        };
+        
+        // Audit reports always use group scope with division/section filtering
+        if (subSectionId !== 'all' && sectionId !== 'all') {
+          // If sub section is selected, send the database ID for querying transfers
+          const selectedSubSection = subSections.find(ss => (ss._id || ss.id) === subSectionId);
+          if (selectedSubSection) {
+            // Send the actual database ID (not the name) for querying subsection_transfers table
+            payload.sub_section_id = subSectionId;
+            payload.section_id = selectedSubSection.parentSection?.hie_name || '';
+            payload.division_id = selectedSubSection.parentDivision?.division_name || '';
+            console.log('🔍 Audit sub section filter:', {
+              sub_section_db_id: subSectionId,
+              sub_section_name: selectedSubSection.subSection?.sub_hie_name || selectedSubSection.subSection?.name || '',
+              section_id: payload.section_id,
+              division_id: payload.division_id,
+              selectedSubSection
+            });
+          }
+        } else if (sectionId !== 'all') {
+          const selectedSection = sections.find(s => (s._id || s.id || s.section_id) === sectionId);
+          if (selectedSection) {
+            payload.section_id = selectedSection.name || selectedSection.section_name || '';
+            payload.division_id = selectedSection.divisionName || selectedSection.division_name || '';
+            console.log('🔍 Audit section filter:', {
+              section_id: payload.section_id,
+              division_id: payload.division_id,
+              selectedSection
+            });
+          }
+        } else if (divisionId !== 'all') {
+          const selectedDivision = divisions.find(d => (d._id || d.id) === divisionId);
+          if (selectedDivision) {
+            payload.division_id = selectedDivision.hie_name || selectedDivision.name || '';
+            console.log('🔍 Audit division filter:', {
+              division_id: payload.division_id,
+              selectedDivision
+            });
+          }
+          payload.section_id = '';
+        } else {
+          payload.division_id = '';
+          payload.section_id = '';
+        }
+        
+        console.log('Sending audit report filters:', {
+          division_name: payload.division_id,
+          section_name: payload.section_id
+        });
       } else if (reportType === 'meal') {
         // Use MongoDB API for meal reports
         apiUrl = 'http://localhost:5000/api/meal-reports';
@@ -535,7 +519,10 @@ const ReportGeneration = () => {
       }
 
       let response;
-      if (reportType === 'attendance') {
+      if (reportType === 'attendance' || reportType === 'audit') {
+        console.log('📤 Sending request to:', apiUrl);
+        console.log('📤 Request payload:', JSON.stringify(payload, null, 2));
+        
         response = await fetch(apiUrl, {
           method: 'POST',
           headers: {
@@ -556,13 +543,17 @@ const ReportGeneration = () => {
       let data;
       try {
         data = await response.json();
+        console.log('📥 Response status:', response.status);
+        console.log('📥 Response data:', JSON.stringify(data, null, 2));
       } catch (jsonErr) {
+        console.error('❌ JSON parse error:', jsonErr);
         setError('Invalid response from server.');
         setReportData(null);
         return;
       }
 
       if (!response.ok) {
+        console.error('❌ Response not OK:', response.status, data.message);
         setError(data.message || `HTTP error! status: ${response.status}`);
         setReportData(null);
         return;
@@ -570,7 +561,12 @@ const ReportGeneration = () => {
 
       // Handle MongoDB response format
       const reportArray = Array.isArray(data.data) ? data.data : Array.isArray(data) ? data : [];
+      console.log('📊 Report array length:', reportArray.length);
+      console.log('📊 Data success flag:', data.success);
+      console.log('📊 Sample data (first 2 items):', reportArray.slice(0, 2));
+      
       if ((data.success && reportArray.length > 0) || (!data.hasOwnProperty('success') && reportArray.length > 0)) {
+        console.log('✅ Report generated successfully with', reportArray.length, 'records');
         // For group reports, add reportType and dates to the response
         const processedData = {
           ...data,
@@ -589,9 +585,17 @@ const ReportGeneration = () => {
         }
         setError('');
       } else if (reportArray.length === 0) {
+        console.warn('⚠️ No records found in response');
+        console.log('Response details:', {
+          success: data.success,
+          message: data.message,
+          summary: data.summary,
+          employees: data.employees
+        });
         setError('No records found for the selected criteria.');
         setReportData({ ...data, data: [] });
       } else {
+        console.error('❌ Report generation failed:', data.message);
         setError(data.message || 'Failed to generate report');
         setReportData(null);
       }
@@ -619,7 +623,10 @@ const ReportGeneration = () => {
       alert('No data to print. Please generate a report first.');
       return;
     }
-    if (reportScope === 'group') {
+    if (reportType === 'audit') {
+      // Simple print for audit report
+      window.print();
+    } else if (reportScope === 'group') {
       if (groupReportRef.current && typeof groupReportRef.current.print === 'function') {
         groupReportRef.current.print();
       } else {
@@ -1150,6 +1157,7 @@ const ReportGeneration = () => {
               >
                 <option value="attendance">Attendance Report</option>
                 <option value="meal">Meal Report</option>
+                <option value="audit">Audit Report</option>
               </select>
             </div>
 
@@ -1164,10 +1172,11 @@ const ReportGeneration = () => {
                 value={reportScope}
                 onChange={(e) => setReportScope(e.target.value)}
                 className="form-control"
+                disabled={reportType === 'audit'}
+                title={reportType === 'audit' ? 'Audit reports use group scope' : 'Select report scope'}
               >
                 <option value="individual">Individual Report</option>
                 <option value="group">Group Report</option>
-                <option value="audit">Audit</option>
               </select>
             </div>
 
@@ -1420,7 +1429,12 @@ const ReportGeneration = () => {
           </div>
           <div className="data-preview">
             <div className="table-responsive">
-              {reportScope === 'group' ? (
+              {reportType === 'audit' ? (
+                <AuditReport
+                  ref={auditReportRef}
+                  reportData={reportData}
+                />
+              ) : reportScope === 'group' ? (
                 <GroupReport
                   ref={groupReportRef}
                   reportData={reportData}

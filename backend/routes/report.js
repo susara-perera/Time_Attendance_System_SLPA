@@ -159,4 +159,14 @@ router.post(
   generateMySQLMealReport
 );
 
+// @route   POST /api/reports/mysql/audit
+// @desc    Generate MySQL-based audit report (employees who punched "ON" once)
+// @access  Private
+router.post(
+  '/mysql/audit',
+  // auth, // Temporarily disable auth for testing
+  // auditTrail('mysql_audit_report_generated', 'Report'),
+  require('../controllers/reportController').generateMySQLAuditReport
+);
+
 module.exports = router;

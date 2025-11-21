@@ -1,0 +1,159 @@
+/* Audit Report Styles */
+.report-container {
+  padding: 20px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.report-header {
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.report-header h2 {
+  color: #333;
+  font-size: 24px;
+  margin-bottom: 15px;
+}
+
+.report-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  font-size: 14px;
+  color: #666;
+}
+
+.report-info p {
+  margin: 0;
+}
+
+.report-info strong {
+  color: #333;
+  font-weight: 600;
+}
+
+.designation-group {
+  margin-bottom: 30px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.designation-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 12px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.designation-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.employee-count {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+}
+
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0;
+}
+
+.audit-table thead {
+  background: #f8f9fa;
+}
+
+.audit-table th {
+  padding: 12px;
+  text-align: left;
+  font-weight: 600;
+  color: #333;
+  border-bottom: 2px solid #dee2e6;
+  font-size: 14px;
+}
+
+.audit-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e9ecef;
+  font-size: 14px;
+  color: #495057;
+}
+
+.audit-table tbody tr:hover {
+  background-color: #f8f9fa;
+}
+
+.audit-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.report-footer {
+  margin-top: 30px;
+  padding-top: 15px;
+  border-top: 2px solid #e0e0e0;
+  text-align: center;
+  font-size: 13px;
+  color: #666;
+}
+
+.report-footer p {
+  margin: 5px 0;
+}
+
+.audit-note {
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  padding: 10px;
+  border-radius: 4px;
+  margin-top: 10px;
+  color: #856404;
+  font-style: italic;
+}
+
+.no-data-message {
+  text-align: center;
+  padding: 40px;
+  color: #666;
+}
+
+.no-data-message p {
+  font-size: 16px;
+  margin: 0;
+}
+
+/* Print styles */
+@media print {
+  .report-container {
+    box-shadow: none;
+    padding: 0;
+  }
+  
+  .designation-header {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  
+  .audit-table {
+    page-break-inside: auto;
+  }
+  
+  .audit-table tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+  
+  .designation-group {
+    page-break-inside: avoid;
+  }
+}

@@ -100,7 +100,8 @@ const getAttendanceReport = async (req, res) => {
 
     // Handle group reports differently to match the required format
     if (report_type === 'group') {
-      reportData = await generateMySQLGroupAttendanceReport(start_date, end_date, division_id, section_id);
+      const sub_section_id = data.sub_section_id || '';
+      reportData = await generateMySQLGroupAttendanceReport(start_date, end_date, division_id, section_id, sub_section_id);
     } else if (groupBy === 'division') {
       reportData = await generateDivisionReport(attendanceQuery, start, end);
     } else if (groupBy === 'section') {
@@ -1062,6 +1063,7 @@ const generateMySQLAttendanceReport = async (req, res) => {
       employee_id = '',
       division_id = '',
       section_id = '',
+      sub_section_id = '',
       from_date,
       to_date
     } = req.body;
@@ -1091,7 +1093,7 @@ const generateMySQLAttendanceReport = async (req, res) => {
     // Handle group reports differently to match the required format
     if (report_type === 'group') {
       console.log('Calling generateMySQLGroupAttendanceReport...');
-      const groupReportData = await generateMySQLGroupAttendanceReport(from_date, to_date, division_id, section_id);
+      const groupReportData = await generateMySQLGroupAttendanceReport(from_date, to_date, division_id, section_id, sub_section_id);
       
       console.log(`Group report generated: ${groupReportData.employees.length} employees`);
       
@@ -1515,12 +1517,13 @@ const mapMongoToMySQLDivisionId = async (divisionId) => {
 };
 
 // Helper function to generate MySQL-based group attendance report (tabular format)
-const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_id, section_id) => {
+const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_id, section_id, sub_section_id = '') => {
   try {
     console.log('=== GROUP ATTENDANCE REPORT GENERATION STARTED ===');
     console.log(`Date range: ${from_date} to ${to_date}`);
     console.log(`Division filter: ${division_id || 'none'}`);
     console.log(`Section filter: ${section_id || 'none'}`);
+    console.log(`Sub Section filter: ${sub_section_id || 'none'}`);
     
     const hrisApiService = require('../services/hrisApiService');
     
@@ -1645,6 +1648,50 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
       }
     } else {
       console.log(`   ℹ️  No division/section filter applied - using all employees`);
+    }
+    
+    // Step 1.5: If sub section is selected, filter by transferred employees
+    let transferredEmployeeIds = [];
+    if (sub_section_id) {
+      console.log(`\n🔄 FILTERING BY SUB SECTION TRANSFERS:`);
+      console.log(`   Sub Section ID: "${sub_section_id}"`);
+      
+      try {
+        // Get transferred employees for this sub section from MySQL
+        const [transferredRows] = await connection.execute(
+          'SELECT employee_id FROM subsection_transfers WHERE sub_section_id = ?',
+          [String(sub_section_id)]
+        );
+        
+        transferredEmployeeIds = transferredRows.map(row => String(row.employee_id));
+        console.log(`   ✅ Found ${transferredEmployeeIds.length} transferred employees in sub section`);
+        
+        if (transferredEmployeeIds.length > 0) {
+          console.log(`   Sample transferred IDs:`, transferredEmployeeIds.slice(0, 5));
+          
+          // Filter HRIS employees to only include transferred employees
+          filteredByDivisionSection = filteredByDivisionSection.filter(emp => {
+            const empId = String(emp.EMP_NUMBER || emp.emp_no || emp.employee_no || emp.employee_ID || emp.empNo || emp.id);
+            return transferredEmployeeIds.includes(empId);
+          });
+          
+          console.log(`   ✅ After transfer filter: ${filteredByDivisionSection.length} HRIS employees`);
+        } else {
+          console.log(`   ⚠️  No transferred employees found for this sub section`);
+          // If no transfers found, return empty result
+          await connection.end();
+          return {
+            reportType: 'group',
+            dateRange: { from: from_date, to: to_date },
+            dates: [],
+            employees: [],
+            summary: { totalEmployees: 0, totalDays: 0 }
+          };
+        }
+      } catch (err) {
+        console.error('   ❌ Error fetching transferred employees:', err);
+        // Continue without sub section filter
+      }
     }
     
     // Step 2: From filtered employees, keep only those who have attendance records
@@ -1883,5 +1930,174 @@ module.exports = {
   getCustomReport,
   generateMySQLAttendanceReport,
   generateMySQLMealReport,
-  generateMySQLGroupAttendanceReport
+  generateMySQLGroupAttendanceReport,
+  generateMySQLAuditReport: async (req, res) => {
+    try {
+      console.log('=== AUDIT REPORT REQUEST ===');
+      console.log('Request body:', req.body);
+
+      const { from_date, to_date, division_id = '', section_id = '', sub_section_id = '' } = req.body;
+
+      if (!from_date || !to_date) {
+        return res.status(400).json({
+          success: false,
+          message: 'Start date and end date are required'
+        });
+      }
+
+      console.log(`\n📊 AUDIT REPORT GENERATION STARTED`);
+      console.log(`Date range: ${from_date} to ${to_date}`);
+      console.log(`Division filter: ${division_id || 'All'}`);
+      console.log(`Section filter: ${section_id || 'All'}`);
+      console.log(`Sub Section filter: ${sub_section_id || 'All'}`);
+
+      // Connect to MySQL
+      const connection = await require('../config/mysql').connectMySQL();
+      console.log('✅ MySQL Connected successfully');
+
+      // Get all employees who have only ONE punch in the date range
+      const auditQuery = `
+        SELECT 
+          employee_ID,
+          date_,
+          COUNT(*) as punch_count,
+          GROUP_CONCAT(CONCAT(time_, ':', scan_type) ORDER BY time_ SEPARATOR '|') as punches
+        FROM attendance
+        WHERE date_ BETWEEN ? AND ?
+        GROUP BY employee_ID, date_
+        HAVING COUNT(*) = 1
+        ORDER BY date_ DESC, employee_ID ASC
+      `;
+
+      const [auditRecords] = await connection.execute(auditQuery, [from_date, to_date]);
+      console.log(`Found ${auditRecords.length} single-punch records`);
+
+      // Get unique employee IDs
+      const distinctEmployeeIds = [...new Set(auditRecords.map(r => r.employee_ID))];
+      console.log(`Distinct employees with single punches: ${distinctEmployeeIds.length}`);
+
+      // Fetch employee details from HRIS
+      const hrisApiService = require('../services/hrisApiService');
+      const allEmployees = await hrisApiService.getCachedOrFetch('employee', {});
+      console.log(`Fetched ${allEmployees.length} employees from HRIS`);
+
+      // Filter by division/section if provided
+      let filteredEmployees = allEmployees;
+      
+      if (sub_section_id) {
+        console.log(`🔄 Filtering by sub section: "${sub_section_id}"`);
+        // Get transferred employees for this sub section
+        try {
+          const [transferredRows] = await connection.execute(
+            'SELECT employee_id FROM subsection_transfers WHERE sub_section_id = ?',
+            [String(sub_section_id)]
+          );
+          
+          const transferredEmployeeIds = transferredRows.map(row => String(row.employee_id));
+          console.log(`Found ${transferredEmployeeIds.length} transferred employees in sub section`);
+          
+          if (transferredEmployeeIds.length > 0) {
+            filteredEmployees = filteredEmployees.filter(emp => {
+              const empId = String(emp.EMP_NUMBER || emp.emp_no || emp.employee_no || '');
+              return transferredEmployeeIds.includes(empId);
+            });
+            console.log(`✅ After sub section filter: ${filteredEmployees.length} employees`);
+          } else {
+            console.log(`⚠️ No transferred employees found for this sub section`);
+            filteredEmployees = [];
+          }
+        } catch (err) {
+          console.error('Error fetching transferred employees:', err);
+        }
+      } else if (section_id) {
+        console.log(`🔍 Filtering by section: "${section_id}"`);
+        filteredEmployees = filteredEmployees.filter(emp => {
+          const empSectionName = (emp.currentwork?.HIE_NAME_3 || '').trim();
+          return empSectionName.toLowerCase() === section_id.toLowerCase() ||
+                 empSectionName.toLowerCase().includes(section_id.toLowerCase());
+        });
+        console.log(`Found ${filteredEmployees.length} employees in section`);
+      } else if (division_id) {
+        console.log(`🔍 Filtering by division: "${division_id}"`);
+        filteredEmployees = filteredEmployees.filter(emp => {
+          const empDivisionName = (emp.currentwork?.HIE_NAME_2 || '').trim();
+          return empDivisionName.toLowerCase() === division_id.toLowerCase() ||
+                 empDivisionName.toLowerCase().includes(division_id.toLowerCase());
+        });
+        console.log(`Found ${filteredEmployees.length} employees in division`);
+      }
+
+      // Match with employees who have single punches
+      const employees = filteredEmployees.filter(emp => {
+        const empId = emp.EMP_NUMBER;
+        return distinctEmployeeIds.includes(empId);
+      });
+
+      console.log(`✅ Final matched employees: ${employees.length}`);
+
+      // Build audit report grouped by designation
+      const auditData = {};
+      employees.forEach(emp => {
+        const empId = emp.EMP_NUMBER;
+        const designation = emp.currentwork?.designation || 'Unknown';
+        
+        if (!auditData[designation]) {
+          auditData[designation] = [];
+        }
+
+        // Get all single-punch records for this employee
+        const empRecords = auditRecords.filter(r => r.employee_ID === empId);
+        
+        empRecords.forEach(record => {
+          const punchData = record.punches.split('|')[0].split(':');
+          auditData[designation].push({
+            employeeId: empId,
+            employeeName: emp.FULLNAME || 'Unknown',
+            designation: designation,
+            date: record.date_,
+            time: punchData[0],
+            scanType: punchData[1],
+            divisionName: emp.currentwork?.HIE_NAME_2 || '',
+            sectionName: emp.currentwork?.HIE_NAME_3 || ''
+          });
+        });
+      });
+
+      // Convert to array format
+      const reportData = Object.keys(auditData).map(designation => ({
+        designation,
+        employees: auditData[designation],
+        count: auditData[designation].length
+      })).sort((a, b) => a.designation.localeCompare(b.designation));
+
+      await connection.end();
+
+      console.log(`\n📊 AUDIT REPORT SUMMARY:`);
+      console.log(`   Total designations: ${reportData.length}`);
+      console.log(`   Total records: ${auditRecords.length}`);
+      console.log(`   Employees affected: ${employees.length}`);
+
+      return res.status(200).json({
+        success: true,
+        reportType: 'audit',
+        dateRange: { from: from_date, to: to_date },
+        data: reportData,
+        summary: {
+          totalRecords: auditRecords.length,
+          totalEmployees: employees.length,
+          totalDesignations: reportData.length,
+          divisionFilter: division_id || 'All',
+          sectionFilter: section_id || 'All'
+        }
+      });
+
+    } catch (error) {
+      console.error('Audit report error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Error generating audit report',
+        error: error.message
+      });
+    }
+  }
 };
