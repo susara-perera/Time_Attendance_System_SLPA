@@ -1,3 +1,4 @@
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import React, { useState, useEffect, useRef } from 'react';
 import usePermission from '../../hooks/usePermission';
 import './ReportGeneration.css';
@@ -65,6 +66,7 @@ const ReportGeneration = () => {
   const [reportData, setReportData] = useState(null);
   const [error, setError] = useState('');
   const [employeeInfo, setEmployeeInfo] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const autoSelectedDivisionRef = useRef(false);
   const autoSelectedSectionRef = useRef(false);
   const groupReportRef = useRef(null);
@@ -72,6 +74,19 @@ const ReportGeneration = () => {
   const auditReportRef = useRef(null);
   const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
+  // Compute filtered data when user types in search box (employee id or name)
+  const filteredData = useMemo(() => {
+    if (!reportData || !Array.isArray(reportData.data)) return [];
+    const q = (searchQuery || '').trim().toLowerCase();
+    if (!q) return reportData.data;
+    return reportData.data.filter(item => {
+      const empId = String(item.employee_id || item.employee_ID || item.employeeId || item.emp_no || item.empNo || '').toLowerCase();
+      const empName = String(item.employee_name || item.employeeName || item.name || '').toLowerCase();
+      return empId.includes(q) || empName.includes(q);
+    });
+  }, [reportData, searchQuery]);
+
+  const filteredReportData = reportData ? { ...reportData, data: filteredData } : reportData;
   // Helpers: normalize backend data (same as EmployeeManagement.jsx)
   const normalizeDivisions = (data = []) => {
     const out = [];
@@ -609,8 +624,9 @@ const ReportGeneration = () => {
   };
 
   const exportReport = (format) => {
-    if (!reportData || !reportData.data || reportData.data.length === 0) {
-      setError('No data to export. Please generate a report first.');
+    const dataToExport = filteredReportData;
+    if (!dataToExport || !dataToExport.data || dataToExport.data.length === 0) {
+      setError('No data to export. Please generate a report first or adjust search filters.');
       return;
     }
     if (format === 'pdf') {
@@ -1400,7 +1416,13 @@ const ReportGeneration = () => {
               </div>
               <div style={{display: 'flex', flexWrap: 'wrap', gap: '32px 48px', borderTop: '1px solid #eee', paddingTop: 8}}>
                 <span>Date Range: <b>{dateRange.startDate} to {dateRange.endDate}</b></span>
-                <span>{reportData.reportType === 'group' ? 'Employees Found:' : 'Records Found:'} <b>{reportData.data?.length || 0}</b></span>
+                <span>
+                  {reportData.reportType === 'group' ? 'Employees Found:' : 'Records Found:'}
+                  <b>{filteredData.length}</b>
+                  {filteredData.length !== (reportData.data?.length || 0) && (
+                    <span style={{ marginLeft: 8, color: '#666', fontWeight: 400 }}>({reportData.data?.length || 0} total)</span>
+                  )}
+                </span>
                 <span style={{color: '#666', fontWeight: 400, fontSize: '0.98rem', marginLeft: 'auto'}}>Generated at {new Date().toLocaleString()}</span>
               </div>
             </div>
@@ -1413,6 +1435,15 @@ const ReportGeneration = () => {
               Data Preview
             </div>
             <div className="action-group" style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search by Emp ID or Name"
+                className="form-control simple-search"
+                style={{ width: 260, minWidth: 140 }}
+                title="Filter preview by Employee ID or Employee Name"
+              />
               <span style={{fontWeight: 600, fontSize: '1.15rem', display: 'flex', alignItems: 'center', marginLeft: 12}}>
                 <i className="bi bi-download" style={{marginRight: 6, fontSize: '1.2rem'}}></i>
                 Export Options
@@ -1437,7 +1468,7 @@ const ReportGeneration = () => {
               ) : reportScope === 'group' ? (
                 <GroupReport
                   ref={groupReportRef}
-                  reportData={reportData}
+                  reportData={filteredReportData}
                   getHeaders={getHeaders}
                   formatRow={formatRow}
                   reportType={reportType}
@@ -1446,7 +1477,7 @@ const ReportGeneration = () => {
               ) : (
                 <IndividualReport
                   ref={individualReportRef}
-                  reportData={reportData}
+                  reportData={filteredReportData}
                   getHeaders={getHeaders}
                   formatRow={formatRow}
                   reportType={reportType}
