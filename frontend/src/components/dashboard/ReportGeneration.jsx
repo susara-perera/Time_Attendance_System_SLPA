@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import React, { useState, useEffect, useRef } from 'react';
 import usePermission from '../../hooks/usePermission';
 import './ReportGeneration.css';
 import GroupReport from './GroupReport';
@@ -1200,7 +1199,7 @@ const ReportGeneration = () => {
             <i className="bi bi-graph-up-arrow"></i>
             Report Generation Center
           </h1>
-          <p className="header-subtitle">Generate comprehensive attendance and meal reports with advanced filtering options</p>
+          <p className="header-subtitle">Generate comprehensive Attendance, Audit, and Meal reports with advanced filtering options</p>
         </div>
       </div>
 
@@ -1529,7 +1528,6 @@ const ReportGeneration = () => {
               <i className="bi bi-table" style={{marginRight: 10, marginLeft: 12, fontSize: '1.2rem'}}></i>
               Data Preview
             </div>
-<<<<<<< HEAD
             {/* Export Options - Only show for non-audit reports */}
             {reportType !== 'audit' && (
               <div className="action-group" style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
@@ -1547,31 +1545,6 @@ const ReportGeneration = () => {
                 </button>
               </div>
             )}
-=======
-            <div className="action-group" style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search by Emp ID or Name"
-                className="form-control simple-search"
-                style={{ width: 260, minWidth: 140 }}
-                title="Filter preview by Employee ID or Employee Name"
-              />
-              <span style={{fontWeight: 600, fontSize: '1.15rem', display: 'flex', alignItems: 'center', marginLeft: 12}}>
-                <i className="bi bi-download" style={{marginRight: 6, fontSize: '1.2rem'}}></i>
-                Export Options
-              </span>
-              <button
-                onClick={() => exportReport('pdf')}
-                className="btn btn-outline-primary"
-                style={{marginLeft: 8, marginRight: 18, display: 'flex', alignItems: 'center', fontWeight: 500, fontSize: '1rem'}}
-              >
-                <i className="bi bi-file-earmark-pdf" style={{marginRight: 5, fontSize: '1.1rem'}}></i>
-                Print PDF
-              </button>
-            </div>
->>>>>>> 7f80139dbc68d193f27de8e677f2e397159e586e
           </div>
           <div className="data-preview">
             <div className="table-responsive">
