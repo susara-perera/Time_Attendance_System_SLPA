@@ -50,16 +50,25 @@ const seedRoles = async () => {
 
 // Seed roles is now invoked after successful Mongo connection above
 
-// Test MySQL connection for reports
-testMySQLConnection().then(async success => {
-  if (success) {
-    console.log('📊 MySQL available for report generation');
-    // Ensure tables we rely on exist (idempotent)
-    await ensureMySQLSchema();
-  } else {
-    console.log('⚠️ MySQL not available - reports may be limited');
-  }
-});
+// Test MySQL connection for reports (non-blocking, optional)
+if (process.env.MYSQL_ENABLED !== 'false') {
+  testMySQLConnection().then(async success => {
+    if (success) {
+      console.log('📊 MySQL available for report generation');
+      // Ensure tables we rely on exist (idempotent)
+      await ensureMySQLSchema();
+    } else {
+      console.log('⚠️ MySQL not available - reports may be limited');
+      console.log('💡 To enable MySQL reports, ensure MySQL is running and configured in .env file');
+    }
+  }).catch(err => {
+    console.log('⚠️ MySQL connection failed:', err.message);
+    console.log('💡 System will continue without MySQL - MongoDB reports will be used');
+  });
+} else {
+  console.log('ℹ️  MySQL is disabled in configuration (MYSQL_ENABLED=false)');
+  console.log('📊 Using MongoDB for all reports');
+}
 
 // Initialize HRIS API cache at startup
 const { initializeCache } = require('./services/hrisApiService');
