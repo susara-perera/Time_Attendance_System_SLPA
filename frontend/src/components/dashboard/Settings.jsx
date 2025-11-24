@@ -13,6 +13,14 @@ const TOOLTIP = {
 };
 
 const Settings = () => {
+  const formatAddress = (addr) => {
+    if (!addr) return '';
+    if (typeof addr === 'string') return addr;
+    if (typeof addr === 'object') {
+      return addr.city || addr.street || addr.address || addr.line1 || Object.values(addr).find(v => typeof v === 'string') || JSON.stringify(addr);
+    }
+    return String(addr);
+  };
   const [settings, setSettings] = useState({
     systemName: 'Time Attendance System',
     timezone: 'Asia/Colombo',
@@ -24,7 +32,6 @@ const Settings = () => {
     autoLogout: 30,
   });
   const [activeTab, setActiveTab] = useState('general');
-  const [saveStatus, setSaveStatus] = useState(null);
   // Additional settings state
   const { lang, setLang, t } = useLanguage();
   const [theme, setTheme] = useState(() => {
@@ -47,29 +54,44 @@ const Settings = () => {
   });
   const [newMail, setNewMail] = useState('');
   const [mailError, setMailError] = useState('');
+  // Profile edit states
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileSubmitting, setProfileSubmitting] = useState(false);
+  const [profileMsg, setProfileMsg] = useState(null);
+  const [profileSuccess, setProfileSuccess] = useState(false);
+  const [profileFirstName, setProfileFirstName] = useState('');
+  const [profileLastName, setProfileLastName] = useState('');
+  const [profilePhone, setProfilePhone] = useState('');
+  const [profileAddress, setProfileAddress] = useState('');
   const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
   // Password change / verify states
   const [oldPassword, setOldPassword] = useState('');
   const [oldPasswordValid, setOldPasswordValid] = useState(false);
   const [oldPasswordChecking, setOldPasswordChecking] = useState(false);
+  const [oldPasswordError, setOldPasswordError] = useState('');
+  const [oldPasswordSuccess, setOldPasswordSuccess] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [changeMsg, setChangeMsg] = useState('');
   const [submittingPassword, setSubmittingPassword] = useState(false);
+  const [changeSuccess, setChangeSuccess] = useState(false);
   const [showForgotForm, setShowForgotForm] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotStatus, setForgotStatus] = useState(null);
+  // OTP / reset flow states
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpValue, setOtpValue] = useState('');
+  const [otpError, setOtpError] = useState('');
+  const [verifyingOtp, setVerifyingOtp] = useState(false);
+  const [resetToken, setResetToken] = useState('');
+  const [showResetForm, setShowResetForm] = useState(false);
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
+  const [resettingPassword, setResettingPassword] = useState(false);
+  const [resetStatus, setResetStatus] = useState(null);
 
-  const handleSave = () => {
-    // Simulate save
-    setSaveStatus('Saving...');
-    setTimeout(() => {
-      setSaveStatus('Settings saved successfully!');
-      setTimeout(() => setSaveStatus(null), 2000);
-    }, 1200);
-    // Implement actual save logic here
-  };
+  
 
   // Apply theme to document root and persist choice
   useEffect(() => {
@@ -90,6 +112,51 @@ const Settings = () => {
       // ignore
     }
   }, [notificationEmails]);
+
+  // Prevent background scroll when forgot-password modal is open
+  useEffect(() => {
+    if (showForgotForm) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [showForgotForm]);
+
+  // Load profile when profile tab becomes active
+  useEffect(() => {
+    const loadProfile = async () => {
+      setProfileLoading(true);
+      setProfileMsg(null);
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_BASE_URL}/auth/me`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json', Authorization: token ? `Bearer ${token}` : '' },
+          credentials: 'include'
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const user = data.data;
+          setProfileFirstName(user.firstName || '');
+          setProfileLastName(user.lastName || '');
+          setProfilePhone(user.phone || '');
+          setProfileAddress(formatAddress(user.address));
+        } else {
+          setProfileMsg('Failed to load profile');
+        }
+      } catch (err) {
+        console.error('Load profile error', err);
+        setProfileMsg('Failed to load profile');
+      } finally {
+        setProfileLoading(false);
+      }
+    };
+
+    if (activeTab === 'profile') {
+      loadProfile();
+    }
+  }, [activeTab]);
 
   const validateEmail = (email) => {
     const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -129,6 +196,13 @@ const Settings = () => {
         <div className="col-12 col-md-3 col-lg-2 mb-4">
           <div className="list-group shadow-sm" style={{ maxWidth: 220 }}>
             <button
+              className={`list-group-item list-group-item-action${activeTab === 'profile' ? ' active' : ''}`}
+              onClick={() => setActiveTab('profile')}
+            >
+              <i className="bi bi-person me-2"></i> {t('profile')}
+            </button>
+
+            <button
               className={`list-group-item list-group-item-action${activeTab === 'general' ? ' active' : ''}`}
               onClick={() => setActiveTab('general')}
             >
@@ -146,35 +220,15 @@ const Settings = () => {
             >
               <i className="bi bi-shield-lock me-2"></i> {t('security')}
             </button>
-            <button
-              className={`list-group-item list-group-item-action${activeTab === 'notifications' ? ' active' : ''}`}
-              onClick={() => setActiveTab('notifications')}
-            >
-              <i className="bi bi-bell me-2"></i> {t('notifications')}
-            </button>
-            <button
-              className={`list-group-item list-group-item-action${activeTab === 'export' ? ' active' : ''}`}
-              onClick={() => setActiveTab('export')}
-            >
-              <i className="bi bi-file-earmark-arrow-down me-2"></i> {t('dataExport')}
-            </button>
           </div>
         </div>
 
         {/* Main Content */}
         <div className="col-12 col-md-9 col-lg-10">
           <div className="card shadow-sm mb-3" style={{ width: '100%' }}>
-            <div className="card-body d-flex justify-content-between align-items-center" style={{ padding: '18px 22px' }}>
+            <div className="card-body" style={{ padding: '18px 22px' }}>
               <h3 className="mb-0"><i className="bi bi-gear me-2"></i>{t('systemSettings')}</h3>
-              <button className="btn btn-success px-4" onClick={handleSave}>
-                <i className="bi bi-check-circle me-1"></i> {t('saveChanges')}
-              </button>
             </div>
-            {saveStatus && (
-              <div className="alert alert-info m-3 py-2 px-3" role="alert" style={{ marginTop: 8 }}>
-                {saveStatus}
-              </div>
-            )}
           </div>
           {activeTab === 'general' && (
             <div className="card shadow-sm" style={{ width: '100%' }}>
@@ -275,6 +329,83 @@ const Settings = () => {
             </div>
           )}
 
+          {activeTab === 'profile' && (
+            <div className="card shadow-sm" style={{ width: '100%' }}>
+              <div className="card-body" style={{ padding: '22px' }}>
+                <h5 className="fw-bold mb-4">{t('profile')}</h5>
+                {profileLoading ? (
+                  <div className="text-muted">{t('loading')}</div>
+                ) : (
+                  <form onSubmit={async (e) => { e.preventDefault();
+                    setProfileSubmitting(true); setProfileMsg(null);
+                    try {
+                      const token = localStorage.getItem('token');
+                      const res = await fetch(`${API_BASE_URL}/auth/profile`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json', Authorization: token ? `Bearer ${token}` : '' },
+                        credentials: 'include',
+                        // normalize address to an object (backend accepts either string or object)
+                        body: JSON.stringify({ firstName: profileFirstName, lastName: profileLastName, phone: profilePhone, address: profileAddress ? { city: profileAddress } : '' })
+                      });
+                      const data = await res.json();
+                      if (res.ok) {
+                        setProfileMsg(data.message || 'Profile updated');
+                        setProfileSuccess(true);
+                        setTimeout(() => setProfileSuccess(false), 3000);
+                        // Notify AuthContext / other components about updated profile
+                        try {
+                          const updatedUser = data.data || null;
+                          if (updatedUser && updatedUser.address) {
+                            setProfileAddress(formatAddress(updatedUser.address));
+                          }
+                          window.dispatchEvent(new CustomEvent('profileUpdated', { detail: updatedUser }));
+                        } catch (evErr) {
+                          // ignore
+                        }
+                      } else {
+                        setProfileMsg(data.message || 'Failed to update profile');
+                        setProfileSuccess(false);
+                      }
+                    } catch (err) {
+                      console.error('Update profile error', err);
+                      setProfileMsg('Failed to update profile');
+                      setProfileSuccess(false);
+                    } finally {
+                      setProfileSubmitting(false);
+                    }
+                  }}>
+                    <div className="row g-3">
+                      <div className="col-12 col-sm-6">
+                        <label className="form-label">{t('firstName')}</label>
+                        <input className="form-control" value={profileFirstName} onChange={(e) => setProfileFirstName(e.target.value)} />
+                      </div>
+                      <div className="col-12 col-sm-6">
+                        <label className="form-label">{t('lastName')}</label>
+                        <input className="form-control" value={profileLastName} onChange={(e) => setProfileLastName(e.target.value)} />
+                      </div>
+                      <div className="col-12 col-sm-6">
+                        <label className="form-label">Phone</label>
+                        <input className="form-control" value={profilePhone} onChange={(e) => setProfilePhone(e.target.value)} />
+                      </div>
+                      <div className="col-12">
+                        <label className="form-label">Address</label>
+                        <input className="form-control" value={profileAddress} onChange={(e) => setProfileAddress(e.target.value)} />
+                      </div>
+                    </div>
+                    <div className="mt-3 d-flex gap-2">
+                      <button className="btn btn-primary" type="submit" disabled={profileSubmitting}>{profileSubmitting ? t('loading') : t('saveChanges')}</button>
+                      <button className="btn btn-outline-secondary" type="button" onClick={() => {
+                        // reload profile
+                        setActiveTab('profile');
+                      }}>{t('cancel')}</button>
+                    </div>
+                    {profileMsg && <div className="mt-3" style={{ color: profileSuccess ? 'var(--bs-success)' : 'var(--bs-danger)' }}>{profileMsg}</div>}
+                  </form>
+                )}
+              </div>
+            </div>
+          )}
+
           {activeTab === 'appearance' && (
             <div className="card shadow-sm">
               <div className="card-body">
@@ -304,58 +435,51 @@ const Settings = () => {
                   <div className="mb-3">
                     <label className="form-label fw-bold">{t('changePasswordTitle')}</label>
 
-                      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                        <div style={{ flex: 1 }}>
-                          <input
-                            type="password"
-                            className="form-control"
-                            placeholder={t('enterCurrentPasswordPlaceholder')}
-                            value={oldPassword}
-                            onChange={(e) => { setOldPassword(e.target.value); setOldPasswordValid(false); setChangeMsg(''); }}
-                          />
-                          <small className="form-text text-muted">
-                            {oldPasswordChecking ? t('verifyingPassword') : ''}
-                          </small>
-                        </div>
-                        <div>
-                          <button
-                            type="button"
-                            className="btn btn-outline-primary"
-                            onClick={async () => {
-                              if (!oldPassword) {
-                                setChangeMsg(t('enterCurrentPasswordPlaceholder'));
-                                return;
-                              }
-                              setOldPasswordChecking(true);
-                              setChangeMsg('');
-                              try {
-                                const token = localStorage.getItem('token');
-                                const res = await fetch(`${API_BASE_URL}/auth/verify-password`, {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json', Authorization: token ? `Bearer ${token}` : '' },
-                                  credentials: 'include',
-                                  body: JSON.stringify({ password: oldPassword })
-                                });
-                                if (res.ok) {
-                                  setOldPasswordValid(true);
-                                  setChangeMsg('');
-                                } else {
-                                  setOldPasswordValid(false);
-                                  setChangeMsg(t('verifyPasswordFailed'));
-                                }
-                              } catch (err) {
-                                console.error('Verify password error', err);
+                    <div>
+                      <input
+                        type="password"
+                        className="form-control"
+                        placeholder={t('enterCurrentPasswordPlaceholder')}
+                        value={oldPassword}
+                        onChange={(e) => { setOldPassword(e.target.value); setOldPasswordValid(false); setChangeMsg(''); setOldPasswordError(''); }}
+                        onBlur={async () => {
+                          // auto-verify on blur
+                          if (!oldPassword) return;
+                          setOldPasswordChecking(true);
+                          setOldPasswordError('');
+                          try {
+                            const token = localStorage.getItem('token');
+                            const res = await fetch(`${API_BASE_URL}/auth/verify-password`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json', Authorization: token ? `Bearer ${token}` : '' },
+                              credentials: 'include',
+                              body: JSON.stringify({ password: oldPassword })
+                            });
+                              if (res.ok) {
+                                setOldPasswordValid(true);
+                                setOldPasswordSuccess(t('passwordVerifiedSuccess'));
+                                // clear success after a short delay
+                                setTimeout(() => setOldPasswordSuccess(''), 3000);
+                              } else {
                                 setOldPasswordValid(false);
-                                setChangeMsg(t('passwordChangeError'));
-                              } finally {
-                                setOldPasswordChecking(false);
+                                setOldPasswordError(t('verifyPasswordFailed'));
                               }
-                            }}
-                          >
-                            {oldPasswordChecking ? t('verifyingPassword') : 'Verify'}
-                          </button>
-                        </div>
+                          } catch (err) {
+                            console.error('Verify password error', err);
+                            setOldPasswordValid(false);
+                            setOldPasswordError(t('passwordChangeError'));
+                          } finally {
+                            setOldPasswordChecking(false);
+                          }
+                        }}
+                      />
+                      <div className="d-flex justify-content-between align-items-center mt-2">
+                        <small className="form-text text-muted">{oldPasswordChecking ? t('verifyingPassword') : ''}</small>
+                        <button type="button" className="btn btn-link p-0" onClick={() => setShowForgotForm(s => !s)}>{t('forgotPasswordText')}</button>
                       </div>
+                      {oldPasswordError && <div className="mt-2 text-danger">{oldPasswordError}</div>}
+                      {oldPasswordSuccess && <div className="mt-2 text-success">{oldPasswordSuccess}</div>}
+                    </div>
 
                       <div className="mt-3">
                         <label className="form-label">{t('enterNewPasswordLabel')}</label>
@@ -364,6 +488,7 @@ const Settings = () => {
                           className="form-control"
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
+                          disabled={!oldPasswordValid}
                         />
                       </div>
 
@@ -374,6 +499,7 @@ const Settings = () => {
                           className="form-control"
                           value={confirmNewPassword}
                           onChange={(e) => setConfirmNewPassword(e.target.value)}
+                          disabled={!oldPasswordValid}
                         />
                       </div>
 
@@ -395,21 +521,25 @@ const Settings = () => {
                             setSubmittingPassword(true);
                             try {
                               const token = localStorage.getItem('token');
-                              const res = await fetch(`${API_BASE_URL}/auth/change-password`, {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json', Authorization: token ? `Bearer ${token}` : '' },
-                                credentials: 'include',
-                                body: JSON.stringify({ currentPassword: oldPassword, newPassword })
-                              });
+                                const res = await fetch(`${API_BASE_URL}/auth/change-password`, {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': 'application/json', Authorization: token ? `Bearer ${token}` : '' },
+                                  credentials: 'include',
+                                  body: JSON.stringify({ currentPassword: oldPassword, newPassword, confirmPassword: confirmNewPassword })
+                                });
                               const data = await res.json();
                               if (res.ok) {
                                 setChangeMsg(t('passwordChangedSuccess'));
+                                setChangeSuccess(true);
                                 setOldPassword('');
                                 setNewPassword('');
                                 setConfirmNewPassword('');
                                 setOldPasswordValid(false);
+                                // clear success after a short delay
+                                setTimeout(() => setChangeSuccess(false), 4000);
                               } else {
                                 setChangeMsg(data.message || t('passwordChangeError'));
+                                setChangeSuccess(false);
                               }
                             } catch (err) {
                               console.error('Change password error', err);
@@ -423,37 +553,150 @@ const Settings = () => {
                         </button>
                       </div>
 
-                    {changeMsg && <div className="mt-3 text-danger">{changeMsg}</div>}
+                    {changeMsg && (
+                      <div className="mt-3" style={{ color: changeSuccess ? 'var(--bs-success)' : 'var(--bs-danger)' }}>
+                        {changeMsg}
+                      </div>
+                    )}
                   </div>
 
+                  {/* Forgot password modal (renders as overlay) */}
                   {showForgotForm && (
-                    <div className="mb-3 p-3 bg-light rounded">
-                      <label className="form-label fw-bold">{t('forgotPasswordText')}</label>
-                      <div className="mb-2">
-                        <small className="form-text text-muted">{t('forgotPasswordInstructions')}</small>
-                      </div>
-                      <div className="d-flex gap-2 align-items-start">
-                        <input type="email" className="form-control" placeholder="you@company.com" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} style={{ maxWidth: 360 }} />
-                        <button
-                          className="btn btn-secondary"
-                          onClick={async () => {
+                    <div className="custom-modal-overlay" role="dialog" aria-modal="true" style={{ zIndex: 1080 }}>
+                      <div className="custom-modal-backdrop" onClick={() => setShowForgotForm(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)' }} />
+                      <div className="custom-modal-content" style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', maxWidth: 640, width: '95%', background: '#fff', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', padding: 20 }}>
+                        <div className="d-flex justify-content-between align-items-center mb-3">
+                          <h5 className="mb-0">{t('forgotPasswordText')}</h5>
+                          <button className="btn btn-sm btn-light" onClick={() => setShowForgotForm(false)}>×</button>
+                        </div>
+                        <div className="mb-2"><small className="text-muted">{t('forgotPasswordInstructions')}</small></div>
+                        <div className="d-flex gap-2 align-items-start mb-3">
+                          <input type="email" className="form-control" placeholder="you@company.com" value={forgotEmail} onChange={(e) => { setForgotEmail(e.target.value); setForgotStatus(null); }} style={{ maxWidth: 360 }} />
+                          <button className="btn btn-secondary" onClick={async () => {
                             setForgotStatus(null);
+                            setOtpError('');
+                            setOtpSent(false);
+                            setResetStatus(null);
                             try {
-                              const res = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+                              if (!forgotEmail) {
+                                setForgotStatus('Please enter an email');
+                                return;
+                              }
+                              const res = await fetch(`${API_BASE_URL}/auth/request-otp`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ email: forgotEmail })
                               });
                               const data = await res.json();
-                              setForgotStatus(data.message || t('resetEmailSentMsg'));
+                              if (res.ok) {
+                                setOtpSent(true);
+                                setForgotStatus(data.message || t('resetEmailSentMsg'));
+                                if (data.otp) setForgotStatus((prev) => prev + ` OTP: ${data.otp}`);
+                              } else {
+                                setForgotStatus(data.message || t('resetEmailSentMsg'));
+                              }
                             } catch (err) {
-                              console.error('Forgot password error', err);
+                              console.error('Request OTP error', err);
                               setForgotStatus(t('passwordChangeError'));
                             }
-                          }}
-                        >Send</button>
+                          }}>Send</button>
+                        </div>
+                        {forgotStatus && <div className="mb-2 text-muted">{forgotStatus}</div>}
+
+                        {otpSent && (
+                          <div className="mb-3 p-3 bg-light border rounded">
+                            <label className="form-label fw-bold">Enter OTP</label>
+                            <div className="d-flex gap-2">
+                              <input type="text" className="form-control" placeholder="6-digit OTP" value={otpValue} onChange={(e) => { setOtpValue(e.target.value); setOtpError(''); }} style={{ maxWidth: 220 }} />
+                              <button className="btn btn-primary" onClick={async () => {
+                                setOtpError('');
+                                setVerifyingOtp(true);
+                                try {
+                                  const res = await fetch(`${API_BASE_URL}/auth/verify-otp`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ email: forgotEmail, otp: otpValue })
+                                  });
+                                  const data = await res.json();
+                                  if (res.ok) {
+                                    if (data.resetToken) {
+                                      setResetToken(data.resetToken);
+                                      setShowResetForm(true);
+                                      setResetStatus('OTP verified. You can now set a new password.');
+                                    } else {
+                                      setResetStatus(data.message || 'OTP verified. Check your email for reset link.');
+                                    }
+                                  } else {
+                                    setOtpError(data.message || 'Invalid OTP');
+                                  }
+                                } catch (err) {
+                                  console.error('Verify OTP error', err);
+                                  setOtpError('Failed to verify OTP');
+                                } finally {
+                                  setVerifyingOtp(false);
+                                }
+                              }}>{verifyingOtp ? t('verifyingPassword') : 'Verify OTP'}</button>
+                            </div>
+                            {otpError && <div className="mt-2 text-danger">{otpError}</div>}
+                            {resetStatus && <div className="mt-2 text-success">{resetStatus}</div>}
+                          </div>
+                        )}
+
+                        {showResetForm && (
+                          <div className="mb-0 p-3 bg-white border rounded">
+                            <label className="form-label fw-bold">Reset Password</label>
+                            <div className="mb-2">
+                              <input type="password" className="form-control" placeholder={t('enterNewPasswordLabel')} value={resetNewPassword} onChange={(e) => setResetNewPassword(e.target.value)} />
+                            </div>
+                            <div className="mb-2">
+                              <input type="password" className="form-control" placeholder={t('confirmNewPasswordLabel')} value={resetConfirmPassword} onChange={(e) => setResetConfirmPassword(e.target.value)} />
+                            </div>
+                            <div className="d-flex gap-2">
+                              <button className="btn btn-success" onClick={async () => {
+                                setResetStatus(null);
+                                if (!resetNewPassword || !resetConfirmPassword) {
+                                  setResetStatus('Please fill both password fields');
+                                  return;
+                                }
+                                if (resetNewPassword !== resetConfirmPassword) {
+                                  setResetStatus(t('passwordMismatch'));
+                                  return;
+                                }
+                                setResettingPassword(true);
+                                try {
+                                  const tokenToUse = resetToken;
+                                  const res = await fetch(`${API_BASE_URL}/auth/reset-password/${tokenToUse}`, {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ password: resetNewPassword })
+                                  });
+                                  const data = await res.json();
+                                  if (res.ok) {
+                                    setResetStatus(t('passwordChangedSuccess'));
+                                    setShowForgotForm(false);
+                                    // cleanup
+                                    setShowResetForm(false);
+                                    setOtpSent(false);
+                                    setForgotEmail('');
+                                    setOtpValue('');
+                                    setResetNewPassword('');
+                                    setResetConfirmPassword('');
+                                  } else {
+                                    setResetStatus(data.message || t('passwordChangeError'));
+                                  }
+                                } catch (err) {
+                                  console.error('Reset password error', err);
+                                  setResetStatus(t('passwordChangeError'));
+                                } finally {
+                                  setResettingPassword(false);
+                                }
+                              }} disabled={resettingPassword}>{resettingPassword ? t('verifyingPassword') : 'Reset Password'}</button>
+                              <button className="btn btn-outline-secondary" onClick={() => { setShowResetForm(false); setResetToken(''); }}>{t('cancel')}</button>
+                            </div>
+                            {resetStatus && <div className="mt-2" style={{ color: resetStatus === t('passwordChangedSuccess') ? 'var(--bs-success)' : 'var(--bs-danger)' }}>{resetStatus}</div>}
+                          </div>
+                        )}
                       </div>
-                      {forgotStatus && <div className="mt-2 text-muted">{forgotStatus}</div>}
                     </div>
                   )}
                 </form>
@@ -461,82 +704,9 @@ const Settings = () => {
             </div>
           )}
 
-          {activeTab === 'notifications' && (
-            <div className="card shadow-sm">
-              <div className="card-body">
-                <h5 className="fw-bold mb-4">{t('notifications')}</h5>
-                <div className="form-check form-switch mb-4">
-                  <input
-                    type="checkbox"
-                    className="form-check-input"
-                    id="notificationSound"
-                    checked={notificationSound}
-                    onChange={(e) => setNotificationSound(e.target.checked)}
-                  />
-                  <label className="form-check-label fw-bold" htmlFor="notificationSound">
-                    {t('enableNotificationSound')}
-                  </label>
-                  <small className="form-text text-muted">Play a sound for new notifications.</small>
-                </div>
+          
 
-                {/* Notification emails list + add form */}
-                <div className="mb-3">
-                  <label className="form-label fw-bold">{t('notificationEmails')}</label>
-                  <div className="d-flex align-items-start gap-2">
-                    <input
-                      type="email"
-                      className="form-control"
-                      placeholder="user@example.com"
-                      value={newMail}
-                      onChange={(e) => { setNewMail(e.target.value); setMailError(''); }}
-                      style={{ maxWidth: 360 }}
-                      aria-label="Add notification email"
-                    />
-                    <button className="btn btn-primary" onClick={handleAddMail} type="button">
-                      {t('addMail')}
-                    </button>
-                  </div>
-                  {mailError && <div className="text-danger mt-2">{mailError}</div>}
-
-                  <div className="mt-3">
-                    {notificationEmails.length === 0 && (
-                      <div className="text-muted">{t('noEmails')}</div>
-                    )}
-                    <div className="d-flex flex-wrap gap-2 mt-2">
-                      {notificationEmails.map((mail) => (
-                        <div key={mail} className="badge bg-light border" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ color: 'var(--text-primary)' }}>{mail}</span>
-                          <button className="btn btn-sm btn-outline-danger" onClick={() => handleRemoveMail(mail)} type="button">×</button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'export' && (
-            <div className="card shadow-sm">
-              <div className="card-body">
-                <h5 className="fw-bold mb-4">{t('dataExport')}</h5>
-                <div className="mb-4">
-                  <label className="form-label fw-bold">Export Type</label>
-                  <select
-                    className="form-select"
-                    value={exportType}
-                    onChange={(e) => setExportType(e.target.value)}
-                  >
-                    <option value="CSV">CSV</option>
-                    <option value="Excel">Excel</option>
-                    <option value="PDF">PDF</option>
-                  </select>
-                  <small className="form-text text-muted">Choose the format for exporting your data.</small>
-                </div>
-                <button className="btn btn-primary">Export Now</button>
-              </div>
-            </div>
-          )}
+          
         </div>
       </div>
     </div>

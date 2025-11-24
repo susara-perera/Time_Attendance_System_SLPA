@@ -69,7 +69,38 @@ export const AuthProvider = ({ children }) => {
     };
 
     window.addEventListener('permissionsChanged', handler);
-    return () => window.removeEventListener('permissionsChanged', handler);
+    // Listen for explicit profile updates from other components
+    const profileHandler = (ev) => {
+      try {
+        const newUser = ev?.detail;
+        if (newUser) {
+          setUser(newUser);
+        } else {
+          // fallback: fetch latest profile
+          (async () => {
+            try {
+              const token = localStorage.getItem('token');
+              if (!token) return;
+              const res = await fetch('http://localhost:5000/api/auth/me', {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                credentials: 'include'
+              });
+              if (!res.ok) return;
+              const data = await res.json();
+              if (data && data.success && data.data) setUser(data.data);
+            } catch (err) { /* ignore */ }
+          })();
+        }
+      } catch (err) {
+        console.warn('profileUpdated handler error:', err);
+      }
+    };
+    window.addEventListener('profileUpdated', profileHandler);
+    return () => {
+      window.removeEventListener('permissionsChanged', handler);
+      window.removeEventListener('profileUpdated', profileHandler);
+    };
   }, []);
 
   // Poll backend periodically to pick up permission changes made by other users/sessions
@@ -158,7 +189,26 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem('token', data.token);
       }
       
+      // Set preliminary user then fetch full profile to populate fields like phone/address
       setUser(data.user);
+      try {
+        const token = data.token || localStorage.getItem('token');
+        if (token) {
+          const meRes = await fetch('http://localhost:5000/api/auth/me', {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            credentials: 'include'
+          });
+          if (meRes.ok) {
+            const meData = await meRes.json().catch(() => ({}));
+            if (meData && meData.success && meData.data) {
+              setUser(meData.data);
+            }
+          }
+        }
+      } catch (err) {
+        // ignore
+      }
       return data;
 
     } catch (error) {

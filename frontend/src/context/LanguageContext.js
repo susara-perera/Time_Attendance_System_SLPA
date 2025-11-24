@@ -120,6 +120,7 @@ const translations = {
     confirmNewPasswordLabel: 'Confirm New Password',
     changePasswordButton: 'Change Password',
     forgotPasswordText: 'Forgot password?',
+    passwordVerifiedSuccess: 'Current password verified',
     forgotPasswordInstructions: 'Enter your account email to receive a reset link.',
     resetEmailSentMsg: 'If the email exists, a password reset link has been sent.',
     passwordMismatch: 'Passwords do not match',

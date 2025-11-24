@@ -233,6 +233,13 @@ const Dashboard = () => {
       icon: 'bi-people',
       color: 'secondary',
       roles: ['super_admin', 'admin', 'administrative_clerk']
+    },
+    {
+      id: 'settings',
+      label: t('settings'),
+      icon: 'bi-gear',
+      color: 'secondary',
+      roles: ['super_admin', 'admin', 'clerk', 'administrative_clerk', 'employee']
     }
   ];
 

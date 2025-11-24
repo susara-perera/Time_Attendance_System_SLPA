@@ -69,16 +69,21 @@ const RoleAccessManagement = () => {
     }
   }, [selectedRole, roles]);
 
-  // Auto-refresh roles every 30 seconds when component is active
+  // Auto-refresh roles every 30 seconds when component is active.
+  // Do NOT auto-refresh while a role is selected or while the user is actively saving toggles,
+  // to avoid interrupting the user's current edits.
   useEffect(() => {
-    if (!showRoleManagement) { // Only refresh when on Role Access Management view
+    // Only refresh when on Role Access Management view and user is not interacting
+    if (!showRoleManagement && !selectedRole && !isSavingAny) {
       const interval = setInterval(() => {
         fetchRoles();
       }, 30000); // Refresh every 30 seconds
 
       return () => clearInterval(interval);
     }
-  }, [showRoleManagement]);
+    // If conditions not met, ensure any previous interval is cleared by returning noop
+    return () => {};
+  }, [showRoleManagement, selectedRole, isSavingAny]);
 
   // Permission checks
   const hasRoleReadPermission = () => isSuperAdmin || user?.permissions?.roles?.read;

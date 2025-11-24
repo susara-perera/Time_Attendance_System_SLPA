@@ -204,18 +204,21 @@ body {
   left: 8px;
   top: 50%;
   transform: translateY(-50%);
-  z-index: 60;
+  z-index: 9999; /* ensure it's above other header elements */
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 48px; /* slightly larger hit area */
+  height: 48px;
+  min-width: 40px;
+  min-height: 40px;
   border: 1px solid var(--gray-300);
   border-radius: 8px;
   background: var(--white);
   color: var(--gray-700);
   font-size: 20px;
   cursor: pointer;
+  pointer-events: auto;
   transition: all 0.2s ease;
 }
 
