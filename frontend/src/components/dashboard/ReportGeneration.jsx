@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import React, { useState, useEffect, useRef } from 'react';
 import usePermission from '../../hooks/usePermission';
 import './ReportGeneration.css';
 import GroupReport from './GroupReport';
 import IndividualReport from './IndividualReport';
 import AuditReport from './AuditReport';
+import { useLanguage } from '../../context/LanguageContext';
 
 const ReportGeneration = () => {
   const [reportType, setReportType] = useState('attendance');
@@ -73,6 +73,7 @@ const ReportGeneration = () => {
   const individualReportRef = useRef(null);
   const auditReportRef = useRef(null);
   const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+  const { t } = useLanguage();
 
   // Compute filtered data when user types in search box (employee id or name)
   const filteredData = useMemo(() => {
@@ -1149,9 +1150,9 @@ const ReportGeneration = () => {
         <div className="header-content">
           <h1>
             <i className="bi bi-graph-up-arrow"></i>
-            Report Generation Center
+            {t('reportGenerationTitle')}
           </h1>
-          <p className="header-subtitle">Generate comprehensive attendance and meal reports with advanced filtering options</p>
+          <p className="header-subtitle">{t('reportGenerationSubtitle')}</p>
         </div>
       </div>
 
@@ -1163,7 +1164,7 @@ const ReportGeneration = () => {
             <div className="form-group">
               <label htmlFor="reportType">
                 <i className="bi bi-file-earmark-text"></i>
-                Report Type
+                {t('reportTypeLabel')}
               </label>
               <select
                 id="reportType"
@@ -1171,9 +1172,9 @@ const ReportGeneration = () => {
                 onChange={(e) => setReportType(e.target.value)}
                 className="form-control"
               >
-                <option value="attendance">Attendance Report</option>
-                <option value="meal">Meal Report</option>
-                <option value="audit">Audit Report</option>
+                <option value="attendance">{t('attendanceReport')}</option>
+                <option value="meal">{t('mealReport')}</option>
+                <option value="audit">{t('auditReport')}</option>
               </select>
             </div>
 
@@ -1181,7 +1182,7 @@ const ReportGeneration = () => {
             <div className="form-group">
               <label htmlFor="reportScope">
                 <i className="bi bi-people"></i>
-                Report Scope
+                {t('reportScopeLabel')}
               </label>
               <select
                 id="reportScope"
@@ -1189,10 +1190,10 @@ const ReportGeneration = () => {
                 onChange={(e) => setReportScope(e.target.value)}
                 className="form-control"
                 disabled={reportType === 'audit'}
-                title={reportType === 'audit' ? 'Audit reports use group scope' : 'Select report scope'}
+                title={reportType === 'audit' ? t('auditReport') + ' ' + t('groupReport') : t('reportScopeLabel')}
               >
-                <option value="individual">Individual Report</option>
-                <option value="group">Group Report</option>
+                <option value="individual">{t('individualReport')}</option>
+                <option value="group">{t('groupReport')}</option>
               </select>
             </div>
 
@@ -1201,7 +1202,7 @@ const ReportGeneration = () => {
               <div className="form-group" style={{gridColumn: 'span 1'}}>
                 <label htmlFor="employeeId">
                   <i className="bi bi-person-badge"></i>
-                  Employee ID
+                  {t('employeeIdLabel')}
                 </label>
                 <input
                   type="text"
@@ -1209,9 +1210,9 @@ const ReportGeneration = () => {
                   value={employeeId}
                   onChange={(e) => setEmployeeId(e.target.value)}
                   className="form-control"
-                  placeholder="Enter employee ID"
+                  placeholder={t('enterEmployeeId')}
                   required={reportScope === 'individual'}
-                  title="Enter employee ID"
+                  title={t('enterEmployeeId')}
                 />
               </div>
             )}
@@ -1223,7 +1224,7 @@ const ReportGeneration = () => {
                 <div className="form-group" style={{gridColumn: 'span 1'}}>
                   <label htmlFor="divisionId">
                     <i className="bi bi-building"></i>
-                    Division
+                      {t('divisionLabel')}
                   </label>
                   <select
                     id="divisionId"
@@ -1233,7 +1234,7 @@ const ReportGeneration = () => {
                     disabled={reportScope === 'individual'}
                     style={{ cursor: reportScope === 'individual' ? 'not-allowed' : 'pointer' }}
                   >
-                    <option value="all">All Divisions</option>
+                    <option value="all">{t('allDivisionsLabel')}</option>
                     {(Array.isArray(divisions) ? divisions : []).map(division => (
                       <option key={division._id || division.id} value={division._id || division.id}>
                         {division.name || division.division_name}
@@ -1246,7 +1247,7 @@ const ReportGeneration = () => {
                 <div className="form-group" style={{gridColumn: 'span 1'}}>
                   <label htmlFor="sectionId">
                     <i className="bi bi-diagram-3"></i>
-                    Section
+                      {t('sectionLabel')}
                   </label>
                   <select
                     id="sectionId"
@@ -1258,7 +1259,7 @@ const ReportGeneration = () => {
                     title={divisionId === 'all' ? 'All Divisions selected - Section must be All' : 'Select a section'}
                   >
                     <option value="all">
-                      {divisionId === 'all' ? 'All Sections' : 'All Sections'}
+                      {t('allSectionsLabel')}
                     </option>
                     {divisionId !== 'all' && (Array.isArray(sections) ? sections : []).map(section => (
                       <option key={section._id || section.id} value={section._id || section.id}>
@@ -1271,7 +1272,7 @@ const ReportGeneration = () => {
                 <div className="form-group" style={{gridColumn: 'span 1'}}>
                   <label htmlFor="subSectionId">
                     <i className="bi bi-diagram-2"></i>
-                    Sub Section
+                      {t('subSectionLabel')}
                   </label>
                   <select
                     id="subSectionId"
@@ -1283,7 +1284,7 @@ const ReportGeneration = () => {
                     title={divisionId === 'all' ? 'All Divisions selected - Sub Section must be All' : sectionId === 'all' ? 'Please select a section first' : 'Select a sub section'}
                   >
                     <option value="all">
-                      {divisionId === 'all' ? 'All Sub Sections' : sectionId === 'all' ? 'Select Section First' : 'All Sub Sections'}
+                      {divisionId === 'all' ? t('allSubSectionsLabel') : sectionId === 'all' ? t('selectSectionFirst') : t('allSubSectionsLabel')}
                     </option>
                     {sectionId !== 'all' && divisionId !== 'all' && (Array.isArray(subSections) ? subSections : []).map(sub => (
                       <option key={sub._id || sub.id} value={sub._id || sub.id}>
@@ -1299,7 +1300,7 @@ const ReportGeneration = () => {
             <div className="form-group">
               <label htmlFor="startDate">
                 <i className="bi bi-calendar3"></i>
-                Start Date
+                {t('startDateLabel')}
               </label>
               <input
                 type="date"
@@ -1314,7 +1315,7 @@ const ReportGeneration = () => {
             <div className="form-group">
               <label htmlFor="endDate">
                 <i className="bi bi-calendar3"></i>
-                End Date
+                {t('endDateLabel')}
               </label>
               <input
                 type="date"
@@ -1360,12 +1361,12 @@ const ReportGeneration = () => {
               {loading ? (
                 <>
                   <i className="bi bi-hourglass-split spin"></i>
-                  Generating...
+                    {t('generating')}
                 </>
               ) : (
                 <>
                   <i className="bi bi-play-circle"></i>
-                  Generate Report
+                    {t('generateReport')}
                 </>
               )}
             </button>
@@ -1377,7 +1378,7 @@ const ReportGeneration = () => {
       {error && (
         <div className="error-message">
           <i className="bi bi-exclamation-triangle"></i>
-          {error}
+          {t('noDataFoundText') && error && error.includes('No records') ? t('noDataFoundText') : error}
         </div>
       )}
 
@@ -1496,8 +1497,8 @@ const ReportGeneration = () => {
             <div className="empty-icon">
               <i className="bi bi-inbox"></i>
             </div>
-            <h4 className="empty-title">No Data Found</h4>
-            <p className="empty-text">No records found for the selected criteria. Try adjusting your filters.</p>
+            <h4 className="empty-title">{t('noDataFoundTitle')}</h4>
+            <p className="empty-text">{t('noDataFoundText')}</p>
           </div>
         </div>
       ) : !loading && (
@@ -1506,8 +1507,8 @@ const ReportGeneration = () => {
             <div className="empty-icon">
               <i className="bi bi-file-earmark-bar-graph"></i>
             </div>
-            <h4 className="empty-title">Ready to Generate Reports</h4>
-            <p className="empty-text">Configure your report parameters above and click "Generate Report" to start.</p>
+            <h4 className="empty-title">{t('readyToGenerateTitle')}</h4>
+            <p className="empty-text">{t('readyToGenerateText')}</p>
           </div>
         </div>
       )}

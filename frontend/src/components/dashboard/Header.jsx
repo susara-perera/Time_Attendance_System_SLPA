@@ -1,10 +1,12 @@
 import React, { useContext } from 'react';
 import { AuthContext } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { useLanguage } from '../../context/LanguageContext';
 
 const Header = ({ toggleSidebar, user }) => {
   const { logout } = useContext(AuthContext);
   const navigate = useNavigate();
+  const { t } = useLanguage();
 
   const handleLogout = async () => {
     try {
@@ -45,9 +47,9 @@ const Header = ({ toggleSidebar, user }) => {
 
   const getGreeting = () => {
     const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
+    if (hour < 12) return 'greetingMorning';
+    if (hour < 17) return 'greetingAfternoon';
+    return 'greetingEvening';
   };
 
   return (
@@ -59,22 +61,22 @@ const Header = ({ toggleSidebar, user }) => {
         
         <div className="dashboard-badge">
           <i className="bi bi-speedometer2"></i>
-          Dashboard
+          {t('dashboard')}
         </div>
       </div>
 
       <div className="header-center">
         <h1 className="system-title">
           <i className="bi bi-clock-history"></i>
-          Time Attendance System
+          {t('systemTitle')}
         </h1>
       </div>
 
       <div className="header-right">
         <div className="welcome-section">
           <div className="welcome-text">
-            <h2>👋 Welcome Admin</h2>
-            <p className="greeting">👋 {getGreeting()}</p>
+            <h2>👋 {user?.name ? `${t('welcome')} ${user.name}` : t('welcomeAdmin')}</h2>
+            <p className="greeting">👋 {t(getGreeting())}</p>
             <p className="datetime">{currentTime.date}</p>
             <p className="time">{currentTime.time}</p>
           </div>
@@ -87,17 +89,17 @@ const Header = ({ toggleSidebar, user }) => {
           
           <button className="action-btn refresh-btn">
             <i className="bi bi-arrow-clockwise"></i>
-            Refresh
+            {t('refresh')}
           </button>
           
           <button className="action-btn logout-btn" onClick={handleLogout}>
             <i className="bi bi-box-arrow-right"></i>
-            Logout
+            {t('logout')}
           </button>
         </div>
 
         <div className="user-profile">
-          <span className="admin-text">Admin</span>
+          <span className="admin-text">{user?.name || t('admin')}</span>
         </div>
       </div>
     </header>

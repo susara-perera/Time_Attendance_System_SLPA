@@ -5,6 +5,7 @@ const {
   getMe,
   updateProfile,
   changePassword,
+  verifyPassword,
   forgotPassword,
   resetPassword,
   refreshToken,
@@ -41,6 +42,11 @@ router.put('/profile', auth, updateProfile);
 // @desc    Change password
 // @access  Private
 router.put('/change-password', auth, userValidation.changePassword, changePassword);
+
+// @route   POST /api/auth/verify-password
+// @desc    Verify current password (without changing it)
+// @access  Private
+router.post('/verify-password', auth, verifyPassword);
 
 // @route   POST /api/auth/forgot-password
 // @desc    Forgot password

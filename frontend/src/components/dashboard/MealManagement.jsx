@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './MealManagement.css';
+import { useLanguage } from '../../context/LanguageContext';
 
 const MealManagement = () => {
   const [divisions, setDivisions] = useState([]);
@@ -17,6 +18,7 @@ const MealManagement = () => {
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState('');
   const [todaysBookings, setTodaysBookings] = useState(0);
+  const { t } = useLanguage();
 
   // Fetch divisions and sections on component mount
   useEffect(() => {
@@ -64,7 +66,7 @@ const MealManagement = () => {
       }
     } catch (err) {
       console.error('Error fetching divisions:', err);
-      setMessage('Error fetching divisions. Please try again.');
+      setMessage(t('errorFetchingDivisions'));
       setMessageType('error');
     }
   };
@@ -102,7 +104,7 @@ const MealManagement = () => {
       }
     } catch (err) {
       console.error('Error fetching sections:', err);
-      setMessage('Error fetching sections. Please try again.');
+      setMessage(t('errorFetchingSections'));
       setMessageType('error');
     }
   };
@@ -215,7 +217,7 @@ const MealManagement = () => {
       const result = await response.json();
 
       if (response.ok && result.success) {
-        setMessage('Meal booking created successfully!');
+        setMessage(t('mealBookingCreated'));
         setMessageType('success');
         setMealBooking({
           divisionId: '',
@@ -238,7 +240,7 @@ const MealManagement = () => {
       }
     } catch (error) {
       console.error('Meal booking error:', error);
-      setMessage('Network error occurred while creating meal booking');
+      setMessage(t('mealBookingNetworkError'));
       setMessageType('error');
     } finally {
       setLoading(false);
@@ -251,7 +253,7 @@ const MealManagement = () => {
       <div className="section-header" style={{ marginBottom: '32px', padding: '32px 0 16px 0', borderBottom: '2px solid #eee', background: 'none', boxShadow: 'none', borderRadius: '0', textAlign: 'left' }}>
         <h2 style={{ fontSize: '2.2rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
           <i className="bi bi-utensils" style={{ fontSize: '2rem' }}></i>
-          Meal Management
+          {t('mealManagementTitle')}
         </h2>
       </div>
 
@@ -280,7 +282,7 @@ const MealManagement = () => {
                       onChange={(e) => setMealBooking(prev => ({ ...prev, divisionId: e.target.value }))}
                       required
                     >
-                      <option value="">Select Division</option>
+                      <option value="">{t('selectDivision')}</option>
                       {divisions.map((division) => (
                         <option key={division.division_id} value={division.division_id}>
                           {division.division_name}
@@ -297,7 +299,7 @@ const MealManagement = () => {
                       onChange={(e) => setMealBooking(prev => ({ ...prev, sectionId: e.target.value }))}
                       required
                     >
-                      <option value="">Select Section</option>
+                      <option value="">{t('selectSection')}</option>
                       {sections.map((section) => (
                         <option key={section.section_id} value={section.section_id}>
                           {section.section_name}
@@ -326,11 +328,11 @@ const MealManagement = () => {
                       onChange={(e) => setMealBooking(prev => ({ ...prev, mealType: e.target.value }))}
                       required
                     >
-                      <option value="">Select Meal Type</option>
-                      <option value="breakfast">🌅 Breakfast</option>
-                      <option value="lunch">☀️ Lunch</option>
-                      <option value="dinner">🌙 Dinner</option>
-                      <option value="snack">🍪 Snack</option>
+                      <option value="">{t('selectMealType')}</option>
+                      <option value="breakfast">{t('mealTypeBreakfast')}</option>
+                      <option value="lunch">{t('mealTypeLunch')}</option>
+                      <option value="dinner">{t('mealTypeDinner')}</option>
+                      <option value="snack">{t('mealTypeSnack')}</option>
                     </select>
                   </div>
 
@@ -354,14 +356,14 @@ const MealManagement = () => {
                       rows="3"
                       value={mealBooking.specialRequirements}
                       onChange={(e) => setMealBooking(prev => ({ ...prev, specialRequirements: e.target.value }))}
-                      placeholder="Any dietary restrictions, allergies, or special instructions..."
+                      placeholder={t('specialRequirementsPlaceholder')}
                     />
                   </div>
                   
                   <button type="submit" className="btn meal-btn meal-btn-primary w-100" disabled={loading}>
                     {loading ? (
                       <>
-                        <i className="bi bi-arrow-clockwise spin"></i> Booking...
+                        <i className="bi bi-arrow-clockwise spin"></i> {t('bookingInProgress')}
                       </>
                     ) : (
                       <>
@@ -380,7 +382,7 @@ const MealManagement = () => {
               <div className="meal-stats-number">
                 {todaysBookings}
               </div>
-              <div className="meal-stats-label">Today's Bookings</div>
+              <div className="meal-stats-label">{t('todaysBookingsLabel')}</div>
             </div>
 
             <div className="info-card">
@@ -389,11 +391,11 @@ const MealManagement = () => {
               </div>
               <div className="info-card-body">
                 <ul className="info-list">
-                  <li>📅 Bookings must be made in advance</li>
-                  <li>🕐 Booking deadline: 09:00 AM daily</li>
-                  <li>🍽️ Standard meals available in cafeteria</li>
-                  <li>⚠️ Special dietary requirements noted</li>
-                  <li>📋 Reports available in Report Generation</li>
+                  <li>📅 {t('bookingInfo_line1')}</li>
+                  <li>🕐 {t('bookingInfo_line2')}</li>
+                  <li>🍽️ {t('bookingInfo_line3')}</li>
+                  <li>⚠️ {t('bookingInfo_line4')}</li>
+                  <li>📋 {t('bookingInfo_line5')}</li>
                 </ul>
               </div>
             </div>

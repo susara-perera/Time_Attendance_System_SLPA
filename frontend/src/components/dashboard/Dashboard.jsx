@@ -1,5 +1,6 @@
 import React, { useState, useContext } from 'react';
 import { AuthContext } from '../../context/AuthContext';
+import { useLanguage } from '../../context/LanguageContext';
 import DashboardStats from './DashboardStats';
 import UserManagement from './UserManagement';
 import EmployeeManagement from './EmployeeManagement';
@@ -20,6 +21,7 @@ const Dashboard = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const { user, logout } = useContext(AuthContext);
+  const { t } = useLanguage();
 
   // Helper to display possibly-object profile fields safely
   const getDisplay = (v) => {
@@ -171,49 +173,49 @@ const Dashboard = () => {
   const quickActions = [
     {
       id: 'home',
-      label: 'Dashboard',
+      label: t('dashboard'),
       icon: 'bi-house',
       color: 'primary',
       roles: ['super_admin', 'admin', 'clerk', 'administrative_clerk', 'employee']
     },
     {
       id: 'users',
-      label: 'Add User',
+      label: t('addUser'),
       icon: 'bi-people',
       color: 'success',
       roles: ['super_admin', 'admin', 'administrative_clerk']
     },
     {
       id: 'reports',
-      label: 'Report Generation',
+      label: t('reportGeneration'),
       icon: 'bi-graph-up',
       color: 'info',
       roles: ['super_admin', 'admin', 'clerk', 'administrative_clerk']
     },
     {
       id: 'meals',
-      label: 'Meal Management',
+      label: t('mealManagement'),
       icon: 'bi-cup-hot',
       color: 'orange',
       roles: ['super_admin', 'admin', 'clerk', 'administrative_clerk']
     },
     {
       id: 'divisions',
-      label: 'Division Management',
+      label: t('divisionManagement'),
       icon: 'bi-building',
       color: 'warning',
       roles: ['super_admin']
     },
     {
       id: 'sections',
-      label: 'Section Management',
+      label: t('sectionManagement'),
       icon: 'bi-diagram-3',
       color: 'purple',
       roles: ['super_admin', 'admin']
     },
     {
       id: 'roles',
-      label: 'Roles & Permissions',
+      label: t('rolesPermissions'),
       icon: 'bi-shield-check',
       color: 'secondary',
       roles: ['super_admin']
@@ -251,14 +253,14 @@ const Dashboard = () => {
               <img src={logo} alt="SLPA Logo" className="brand-logo" />
             </div>
             <div className="brand-text">
-              <h3>ATTENDANCE SYSTEM</h3>
-              <span>@Powered By IS Division</span>
+              <h3>{t('attendanceSystem')}</h3>
+              <span>{t('poweredBy')}</span>
             </div>
           </div>
           <button 
             className="sidebar-close-btn"
             onClick={() => setSidebarOpen(false)}
-            title="Close Sidebar"
+            title={t('closeSidebar')}
           >
             <i className="bi bi-x-lg"></i>
           </button>
@@ -266,7 +268,7 @@ const Dashboard = () => {
 
         <div className="sidebar-content">
           <div className="sidebar-section">
-            <div className="sidebar-section-title">Quick Actions</div>
+            <div className="sidebar-section-title">{t('quickActions')}</div>
             <div className="sidebar-actions">
               {quickActions.map((action) => {
                 if (!hasAccess(action.roles)) return null;
@@ -307,7 +309,7 @@ const Dashboard = () => {
             <button 
               className="sidebar-toggle-btn"
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              title="Toggle Sidebar"
+              title={t('toggleSidebar')}
             >
               <i className="bi bi-list"></i>
             </button>
@@ -317,8 +319,8 @@ const Dashboard = () => {
                 <img src={logo} alt="SLPA Logo" className="brand-logo" />
               </div>
               <div className="brand-text">
-                <h1>SLPA TIME ATTENDANCE SYSTEM</h1>
-                <span>Created By: IS Division</span>
+                <h1>{t('slpaTitle')}</h1>
+                <span>{t('createdBy')}</span>
               </div>
             </div>
           </div>
@@ -336,7 +338,7 @@ const Dashboard = () => {
               <button 
                 className="header-action-btn profile-btn" 
                 onClick={() => setShowProfileDropdown(!showProfileDropdown)}
-                title="Profile"
+                title={t('profile')}
               >
                 <i className="bi bi-person-circle"></i>
               </button>
@@ -344,13 +346,13 @@ const Dashboard = () => {
               <button 
                 className="header-action-btn settings-btn" 
                 onClick={() => handleQuickAction('settings')}
-                title="Settings"
+                title={t('settings')}
               >
                 <i className="bi bi-gear"></i>
               </button>
               
               <button className="logout-btn" onClick={handleLogout}>
-                <span>Logout</span>
+                <span>{t('logout')}</span>
               </button>
 
               {/* Dark mode toggle removed per request */}
@@ -396,7 +398,7 @@ const Dashboard = () => {
                   }}
                 >
                   <i className="bi bi-gear"></i>
-                  <span>Settings</span>
+                  <span>{t('settings')}</span>
                 </button>
               </div>
             </div>

@@ -589,6 +589,32 @@ const verifyToken = async (req, res) => {
   }
 };
 
+// @desc    Verify current password
+// @route   POST /api/auth/verify-password
+// @access  Private
+const verifyPassword = async (req, res) => {
+  try {
+    const { password } = req.body;
+
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const isValid = await user.comparePassword(password);
+
+    if (!isValid) {
+      return res.status(400).json({ success: false, message: 'Invalid password' });
+    }
+
+    res.status(200).json({ success: true, message: 'Password valid' });
+  } catch (error) {
+    console.error('Verify password error:', error);
+    res.status(500).json({ success: false, message: 'Server error verifying password' });
+  }
+};
+
 module.exports = {
   login,
   logout,
@@ -598,5 +624,6 @@ module.exports = {
   forgotPassword,
   resetPassword,
   refreshToken,
-  verifyToken
+  verifyToken,
+  verifyPassword
 };
