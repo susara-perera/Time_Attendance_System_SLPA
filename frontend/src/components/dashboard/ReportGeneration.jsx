@@ -8,6 +8,8 @@ import AuditReport from './AuditReport';
 const ReportGeneration = () => {
   const [reportType, setReportType] = useState('attendance');
   const [reportScope, setReportScope] = useState('individual');
+  const [timePeriod, setTimePeriod] = useState('none');
+  const [reportGrouping, setReportGrouping] = useState('none');
   const [employeeId, setEmployeeId] = useState('');
   const [divisionId, setDivisionId] = useState('all');
   const [sectionId, setSectionId] = useState('all');
@@ -69,7 +71,6 @@ const ReportGeneration = () => {
   const autoSelectedSectionRef = useRef(false);
   const groupReportRef = useRef(null);
   const individualReportRef = useRef(null);
-  const auditReportRef = useRef(null);
   const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
   // Helpers: normalize backend data (same as EmployeeManagement.jsx)
@@ -153,6 +154,50 @@ const ReportGeneration = () => {
     });
   }, []);
 
+  // Update date range based on time period selection
+  useEffect(() => {
+    // Don't auto-update dates when 'none' is selected
+    if (timePeriod === 'none') {
+      return;
+    }
+
+    const today = new Date();
+    let startDate, endDate;
+
+    switch (timePeriod) {
+      case 'daily':
+        startDate = endDate = today.toISOString().split('T')[0];
+        break;
+      
+      case 'weekly':
+        // Start of current week (Sunday)
+        const dayOfWeek = today.getDay();
+        const startOfWeek = new Date(today);
+        startOfWeek.setDate(today.getDate() - dayOfWeek);
+        startDate = startOfWeek.toISOString().split('T')[0];
+        endDate = today.toISOString().split('T')[0];
+        break;
+      
+      case 'monthly':
+        // Start of current month
+        const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        startDate = startOfMonth.toISOString().split('T')[0];
+        endDate = today.toISOString().split('T')[0];
+        break;
+      
+      case 'annually':
+        // Start of current year
+        const startOfYear = new Date(today.getFullYear(), 0, 1);
+        startDate = startOfYear.toISOString().split('T')[0];
+        endDate = today.toISOString().split('T')[0];
+        break;
+      
+      default:
+        startDate = endDate = today.toISOString().split('T')[0];
+    }
+
+    setDateRange({ startDate, endDate });
+  }, [timePeriod]);
 
   // When scope changes to group, clear and block employeeId
   useEffect(() => {
@@ -384,7 +429,9 @@ const ReportGeneration = () => {
         payload = {
           report_type: reportScope,
           from_date: dateRange.startDate,
-          to_date: dateRange.endDate
+          to_date: dateRange.endDate,
+          time_period: timePeriod,
+          grouping: reportGrouping
         };
         if (reportScope === 'individual') {
           payload.employee_id = employeeId;
@@ -452,7 +499,9 @@ const ReportGeneration = () => {
         apiUrl = 'http://localhost:5000/api/reports/mysql/audit';
         payload = {
           from_date: dateRange.startDate,
-          to_date: dateRange.endDate
+          to_date: dateRange.endDate,
+          time_period: timePeriod,
+          grouping: reportGrouping
         };
         
         // Audit reports always use group scope with division/section filtering
@@ -1180,6 +1229,26 @@ const ReportGeneration = () => {
               </select>
             </div>
 
+            {/* Report Grouping - only for group reports (not for attendance) - Next to Report Scope */}
+            {reportScope === 'group' && reportType !== 'attendance' && (
+              <div className="form-group">
+                <label htmlFor="reportGrouping">
+                  <i className="bi bi-collection"></i>
+                  Group By
+                </label>
+                <select
+                  id="reportGrouping"
+                  value={reportGrouping}
+                  onChange={(e) => setReportGrouping(e.target.value)}
+                  className="form-control"
+                >
+                  <option value="none">None</option>
+                  <option value="designation">Designation Wise</option>
+                  <option value="punch">F1-0 (Punch Type)</option>
+                </select>
+              </div>
+            )}
+
             {/* Employee ID - only visible for individual scope */}
             {reportScope === 'individual' && (
               <div className="form-group" style={{gridColumn: 'span 1'}}>
@@ -1276,39 +1345,65 @@ const ReportGeneration = () => {
                     ))}
                   </select>
                 </div>
+
+                {/* Time Period Selection - Next to Sub Section - Hidden for Designation grouping and Attendance reports */}
+                {reportGrouping !== 'designation' && reportType !== 'attendance' && (
+                  <div className="form-group" style={{gridColumn: 'span 1'}}>
+                    <label htmlFor="timePeriod">
+                      <i className="bi bi-calendar-range"></i>
+                      Time Period
+                    </label>
+                    <select
+                      id="timePeriod"
+                      value={timePeriod}
+                      onChange={(e) => setTimePeriod(e.target.value)}
+                      className="form-control"
+                    >
+                      <option value="none">None</option>
+                      <option value="daily">Daily</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="monthly">Monthly</option>
+                      <option value="annually">Annually</option>
+                    </select>
+                  </div>
+                )}
               </>
             )}
 
-            {/* Date Range */}
-            <div className="form-group">
-              <label htmlFor="startDate">
-                <i className="bi bi-calendar3"></i>
-                Start Date
-              </label>
-              <input
-                type="date"
-                id="startDate"
-                value={dateRange.startDate}
-                onChange={(e) => setDateRange({...dateRange, startDate: e.target.value})}
-                className="form-control"
-                required
-              />
-            </div>
+            {/* Date Range - Hidden for Designation grouping */}
+            {reportGrouping !== 'designation' && (
+              <>
+                <div className="form-group">
+                  <label htmlFor="startDate">
+                    <i className="bi bi-calendar3"></i>
+                    Start Date
+                  </label>
+                  <input
+                    type="date"
+                    id="startDate"
+                    value={dateRange.startDate}
+                    onChange={(e) => setDateRange({...dateRange, startDate: e.target.value})}
+                    className="form-control"
+                    required
+                  />
+                </div>
 
-            <div className="form-group">
-              <label htmlFor="endDate">
-                <i className="bi bi-calendar3"></i>
-                End Date
-              </label>
-              <input
-                type="date"
-                id="endDate"
-                value={dateRange.endDate}
-                onChange={(e) => setDateRange({...dateRange, endDate: e.target.value})}
-                className="form-control"
-                required
-              />
-            </div>
+                <div className="form-group">
+                  <label htmlFor="endDate">
+                    <i className="bi bi-calendar3"></i>
+                    End Date
+                  </label>
+                  <input
+                    type="date"
+                    id="endDate"
+                    value={dateRange.endDate}
+                    onChange={(e) => setDateRange({...dateRange, endDate: e.target.value})}
+                    className="form-control"
+                    required
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           {/* Employee info preview (appears when division, section and employee ID are provided) */}
@@ -1386,7 +1481,7 @@ const ReportGeneration = () => {
             }}>
               <div style={{fontWeight: 800, fontSize: '1.25rem', marginBottom: 10, letterSpacing: '0.2px'}}>Report Filter Summary</div>
               <div style={{display: 'flex', flexWrap: 'wrap', gap: '32px 48px', marginBottom: 6}}>
-                <span>Type: <b>{reportType === 'attendance' ? 'Attendance Report' : 'Meal Report'}</b></span>
+                <span>Type: <b>{reportType === 'attendance' ? 'Attendance Report' : reportType === 'audit' ? 'Audit Report' : 'Meal Report'}</b></span>
                 <span>Scope: <b>{reportScope === 'group' ? 'Group' : 'Individual'}</b></span>
                 {reportScope === 'individual' && (
                   <span>Employee ID: <b>{employeeId || (employeeInfo && (employeeInfo.employee_id || employeeInfo.id)) || 'N/A'}</b></span>
@@ -1406,32 +1501,34 @@ const ReportGeneration = () => {
             </div>
           </div>
 
-          {/* Data Preview + Export Row */}
+          {/* Data Preview Row */}
           <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '18px', marginBottom: '8px'}}>
             <div style={{display: 'flex', alignItems: 'center', fontWeight: 600, fontSize: '1.15rem'}}>
               <i className="bi bi-table" style={{marginRight: 10, marginLeft: 12, fontSize: '1.2rem'}}></i>
               Data Preview
             </div>
-            <div className="action-group" style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
-              <span style={{fontWeight: 600, fontSize: '1.15rem', display: 'flex', alignItems: 'center', marginLeft: 12}}>
-                <i className="bi bi-download" style={{marginRight: 6, fontSize: '1.2rem'}}></i>
-                Export Options
-              </span>
-              <button
-                onClick={() => exportReport('pdf')}
-                className="btn btn-outline-primary"
-                style={{marginLeft: 8, marginRight: 18, display: 'flex', alignItems: 'center', fontWeight: 500, fontSize: '1rem'}}
-              >
-                <i className="bi bi-file-earmark-pdf" style={{marginRight: 5, fontSize: '1.1rem'}}></i>
-                Print PDF
-              </button>
-            </div>
+            {/* Export Options - Only show for non-audit reports */}
+            {reportType !== 'audit' && (
+              <div className="action-group" style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                <span style={{fontWeight: 600, fontSize: '1.15rem', display: 'flex', alignItems: 'center', marginLeft: 12}}>
+                  <i className="bi bi-download" style={{marginRight: 6, fontSize: '1.2rem'}}></i>
+                  Export Options
+                </span>
+                <button
+                  onClick={() => exportReport('pdf')}
+                  className="btn btn-outline-primary"
+                  style={{marginLeft: 8, marginRight: 18, display: 'flex', alignItems: 'center', fontWeight: 500, fontSize: '1rem'}}
+                >
+                  <i className="bi bi-file-earmark-pdf" style={{marginRight: 5, fontSize: '1.1rem'}}></i>
+                  Print PDF
+                </button>
+              </div>
+            )}
           </div>
           <div className="data-preview">
             <div className="table-responsive">
               {reportType === 'audit' ? (
                 <AuditReport
-                  ref={auditReportRef}
                   reportData={reportData}
                 />
               ) : reportScope === 'group' ? (

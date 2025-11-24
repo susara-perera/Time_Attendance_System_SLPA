@@ -83,7 +83,6 @@ subSectionSchema.index({
   'subSection.sub_hie_code': 1 
 }, { 
   unique: true,
-  sparse: true,
   background: true
 });
 

@@ -8,7 +8,10 @@ const createMySQLConnection = async () => {
       port: process.env.MYSQL_PORT || 3306,
       user: process.env.MYSQL_USER || 'root',
       password: process.env.MYSQL_PASSWORD || '',
-      database: process.env.MYSQL_DATABASE || 'slpa_db'
+      database: process.env.MYSQL_DATABASE || 'slpa_db',
+      connectTimeout: 5000, // 5 second timeout
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 0
     });
     
     console.log('✅ MySQL Connected successfully to database:', process.env.MYSQL_DATABASE || 'slpa_db');
