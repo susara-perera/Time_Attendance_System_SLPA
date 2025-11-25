@@ -83,13 +83,39 @@ async function ensureMySQLSchema() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `;
 
+  const ddlMealBookings = `
+    CREATE TABLE IF NOT EXISTS meal_bookings (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id VARCHAR(50) NOT NULL,
+      employee_id VARCHAR(50) NULL,
+      employee_name VARCHAR(150) NULL,
+      division_id VARCHAR(50) NOT NULL,
+      division_name VARCHAR(150) NULL,
+      section_id VARCHAR(50) NOT NULL,
+      section_name VARCHAR(150) NULL,
+      meal_date DATE NOT NULL,
+      meal_type VARCHAR(50) NOT NULL,
+      quantity INT NOT NULL DEFAULT 1,
+      special_requirements TEXT NULL,
+      status VARCHAR(20) DEFAULT 'confirmed',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_user_id (user_id),
+      INDEX idx_meal_date (meal_date),
+      INDEX idx_division_id (division_id),
+      INDEX idx_section_id (section_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `;
+
   let conn;
   try {
     conn = await createMySQLConnection();
     await conn.execute(ddlSubsections);
     console.log('🛠️  Ensured MySQL table exists: subsections');
-  await conn.execute(ddlTransfers);
-  console.log('🛠️  Ensured MySQL table exists: subsection_transfers');
+    await conn.execute(ddlTransfers);
+    console.log('🛠️  Ensured MySQL table exists: subsection_transfers');
+    await conn.execute(ddlMealBookings);
+    console.log('🛠️  Ensured MySQL table exists: meal_bookings');
   } catch (err) {
     console.error('❌ Failed ensuring MySQL schema:', err.message);
   } finally {

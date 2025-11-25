@@ -1221,7 +1221,7 @@ const ReportGeneration = () => {
             <i className="bi bi-graph-up-arrow"></i>
             Report Generation Center
           </h1>
-          <p className="header-subtitle">Generate comprehensive Attendance, Audit, and Meal reports with advanced filtering options</p>
+          <p className="header-subtitle">Generate comprehensive Attendance and Audit reports with advanced filtering options</p>
         </div>
       </div>
 
@@ -1242,7 +1242,6 @@ const ReportGeneration = () => {
                 className="form-control"
               >
                 <option value="attendance">Attendance Report</option>
-                <option value="meal">Meal Report</option>
                 <option value="audit">Audit Report</option>
               </select>
             </div>
