@@ -4,6 +4,7 @@ export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [rolesList, setRolesList] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Check for existing token on app start
@@ -26,6 +27,18 @@ export const AuthProvider = ({ children }) => {
             const data = await response.json();
             if (data.success && data.user) {
               setUser(data.user);
+              // Fetch available roles once to enable role-based permission lookups
+              (async () => {
+                try {
+                  const rolesRes = await fetch('http://localhost:5000/api/roles', {
+                    headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}) }
+                  });
+                  if (rolesRes.ok) {
+                    const rolesData = await rolesRes.json().catch(() => ({}));
+                    if (rolesData && rolesData.data) setRolesList(rolesData.data);
+                  }
+                } catch (err) { /* ignore */ }
+              })();
             } else {
               localStorage.removeItem('token');
             }
@@ -69,7 +82,38 @@ export const AuthProvider = ({ children }) => {
     };
 
     window.addEventListener('permissionsChanged', handler);
-    return () => window.removeEventListener('permissionsChanged', handler);
+    // Listen for explicit profile updates from other components
+    const profileHandler = (ev) => {
+      try {
+        const newUser = ev?.detail;
+        if (newUser) {
+          setUser(newUser);
+        } else {
+          // fallback: fetch latest profile
+          (async () => {
+            try {
+              const token = localStorage.getItem('token');
+              if (!token) return;
+              const res = await fetch('http://localhost:5000/api/auth/me', {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                credentials: 'include'
+              });
+              if (!res.ok) return;
+              const data = await res.json();
+              if (data && data.success && data.data) setUser(data.data);
+            } catch (err) { /* ignore */ }
+          })();
+        }
+      } catch (err) {
+        console.warn('profileUpdated handler error:', err);
+      }
+    };
+    window.addEventListener('profileUpdated', profileHandler);
+    return () => {
+      window.removeEventListener('permissionsChanged', handler);
+      window.removeEventListener('profileUpdated', profileHandler);
+    };
   }, []);
 
   // Poll backend periodically to pick up permission changes made by other users/sessions
@@ -96,6 +140,19 @@ export const AuthProvider = ({ children }) => {
             const newPerms = JSON.stringify(data.user.permissions || {});
             if (currentPerms !== newPerms) {
               setUser(data.user);
+              // Refresh roles list when permissions change to keep mapping accurate
+              try {
+                const token = localStorage.getItem('token');
+                if (token) {
+                  const rolesRes = await fetch('http://localhost:5000/api/roles', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                  });
+                  if (rolesRes.ok) {
+                    const rolesData = await rolesRes.json().catch(() => ({}));
+                    if (rolesData && rolesData.data) setRolesList(rolesData.data);
+                  }
+                }
+              } catch (err) { /* ignore */ }
             }
           }
         } catch (err) {
@@ -107,6 +164,56 @@ export const AuthProvider = ({ children }) => {
     if (user) startPolling();
     return () => clearInterval(intervalId);
   }, [user]);
+
+  // Helper: get effective permissions for the current user by merging explicit user.permissions
+  // with permissions defined on their role (rolesList). Returns an object map.
+  const getEffectivePermissions = () => {
+    const explicit = user?.permissions || {};
+    if (!user?.role) return explicit;
+    // Prefer role-defined permissions: role-based model
+    const roleMatch = rolesList.find(r => r.value === user.role || r.value === user?.role || r.label === user.role || r._id === user.role);
+    const rolePerms = (roleMatch && roleMatch.permissions) ? roleMatch.permissions : null;
+    // If role defines permissions, use those (role-based permissions). Otherwise fall back to explicit user.permissions
+    return rolePerms || explicit;
+  };
+
+  // Helper: check a permission by flexible identifiers. Accepts either dotted path
+  // like 'roles.create' or single ids like 'create_role' or 'view_roles'. Returns boolean.
+  const hasPermission = (permId) => {
+    if (!user) return false;
+    // Super admin shortcut
+    if (user?.role === 'super_admin') return true;
+    const perms = getEffectivePermissions();
+    if (!perms) return false;
+
+    // If permId contains a dot, resolve nested object
+    if (permId.includes('.')) {
+      const parts = permId.split('.');
+      let cur = perms;
+      for (const p of parts) {
+        if (!cur) return false;
+        cur = cur[p];
+      }
+      return !!cur;
+    }
+
+    // Try direct keys (create_role, view_roles)
+    if (perms[permId] === true) return true;
+
+    // Try to map common patterns: e.g., 'create_role' -> perms.role_management?.create_role or perms.roles?.create
+    const underscoreParts = permId.split('_');
+    if (underscoreParts.length >= 2) {
+      const action = underscoreParts[0];
+      const resource = underscoreParts.slice(1).join('_');
+      // check perms[resource]?.[action]
+      if (perms[resource] && typeof perms[resource] === 'object' && perms[resource][action]) return true;
+      // check role_management or roles
+      if (perms.role_management && perms.role_management[permId]) return true;
+      if (perms.roles && perms.roles[action]) return true;
+    }
+
+    return false;
+  };
 
   const login = async (credentials) => {
     try {
@@ -158,7 +265,26 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem('token', data.token);
       }
       
+      // Set preliminary user then fetch full profile to populate fields like phone/address
       setUser(data.user);
+      try {
+        const token = data.token || localStorage.getItem('token');
+        if (token) {
+          const meRes = await fetch('http://localhost:5000/api/auth/me', {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            credentials: 'include'
+          });
+          if (meRes.ok) {
+            const meData = await meRes.json().catch(() => ({}));
+            if (meData && meData.success && meData.data) {
+              setUser(meData.data);
+            }
+          }
+        }
+      } catch (err) {
+        // ignore
+      }
       return data;
 
     } catch (error) {
@@ -192,11 +318,14 @@ export const AuthProvider = ({ children }) => {
 
   const value = {
     user,
+    rolesList,
     login,
     logout,
     loading,
     isAuthenticated: !!user
   };
+  // expose hasPermission helper in context value
+  value.hasPermission = hasPermission;
 
   return (
     <AuthContext.Provider value={value}>

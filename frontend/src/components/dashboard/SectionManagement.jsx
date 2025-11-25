@@ -77,6 +77,12 @@ const SectionManagement = () => {
   const toastTimerRef = useRef(null);
   const canView = usePermission('sections', 'read');
   const canCreate = usePermission('sections', 'create');
+  const canViewSubsections = usePermission('subsections', 'read');
+  const canCreateSubsection = usePermission('subsections', 'create');
+  const canUpdateSubsection = usePermission('subsections', 'update');
+  const canDeleteSubsection = usePermission('subsections', 'delete');
+  const canTransferSubsection = usePermission('subsections', 'transfer');
+  const canRecallSubsection = usePermission('subsections', 'recall');
   const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
   // Toast helpers
@@ -202,6 +208,10 @@ const SectionManagement = () => {
 
   const submitEditSubSection = async () => {
     if (!editingSubSection) return;
+    if (!canUpdateSubsection) {
+      showToast({ type: 'error', title: 'Permission', message: 'You do not have permission to update sub-sections.' });
+      return;
+    }
 
     // Validate
     const errors = {};
@@ -283,6 +293,11 @@ const SectionManagement = () => {
 
   const confirmDeleteSubSection = async () => {
     if (!deleteTarget) return;
+    if (!canDeleteSubsection) {
+      setShowDeleteConfirm(false);
+      setDeleteTarget(null);
+      return showToast({ type: 'error', title: 'Permission', message: 'You do not have permission to delete sub-sections.' });
+    }
     const { sectionId, subSectionId } = deleteTarget;
     const token = localStorage.getItem('token');
     if (!token) {
@@ -365,6 +380,10 @@ const SectionManagement = () => {
 
   // Handle opening employee list modal
   const handleAddEmployeeToSubSection = async (subSection) => {
+    if (!canTransferSubsection) {
+      showToast({ type: 'error', title: 'Permission', message: 'You do not have permission to transfer employees.' });
+      return;
+    }
     setSelectedSubSection(subSection);
     setShowEmployeeModal(true);
     setSelectedEmployeeIds(new Set());
@@ -507,6 +526,12 @@ const SectionManagement = () => {
 
   // Confirm transfer and save to MongoDB
   const confirmTransferEmployee = async () => {
+    if (!canTransferSubsection) {
+      setShowTransferConfirm(false);
+      setTransferEmployee(null);
+      return showToast({ type: 'error', title: 'Permission', message: 'You do not have permission to transfer employees.' });
+    }
+
     if (!transferEmployee || !selectedSubSection) return;
 
     setTransferSubmitting(true);
@@ -596,6 +621,11 @@ const SectionManagement = () => {
   const [bulkTransferSubmitting, setBulkTransferSubmitting] = useState(false);
 
   const confirmBulkTransfer = async () => {
+    if (!canTransferSubsection) {
+      setShowBulkTransferConfirm(false);
+      return showToast({ type: 'error', title: 'Permission', message: 'You do not have permission to transfer employees.' });
+    }
+
     if (!selectedSubSection || selectedEmployeeIds.size === 0) return;
     setBulkTransferSubmitting(true);
     const token = localStorage.getItem('token');
@@ -720,6 +750,11 @@ const SectionManagement = () => {
 
   // Confirm recall and delete from MongoDB
   const confirmRecallTransfer = async () => {
+    if (!canRecallSubsection) {
+      setShowRecallConfirm(false);
+      setRecallEmployee(null);
+      return showToast({ type: 'error', title: 'Permission', message: 'You do not have permission to recall transfers.' });
+    }
     if (!recallEmployee || !selectedSubSection) return;
 
     setRecallSubmitting(true);
@@ -837,6 +872,10 @@ const SectionManagement = () => {
 
   // Bulk recall confirm
   const confirmBulkRecall = async () => {
+    if (!canRecallSubsection) {
+      setShowBulkRecallConfirm(false);
+      return showToast({ type: 'error', title: 'Permission', message: 'You do not have permission to recall transfers.' });
+    }
     if (!selectedSubSection || selectedTransferredEmployeeIds.size === 0) return;
     setBulkRecallSubmitting(true);
     const token = localStorage.getItem('token');
@@ -910,6 +949,10 @@ const SectionManagement = () => {
 
   // Handle showing transferred employees only
   const handleShowTransferredEmployees = async (subSection) => {
+    if (!canRecallSubsection) {
+      showToast({ type: 'error', title: 'Permission', message: 'You do not have permission to view transferred employees.' });
+      return;
+    }
     setSelectedSubSection(subSection);
     setShowTransferredEmployeesModal(true);
     setSelectedTransferredEmployeeIds(new Set());
@@ -1279,6 +1322,10 @@ const SectionManagement = () => {
   };
 
   const submitSubSection = async () => {
+    if (!canCreateSubsection) {
+      showToast({ type: 'error', title: 'Permission', message: 'You do not have permission to create sub-sections.' });
+      return;
+    }
     const errs = validateSubForm();
     if (Object.keys(errs).length) { setSubErrors(errs); return; }
     try {
@@ -1749,21 +1796,23 @@ const SectionManagement = () => {
                       <div style={{ display: 'flex', gap: 8 }}>
                         <button 
                           className="btn-professional btn-success"
-                          onClick={canCreate ? () => handleCreateSubSection(section) : undefined}
-                          title={!canCreate ? 'No permission to create sub sections' : 'Create Sub-Section'}
-                          disabled={!canCreate}
-                          style={{ padding: '8px 12px', fontSize: '12px', cursor: canCreate ? 'pointer' : 'not-allowed' }}
+                          onClick={canCreateSubsection ? () => handleCreateSubSection(section) : undefined}
+                          title={!canCreateSubsection ? 'No permission to create sub sections' : 'Create Sub-Section'}
+                          disabled={!canCreateSubsection}
+                          style={{ padding: '8px 12px', fontSize: '12px', cursor: canCreateSubsection ? 'pointer' : 'not-allowed' }}
                         >
                           <i className="bi bi-plus"></i>
                         </button>
-                        <button 
-                          className="btn-professional btn-light"
-                          onClick={() => toggleSubSections(section)}
-                          title="View Sub-Sections"
-                          style={{ padding: '8px 12px', fontSize: '12px' }}
-                        >
-                          <i className="bi bi-chevron-right"></i>
-                        </button>
+                        {canViewSubsections ? (
+                          <button 
+                            className="btn-professional btn-light"
+                            onClick={() => toggleSubSections(section)}
+                            title="View Sub-Sections"
+                            style={{ padding: '8px 12px', fontSize: '12px' }}
+                          >
+                            <i className="bi bi-chevron-right"></i>
+                          </button>
+                        ) : null}
                       </div>
                   </td>
                 </tr>
@@ -2796,7 +2845,8 @@ const SectionManagement = () => {
                 <i className="bi bi-layers"></i>
                 Sub-Sections
               </h3>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                {canCreateSubsection ? (
                 <button
                   onClick={() => {
                     setShowSubSectionsModal(false); // Close the Sub-Sections modal first
@@ -2827,6 +2877,7 @@ const SectionManagement = () => {
                 >
                   <i className="bi bi-plus-circle"></i> Add Subsection
                 </button>
+                ) : null}
                 <button 
                   onClick={handleCloseSubSectionsModal}
                   style={{
@@ -3116,6 +3167,7 @@ const SectionManagement = () => {
                             textAlign: 'center'
                           }}>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                              {canTransferSubsection ? (
                               <button
                                 className="btn-professional"
                                 onClick={() => handleAddEmployeeToSubSection(ss)}
@@ -3135,6 +3187,8 @@ const SectionManagement = () => {
                               >
                                 <i className="bi bi-person-plus"></i>
                               </button>
+                              ) : null}
+                              {canRecallSubsection ? (
                               <button
                                 className="btn-professional"
                                 onClick={() => handleShowTransferredEmployees(ss)}
@@ -3154,6 +3208,7 @@ const SectionManagement = () => {
                               >
                                 <i className="bi bi-arrow-counterclockwise"></i>
                               </button>
+                              ) : null}
                             </div>
                           </td>
                           <td style={{ 
@@ -3161,6 +3216,7 @@ const SectionManagement = () => {
                             textAlign: 'center'
                           }}>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                              {canUpdateSubsection ? (
                               <button
                                 className="btn-professional btn-primary"
                                 onClick={() => handleEditSubSection(currentSectionForSubSections._id, ss)}
@@ -3177,6 +3233,8 @@ const SectionManagement = () => {
                               >
                                 <i className="bi bi-pencil"></i>
                               </button>
+                              ) : null}
+                              {canDeleteSubsection ? (
                               <button
                                 className="btn-professional btn-danger"
                                 onClick={() => handleDeleteSubSection(currentSectionForSubSections._id, ss._id)}
@@ -3193,6 +3251,7 @@ const SectionManagement = () => {
                               >
                                 <i className="bi bi-trash"></i>
                               </button>
+                              ) : null}
                             </div>
                           </td>
                         </tr>

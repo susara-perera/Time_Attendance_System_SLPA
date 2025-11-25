@@ -184,7 +184,6 @@ const userValidation = {
   ],
 
   changePassword: [
-    commonValidations.mongoId('id'),
     body('currentPassword')
       .notEmpty()
       .withMessage('Current password is required'),
@@ -744,6 +743,20 @@ const authValidation = {
 
   forgotPassword: [
     commonValidations.email(),
+    handleValidationErrors
+  ],
+
+  otpRequest: [
+    commonValidations.email(),
+    handleValidationErrors
+  ],
+
+  otpVerify: [
+    commonValidations.email(),
+    body('otp')
+      .trim()
+      .isLength({ min: 6, max: 6 })
+      .withMessage('OTP must be 6 digits'),
     handleValidationErrors
   ],
 

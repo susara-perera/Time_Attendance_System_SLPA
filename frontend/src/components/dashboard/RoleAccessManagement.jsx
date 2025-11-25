@@ -6,7 +6,7 @@ import RoleManagement from './RoleManagement';
 import './RoleAccessManagement.css';
 
 const RoleAccessManagement = () => {
-  const { user } = useContext(AuthContext);
+  const { user, hasPermission } = useContext(AuthContext);
   const isSuperAdmin = user?.role === 'super_admin';
 
   const [roles, setRoles] = useState([]);
@@ -69,21 +69,33 @@ const RoleAccessManagement = () => {
     }
   }, [selectedRole, roles]);
 
-  // Auto-refresh roles every 30 seconds when component is active
+  // Auto-refresh roles every 30 seconds when component is active.
+  // Do NOT auto-refresh while a role is selected or while the user is actively saving toggles,
+  // to avoid interrupting the user's current edits.
   useEffect(() => {
-    if (!showRoleManagement) { // Only refresh when on Role Access Management view
+    // Only refresh when on Role Access Management view and user is not interacting
+    if (!showRoleManagement && !selectedRole && !isSavingAny) {
       const interval = setInterval(() => {
         fetchRoles();
       }, 30000); // Refresh every 30 seconds
 
       return () => clearInterval(interval);
     }
-  }, [showRoleManagement]);
+    // If conditions not met, ensure any previous interval is cleared by returning noop
+    return () => {};
+  }, [showRoleManagement, selectedRole, isSavingAny]);
 
   // Permission checks
-  const hasRoleReadPermission = () => isSuperAdmin || user?.permissions?.roles?.read;
-  const hasRoleUpdatePermission = () => isSuperAdmin || user?.permissions?.roles?.update;
-  const hasRoleManageReadPermission = () => isSuperAdmin || (user?.permissions?.roles?.read === true) || (user?.permissions?.rolesManage?.read === true);
+  // Permission checks
+  const hasViewRolesPermission = () => isSuperAdmin || hasPermission('view_roles') || hasPermission('roles.read');
+
+  const hasRoleReadPermission = () => hasViewRolesPermission();
+
+  // Allow users who have explicit permission-management update rights
+  // to modify role permissions as well (in addition to roles.update).
+  const hasRoleUpdatePermission = () => isSuperAdmin || hasPermission('update_role') || hasPermission('roles.update') || hasPermission('permission_management.update_permission');
+
+  const hasRoleManageReadPermission = () => hasViewRolesPermission();
 
   // Fetch roles from backend
   const fetchRoles = async (showRefreshIndicator = false) => {
@@ -136,23 +148,36 @@ const RoleAccessManagement = () => {
 
   // Stats
   const visiblePermissionCatalog = (() => {
-    const base = permissionCatalog.map(cat => {
-      if (cat.category === 'divisions' || cat.category === 'sections' || cat.category === 'employees' || cat.category === 'attendance') {
+    const baseMapped = permissionCatalog.map(cat => {
+      if (cat.category === 'divisions' || cat.category === 'sections' || cat.category === 'employees') {
         // Only show the 'read' permission for divisions and sections (view only)
         return { ...cat, permissions: (cat.permissions || []).filter(p => p.id === 'read') };
       }
       if (cat.category === 'reports') {
-        // Report management should show 'create' (generate), 'read' (download), and 'view' (view)
-        const perms = (cat.permissions || []).filter(p => ['create', 'read'].includes(p.id)).map(p =>
-          p.id === 'read'
-            ? { ...p, name: 'Download Report' }
-            : p
-        );
-        // Add 'View Report' field
-        perms.push({ id: 'view', name: 'View Report' });
+        // Define explicit report subsections and actions as requested.
+        // These are the only subsections shown in the Report Management card.
         return {
           ...cat,
-          permissions: perms
+          permissions: [
+            { id: 'attendance_generate', name: 'Attendance Report - Generate Report' },
+            { id: 'attendance_download', name: 'Attendance Report - Download Report' },
+            { id: 'audit_generate', name: 'Audit Report - Generate Report' },
+            { id: 'meal_generate', name: 'Meal Report - Generate Report' },
+            { id: 'view_reports', name: 'View Reports' }
+          ]
+        };
+      }
+      if (cat.category === 'settings') {
+        // Explicit system settings subsections
+        return {
+          ...cat,
+          permissions: [
+            { id: 'settings_view', name: 'View Settings' },
+            { id: 'profile_update', name: 'Update Profile' },
+            { id: 'settings_general', name: 'Change General Settings' },
+            { id: 'settings_appearance', name: 'Change Appearance' },
+            { id: 'settings_security', name: 'Change Security' }
+          ]
         };
       }
       if (cat.category === 'subsections') {
@@ -167,6 +192,7 @@ const RoleAccessManagement = () => {
     });
 
     // If backend doesn't expose 'subsections' yet, append a default category
+    const base = baseMapped.slice();
     const hasSubsections = base.some(c => c.category === 'subsections');
     if (!hasSubsections) {
       base.push({
@@ -204,7 +230,39 @@ const RoleAccessManagement = () => {
       base.splice(insertAt, 0, emp);
     }
 
-    return base;
+    // Remove Attendance Management card entirely per request
+    // Also remove any existing legacy 'roles' card so we can replace it
+    // with two separate cards: Role Management and Permission Management
+    const filtered = base.filter(c => c.category !== 'attendance' && c.category !== 'roles');
+
+    // Append new Role Management and Permission Management cards
+    const hasRoleManagement = filtered.some(c => c.category === 'role_management');
+    if (!hasRoleManagement) {
+      filtered.push({
+        category: 'role_management',
+        name: 'Role Management',
+        permissions: [
+          { id: 'create_role', name: 'Create Role' },
+          { id: 'update_role', name: 'Update Role' },
+          { id: 'delete_role', name: 'Delete Role' },
+          { id: 'view_roles', name: 'View Roles' }
+        ]
+      });
+    }
+
+    const hasPermissionManagement = filtered.some(c => c.category === 'permission_management');
+    if (!hasPermissionManagement) {
+      filtered.push({
+        category: 'permission_management',
+        name: 'Permission Management',
+        permissions: [
+          { id: 'view_permission', name: 'View Permission' },
+          { id: 'update_permission', name: 'Update Permission' }
+        ]
+      });
+    }
+
+    return filtered;
   })();
 
   const getTotalAvailablePermissions = () =>
@@ -232,6 +290,8 @@ const RoleAccessManagement = () => {
       subsections: 'bi-list-check',
       transfer_recall: 'bi-arrow-left-right',
       roles: 'bi-shield-fill-check',
+      role_management: 'bi-people-fill',
+      permission_management: 'bi-key-fill',
       settings: 'bi-gear-fill',
       employees: 'bi-person-badge-fill'
     };
@@ -248,6 +308,8 @@ const RoleAccessManagement = () => {
       subsections: 'Create and manage sub-sections within sections',
       transfer_recall: 'Manage transferring and recalling employees to and from sub-sections',
       roles: 'Define user roles and assign permission levels',
+      role_management: 'Create, update, delete and view roles',
+      permission_management: 'View and update system permissions',
       settings: 'Configure system-wide settings and preferences',
       employees: 'Manage employee information and employment records'
     };
@@ -264,10 +326,33 @@ const RoleAccessManagement = () => {
       delete: `Remove and delete ${category === 'users' ? 'user accounts' : category === 'employees' ? 'employee records' : category === 'subsections' ? 'sub-section' : category}`,
       transfer: `Transfer employee to ${category === 'subsections' || category === 'transfer_recall' ? 'sub-section' : 'that module'}`,
       recall: `Recall transferred employees from ${category === 'subsections' || category === 'transfer_recall' ? 'sub-section' : 'that module'}`,
-      manage: `Full administrative access to ${category} management`
+      manage: `Full administrative access to ${category} management`,
+
+      // Report-specific permissions (new ids)
+      attendance_generate: 'Generate attendance reports for selected date ranges and filters',
+      attendance_download: 'Download/export attendance reports (CSV, PDF) for distribution',
+      audit_generate: 'Generate system audit reports showing activity and changes',
+      meal_generate: 'Generate meal reports for employee meal tracking',
+      view_reports: 'Browse and view available reports and their metadata',
+
+      // Settings-specific permissions
+      profile_update: 'Update your user profile information (name, contact, photo)',
+      settings_general: 'Change general system settings (timezone, locale, defaults)',
+      settings_appearance: 'Change appearance options (theme, layout, branding)',
+      settings_security: 'Change security settings (password policies, 2FA, session rules)'
+      ,
+      settings_view: 'View system settings and read configuration without editing'
     };
+    // Role / Permission management details
+    descriptions.create_role = 'Create new roles that can be assigned to users';
+    descriptions.update_role = 'Modify existing role details and assigned permissions';
+    descriptions.delete_role = 'Delete roles that are no longer needed';
+    descriptions.view_roles = 'View list of roles and their basic details';
+    descriptions.view_permission = 'View the permission catalog and current assignments';
+    descriptions.update_permission = 'Update permission definitions or assignments';
     return descriptions[permissionId] || `Perform ${permissionId} operations`;
   };
+
 
   // Handlers
   const handleRoleSelect = (e) => {
@@ -285,13 +370,41 @@ const RoleAccessManagement = () => {
     const oldVal = !!formData[category]?.[id];
 
     // Optimistic UI update
-    setFormData(prev => ({
-      ...prev,
-      [category]: {
-        ...prev[category],
-        [id]: !oldVal
-      }
-    }));
+    // Special handling: master switches act as a master. If they are being turned off,
+    // also clear other related permissions in the UI immediately.
+    if (category === 'settings' && id === 'settings_view' && oldVal === true) {
+      // user is unchecking settings_view -> clear other settings permissions
+      const settingsPerms = (visiblePermissionCatalog.find(c => c.category === 'settings')?.permissions) || [];
+      const cleared = {};
+      settingsPerms.forEach(p => {
+        cleared[p.id] = false;
+      });
+      setFormData(prev => ({ ...prev, [category]: { ...(prev[category] || {}), ...cleared } }));
+    } else if (category === 'subsections' && id === 'read' && oldVal === true) {
+      // user is unchecking subsections.read -> clear other subsection permissions
+      const subsPerms = (visiblePermissionCatalog.find(c => c.category === 'subsections')?.permissions) || [];
+      const cleared = {};
+      subsPerms.forEach(p => {
+        cleared[p.id] = false;
+      });
+      setFormData(prev => ({ ...prev, [category]: { ...(prev[category] || {}), ...cleared } }));
+    } else if (category === 'users' && id === 'read' && oldVal === true) {
+      // user is unchecking users.read -> clear other user permissions (create/update/delete)
+      const userPerms = (visiblePermissionCatalog.find(c => c.category === 'users')?.permissions) || [];
+      const cleared = {};
+      userPerms.forEach(p => {
+        cleared[p.id] = false;
+      });
+      setFormData(prev => ({ ...prev, [category]: { ...(prev[category] || {}), ...cleared } }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [category]: {
+          ...prev[category],
+          [id]: !oldVal
+        }
+      }));
+    }
 
     // Mark this toggle as saving
     setSavingToggles(s => ({ ...s, [key]: true }));
@@ -301,7 +414,29 @@ const RoleAccessManagement = () => {
       // Merge existing role permissions and apply the change
       const mergedPermissions = { ...(roleObj.permissions || {}) };
       mergedPermissions[category] = { ...(mergedPermissions[category] || {}) };
-      mergedPermissions[category][id] = !oldVal;
+
+      // If toggling a master permission off, clear other related permissions in the payload
+      if (category === 'settings' && id === 'settings_view' && oldVal === true) {
+        const settingsPerms = (visiblePermissionCatalog.find(c => c.category === 'settings')?.permissions) || [];
+        mergedPermissions[category] = mergedPermissions[category] || {};
+        settingsPerms.forEach(p => {
+          mergedPermissions[category][p.id] = false;
+        });
+      } else if (category === 'subsections' && id === 'read' && oldVal === true) {
+        const subsPerms = (visiblePermissionCatalog.find(c => c.category === 'subsections')?.permissions) || [];
+        mergedPermissions[category] = mergedPermissions[category] || {};
+        subsPerms.forEach(p => {
+          mergedPermissions[category][p.id] = false;
+        });
+      } else if (category === 'users' && id === 'read' && oldVal === true) {
+        const userPerms = (visiblePermissionCatalog.find(c => c.category === 'users')?.permissions) || [];
+        mergedPermissions[category] = mergedPermissions[category] || {};
+        userPerms.forEach(p => {
+          mergedPermissions[category][p.id] = false;
+        });
+      } else {
+        mergedPermissions[category][id] = !oldVal;
+      }
 
       const response = await fetch(`http://localhost:5000/api/permissions/roles/${roleObj._id}`, {
         method: 'PUT',
@@ -414,7 +549,16 @@ const RoleAccessManagement = () => {
               Role Access Management
             </h2>
             <div className="header-actions">
-              <button className="btn-manage-roles" onClick={() => hasRoleManageReadPermission() ? setShowRoleManagement(true) : undefined} disabled={!hasRoleManageReadPermission()} title={!hasRoleManageReadPermission() ? "You need 'roles.read' access to manage roles" : "Manage Roles"}>
+              <button
+                className="btn-manage-roles"
+                onClick={() => {
+                  if (!hasViewRolesPermission()) return;
+                  // Use the Dashboard's global navigate event to switch to the Role Management page
+                  window.dispatchEvent(new CustomEvent('navigateTo', { detail: 'role-management' }));
+                }}
+                disabled={!hasViewRolesPermission()}
+                title={!hasViewRolesPermission() ? "You need 'view_roles' or 'roles.read' access to manage roles" : "Manage Roles"}
+              >
                 <i className="bi bi-gear" style={{ marginRight: '6px', fontSize: '1.1rem' }}></i> Manage Roles
               </button>
             </div>
@@ -513,13 +657,27 @@ const RoleAccessManagement = () => {
                             return (
                               <div key={`${category.category}_${permission.id}`} className={`permission-toggle ${isChecked ? 'active' : ''}`}>
                                 <label className="permission-switch">
-                                  <input
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={() => handlePermissionChange(category.category, permission.id)}
-                                    disabled={!hasRoleUpdatePermission() || !!savingToggles[toggleKey]}
-                                    title={`${permission.name} - ${getPermissionDetailDescription(permission.id, category.category)}`}
-                                  />
+                                        <input
+                                          type="checkbox"
+                                          checked={isChecked}
+                                          onChange={() => handlePermissionChange(category.category, permission.id)}
+                                          disabled={
+                                            !hasRoleUpdatePermission() ||
+                                            !!savingToggles[toggleKey] ||
+                                            // For settings: require 'settings_view' to be enabled before other settings can be toggled
+                                            (category.category === 'settings' && permission.id !== 'settings_view' && !formData?.settings?.settings_view) ||
+                                            // For subsections: require 'read' (view) before other subsection permissions can be toggled
+                                            (category.category === 'subsections' && permission.id !== 'read' && !formData?.subsections?.read) ||
+                                            // For users: require 'read' (view) before other user permissions can be toggled
+                                            (category.category === 'users' && permission.id !== 'read' && !formData?.users?.read)
+                                          }
+                                          title={
+                                            `${permission.name} - ${getPermissionDetailDescription(permission.id, category.category)}` +
+                                            (category.category === 'settings' && permission.id !== 'settings_view' && !formData?.settings?.settings_view ? ' — Requires "View Settings" permission' : '') +
+                                            (category.category === 'subsections' && permission.id !== 'read' && !formData?.subsections?.read ? ' — Requires "View Sub-Sections" permission' : '') +
+                                            (category.category === 'users' && permission.id !== 'read' && !formData?.users?.read ? ' — Requires "View Users" permission' : '')
+                                          }
+                                        />
                                   <span className="slider"></span>
                                 </label>
                                 <div className="permission-info">

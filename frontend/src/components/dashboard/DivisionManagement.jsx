@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import usePermission from '../../hooks/usePermission';
+import { useLanguage } from '../../context/LanguageContext';
 
 const DivisionManagement = () => {
   const [divisions, setDivisions] = useState([]);
@@ -20,6 +21,7 @@ const DivisionManagement = () => {
   const canUpdate = usePermission('divisions', 'update');
   const canDelete = usePermission('divisions', 'delete');
   const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+  const { t } = useLanguage();
 
   // Helpers: robust date parsing for HRIS/Mongo-like payloads
   const formatDateYmd = (d) => {
@@ -279,18 +281,18 @@ const DivisionManagement = () => {
   }, []);
 
   if (loading) {
-    return <div className="loading-container">Loading...</div>;
+    return <div className="loading-container">{t('loading')}</div>;
   }
 
   if (!canView) {
     return (
       <div className="division-management">
         <div className="section-header">
-          <h2><i className="bi bi-building"></i> Division Management</h2>
+          <h2><i className="bi bi-building"></i> {t('divisionManagementTitle')}</h2>
         </div>
         <div className="professional-card">
           <div className="no-data">
-            <p>You do not have permission to view divisions. Contact a Super Admin for access.</p>
+            <p>{t('noPermissionViewDivisions')}</p>
           </div>
         </div>
       </div>
@@ -300,7 +302,7 @@ const DivisionManagement = () => {
   return (
     <div className="division-management">
       <div className="section-header">
-        <h2><i className="bi bi-building"></i> Division Management</h2>
+        <h2><i className="bi bi-building"></i> {t('divisionManagementTitle')}</h2>
       </div>
 
       {/* Unified Search Section */}
@@ -318,13 +320,13 @@ const DivisionManagement = () => {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 320 }}>
           <label htmlFor="divisionSearch" className="form-label m-0" style={{ fontWeight: 600, color: '#374151', fontSize: '16px' }}>
-            Search:
+            {t('divisionSearchLabel')}
           </label>
           <input
             id="divisionSearch"
             type="text"
             className="form-control"
-            placeholder="Search by Division Code or Name"
+            placeholder={t('divisionSearchPlaceholder')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{
@@ -350,11 +352,11 @@ const DivisionManagement = () => {
           <table className="professional-table">
             <thead>
               <tr>
-                <th>Division Code</th>
-                <th>Division Name</th>
-                <th>Status</th>
-                <th>Created Date</th>
-                <th>Actions</th>
+                <th>{t('divisionCodeHeader')}</th>
+                <th>{t('divisionNameHeader')}</th>
+                <th>{t('divisionStatusHeader')}</th>
+                <th>{t('divisionCreatedDateHeader')}</th>
+                <th>{t('actionsHeader')}</th>
               </tr>
             </thead>
             <tbody>
@@ -374,18 +376,18 @@ const DivisionManagement = () => {
                   <td><strong>{division.name}</strong></td>
                   <td>
                     <span className={`status-badge ${division.isActive ? 'status-active' : 'status-inactive'}`}>
-                      {division.isActive ? 'Active' : 'Inactive'}
+                      {division.isActive ? t('activeLabel') : t('inactiveLabel')}
                     </span>
                   </td>
-                  <td>{division.createdAt ? (parseHrisDate(division.createdAt) || 'N/A') : 'N/A'}</td>
+                  <td>{division.createdAt ? (parseHrisDate(division.createdAt) || t('naLabel')) : t('naLabel')}</td>
                   <td>
                     <button
                       className="btn-professional btn-info"
                       onClick={() => setCurrentDivision(division)}
-                      title="View Division Details"
+                      title={t('viewDivisionDetails')}
                       style={{ padding: '8px 14px', fontSize: '13px', fontWeight: 600, color: '#2563eb', background: '#e0e7ff', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
                     >
-                      <i className="bi bi-eye"></i> View
+                      <i className="bi bi-eye"></i> {t('viewLabel')}
                     </button>
                   </td>
                 </tr>
@@ -396,7 +398,7 @@ const DivisionManagement = () => {
 
         {divisions.length === 0 && (
           <div className="no-data">
-            <p>No divisions found. Click "Add Division" to create the first division.</p>
+            <p>{t('noDivisionsFoundMsg')}</p>
           </div>
         )}
       </div>
@@ -408,11 +410,12 @@ const DivisionManagement = () => {
             <div className="modal-header" style={{ borderBottom: '2px solid var(--gray-200)', paddingBottom: '20px', marginBottom: '24px' }}>
               <h3 style={{ fontSize: '24px', fontWeight: '700', color: 'var(--gray-900)', display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <i className="bi bi-eye"></i>
-                Division Details
+                {t('divisionDetailsTitle')}
               </h3>
               <button
                 className="modal-close btn-professional btn-danger"
                 onClick={() => setCurrentDivision(null)}
+                aria-label={t('close')}
                 style={{ padding: '8px 12px', fontSize: '16px' }}
               >
                 <i className="bi bi-x"></i>

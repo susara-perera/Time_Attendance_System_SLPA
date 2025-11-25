@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { useLanguage } from '../../context/LanguageContext';
 import { Doughnut, Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -26,24 +27,18 @@ ChartJS.register(
   BarElement
 );
 
-const getGreeting = () => {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 18) return 'Good afternoon';
-  return 'Good evening';
-};
-
-const quickLinks = [
-  { label: 'Add User', icon: 'bi-people', action: 'users', color: 'success' },
-  { label: 'Employee Management', icon: 'bi-person-badge', action: 'employees', color: 'secondary' },
-  { label: 'Report Generation', icon: 'bi-graph-up', action: 'reports', color: 'info' },
-  { label: 'Meal Management', icon: 'bi-cup-hot', action: 'meals', color: 'orange' },
-  { label: 'Division Management', icon: 'bi-building', action: 'divisions', color: 'warning' },
-  { label: 'Section Management', icon: 'bi-diagram-3', action: 'sections', color: 'purple' },
+const quickLinks = (t) => [
+  { label: t('addUser'), icon: 'bi-people', action: 'users', color: 'success' },
+  { label: t('employeeManagement'), icon: 'bi-person-badge', action: 'employees', color: 'secondary' },
+  { label: t('reportGeneration'), icon: 'bi-graph-up', action: 'reports', color: 'info' },
+  { label: t('mealManagement'), icon: 'bi-cup-hot', action: 'meals', color: 'orange' },
+  { label: t('divisionManagement'), icon: 'bi-building', action: 'divisions', color: 'warning' },
+  { label: t('sectionManagement'), icon: 'bi-diagram-3', action: 'sections', color: 'purple' },
 ];
 
 const DashboardStats = ({ onQuickAction }) => {
   const [modalOpen, setModalOpen] = useState(false);
+  const { t } = useLanguage();
   const [stats, setStats] = useState({
     totalEmployees: 12960,
     presentToday: 8547,
@@ -159,10 +154,10 @@ const DashboardStats = ({ onQuickAction }) => {
       <div className="stats-grid">
         <div className="stat-card primary" style={{transition:'transform 0.3s', boxShadow:'0 2px 8px rgba(59,130,246,0.07)'}}>
           <div className="stat-header">
-            <div className="stat-title">
-              <h3>Total Employees</h3>
-              <p>All sub-sections</p>
-            </div>
+                <div className="stat-title">
+                  <h3>{t('totalEmployees')}</h3>
+                  <p>{t('allSubsections')}</p>
+                </div>
             <div className="stat-icon">
               <i className="bi bi-people"></i>
             </div>
@@ -172,8 +167,8 @@ const DashboardStats = ({ onQuickAction }) => {
         <div className="stat-card success" style={{transition:'transform 0.3s', boxShadow:'0 2px 8px rgba(16,185,129,0.07)'}}>
           <div className="stat-header">
             <div className="stat-title">
-              <h3>Present Today</h3>
-              <p>Active attendance</p>
+              <h3>{t('presentToday')}</h3>
+              <p>{t('activeAttendance')}</p>
             </div>
             <div className="stat-icon">
               <i className="bi bi-person-check"></i>
@@ -188,8 +183,8 @@ const DashboardStats = ({ onQuickAction }) => {
         <div className="stat-card warning" style={{transition:'transform 0.3s', boxShadow:'0 2px 8px rgba(234,179,8,0.07)'}}>
           <div className="stat-header">
             <div className="stat-title">
-              <h3>Active Divisions</h3>
-              <p>All divisions</p>
+              <h3>{t('activeDivisions')}</h3>
+              <p>{t('allDivisions')}</p>
             </div>
             <div className="stat-icon">
               <i className="bi bi-building"></i>
@@ -200,8 +195,8 @@ const DashboardStats = ({ onQuickAction }) => {
         <div className="stat-card info" style={{transition:'transform 0.3s', boxShadow:'0 2px 8px rgba(59,130,246,0.07)'}}>
           <div className="stat-header">
             <div className="stat-title">
-              <h3>Total Sections</h3>
-              <p>All sections</p>
+              <h3>{t('totalSections')}</h3>
+              <p>{t('allDivisions') /* reuse a label for brevity */}</p>
             </div>
             <div className="stat-icon">
               <i className="bi bi-diagram-3"></i>
@@ -212,8 +207,8 @@ const DashboardStats = ({ onQuickAction }) => {
         <div className="stat-card info" style={{transition:'transform 0.3s', boxShadow:'0 2px 8px rgba(59,130,246,0.07)'}}>
           <div className="stat-header">
             <div className="stat-title">
-              <h3>Total Sub-Sections</h3>
-              <p>All sub-sections</p>
+              <h3>{t('totalSubSections')}</h3>
+              <p>{t('allSubsections')}</p>
             </div>
             <div className="stat-icon">
               <i className="bi bi-diagram-2"></i>
@@ -230,18 +225,18 @@ const DashboardStats = ({ onQuickAction }) => {
             <div className="header-content">
               <h3>
                 <i className="bi bi-pie-chart"></i>
-                Today's Attendance
+                {t('todaysAttendance')}
               </h3>
-              <p>Real-time attendance status</p>
+              <p>{t('quickInsights') /* small descriptive reuse */}</p>
             </div>
             <div className="chart-stats">
               <div className="chart-stat">
                 <span className="stat-number">{stats.presentToday}</span>
-                <span className="stat-label">Present</span>
+                <span className="stat-label">{t('presentLabel')}</span>
               </div>
               <div className="chart-stat">
                 <span className="stat-number">{stats.totalEmployees - stats.presentToday}</span>
-                <span className="stat-label">Absent</span>
+                <span className="stat-label">{t('absentLabel')}</span>
               </div>
             </div>
           </div>
@@ -265,14 +260,14 @@ const DashboardStats = ({ onQuickAction }) => {
             <div className="header-content">
               <h3>
                 <i className="bi bi-graph-up"></i>
-                Monthly Attendance
+                {t('monthlyAttendance')}
               </h3>
-              <p>6-month attendance trends</p>
+              <p>{t('monthlyAttendance') /* reuse label */}</p>
             </div>
             <div className="chart-actions">
               <button className="btn-sm primary">
                 <i className="bi bi-download"></i>
-                Export
+                {t('export')}
               </button>
             </div>
           </div>
@@ -284,7 +279,7 @@ const DashboardStats = ({ onQuickAction }) => {
           <div className="card-header">
             <h3>
               <i className="bi bi-lightbulb"></i>
-              Quick Insights
+              {t('quickInsights')}
             </h3>
           </div>
           <div className="insights-list">
@@ -293,8 +288,8 @@ const DashboardStats = ({ onQuickAction }) => {
                 <i className="bi bi-check-circle"></i>
               </div>
               <div className="insight-content">
-                <h4>High Attendance</h4>
-                <p>{stats.attendanceRate}% attendance rate today</p>
+                <h4>{t('highAttendance')}</h4>
+                <p>{stats.attendanceRate}% {t('attendanceRateLabel')}</p>
               </div>
             </div>
             <div className="insight-item">
@@ -302,8 +297,8 @@ const DashboardStats = ({ onQuickAction }) => {
                 <i className="bi bi-clock"></i>
               </div>
               <div className="insight-content">
-                <h4>Late Arrivals</h4>
-                <p>{stats.lateArrivals} employees arrived late</p>
+                <h4>{t('lateArrivals')}</h4>
+                <p>{stats.lateArrivals} {t('lateArrivals').toLowerCase()}</p>
               </div>
             </div>
             <div className="insight-item">
@@ -311,8 +306,8 @@ const DashboardStats = ({ onQuickAction }) => {
                 <i className="bi bi-arrow-left-circle"></i>
               </div>
               <div className="insight-content">
-                <h4>Early Departures</h4>
-                <p>{stats.earlyDepartures} left before time</p>
+                <h4>{t('earlyDepartures')}</h4>
+                <p>{stats.earlyDepartures} {t('earlyDepartures').toLowerCase()}</p>
               </div>
             </div>
           </div>
@@ -321,7 +316,7 @@ const DashboardStats = ({ onQuickAction }) => {
           <div className="card-header">
             <h3>
               <i className="bi bi-activity"></i>
-              Recent Activity
+              {t('recentActivity')}
             </h3>
           </div>
           <div className="activity-list">
@@ -339,20 +334,20 @@ const DashboardStats = ({ onQuickAction }) => {
               ))
             ) : (
               <div className="activity-item">
-                <div className="activity-content">
-                  <p>No recent activities found.</p>
-                </div>
+                  <div className="activity-content">
+                    <p>{t('noRecentActivities')}</p>
+                  </div>
               </div>
             )}
             {stats.recentActivities && stats.recentActivities.length > 3 && (
               <button className="btn-sm" style={{marginTop: '10px'}} onClick={() => setModalOpen(true)}>
-                Show All
+                {t('showAll')}
               </button>
             )}
             {modalOpen && (
               <div className="modal-overlay" style={{position: 'fixed', top:0, left:0, width:'100vw', height:'100vh', background:'rgba(0,0,0,0.3)', zIndex:1000}} onClick={() => setModalOpen(false)}>
                 <div className="modal-content" style={{background:'#fff', borderRadius:'8px', maxWidth:'500px', margin:'60px auto', padding:'24px', position:'relative'}} onClick={e => e.stopPropagation()}>
-                  <h3 style={{marginBottom:'16px'}}><i className="bi bi-activity"></i> All Recent Activities (Past Week)</h3>
+                  <h3 style={{marginBottom:'16px'}}><i className="bi bi-activity"></i> {t('recentActivity')} (Past Week)</h3>
                   <div>
                     {stats.recentActivities.map((activity, idx) => (
                       <div className="activity-item" key={idx} style={{borderBottom:'1px solid #eee', paddingBottom:'12px', marginBottom:'12px'}}>
@@ -366,7 +361,7 @@ const DashboardStats = ({ onQuickAction }) => {
                       </div>
                     ))}
                   </div>
-                  <button className="btn-sm" style={{marginTop:'10px'}} onClick={() => setModalOpen(false)}>Close</button>
+                  <button className="btn-sm" style={{marginTop:'10px'}} onClick={() => setModalOpen(false)}>{t('close')}</button>
                 </div>
               </div>
             )}

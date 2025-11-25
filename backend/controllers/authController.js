@@ -284,7 +284,15 @@ const updateProfile = async (req, res) => {
     if (firstName) user.firstName = firstName;
     if (lastName) user.lastName = lastName;
     if (phone) user.phone = phone;
-    if (address) user.address = address;
+    if (address) {
+      // Accept either an address object or a simple string (city/street)
+      if (typeof address === 'string') {
+        // store the string in `address.city` for backwards compatibility
+        user.address = { city: address };
+      } else if (typeof address === 'object') {
+        user.address = address;
+      }
+    }
 
     await user.save();
 
@@ -473,6 +481,120 @@ const forgotPassword = async (req, res) => {
   }
 };
 
+// @desc    Request OTP for password reset
+// @route   POST /api/auth/request-otp
+// @access  Public
+const requestOtp = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      // do not reveal existence
+      return res.status(200).json({ success: true, message: 'If the email exists, an OTP has been sent' });
+    }
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Hash OTP and save with expiry
+    user.otpCodeHash = crypto.createHash('sha256').update(otp).digest('hex');
+    user.otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    await user.save();
+
+    // Try to send email (nodemailer) if configured
+    let sent = false;
+    try {
+      if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+        const nodemailer = require('nodemailer');
+        const transporter = nodemailer.createTransport({
+          host: process.env.SMTP_HOST,
+          port: Number(process.env.SMTP_PORT) || 587,
+          secure: process.env.SMTP_SECURE === 'true',
+          auth: {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS
+          }
+        });
+
+        const mail = await transporter.sendMail({
+          from: process.env.SMTP_FROM || process.env.SMTP_USER,
+          to: user.email,
+          subject: 'Your password reset OTP',
+          text: `Your OTP for password reset is: ${otp}. It expires in 10 minutes.`
+        });
+
+        sent = !!mail.messageId;
+      }
+    } catch (sendErr) {
+      console.error('Failed to send OTP email:', sendErr);
+      sent = false;
+    }
+
+    const response = { success: true, message: 'OTP sent' };
+    if (process.env.NODE_ENV === 'development') {
+      // return otp in development to simplify testing
+      response.otp = otp;
+      response.sent = sent;
+    }
+
+    return res.status(200).json(response);
+  } catch (error) {
+    console.error('Request OTP error:', error);
+    res.status(500).json({ success: false, message: 'Server error requesting OTP' });
+  }
+};
+
+// @desc    Verify OTP and generate reset token
+// @route   POST /api/auth/verify-otp
+// @access  Public
+const verifyOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    const user = await User.findOne({ email });
+
+    if (!user || !user.otpCodeHash || !user.otpExpires) {
+      return res.status(400).json({ success: false, message: 'Invalid OTP or email' });
+    }
+
+    if (user.otpExpires < Date.now()) {
+      return res.status(400).json({ success: false, message: 'OTP expired' });
+    }
+
+    const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
+    if (otpHash !== user.otpCodeHash) {
+      return res.status(400).json({ success: false, message: 'Invalid OTP' });
+    }
+
+    // Clear OTP
+    user.otpCodeHash = undefined;
+    user.otpExpires = undefined;
+
+    // Generate reset token (same as forgotPassword flow)
+    const resetToken = crypto.randomBytes(20).toString('hex');
+    user.passwordResetToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+    user.passwordResetExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    await user.save();
+
+    const resetUrl = `${req.protocol}://${req.get('host')}/api/auth/reset-password/${resetToken}`;
+
+    const response = { success: true, message: 'OTP verified' };
+    if (process.env.NODE_ENV === 'development') {
+      response.resetToken = resetToken;
+      response.resetUrl = resetUrl;
+    }
+
+    return res.status(200).json(response);
+  } catch (error) {
+    console.error('Verify OTP error:', error);
+    res.status(500).json({ success: false, message: 'Server error verifying OTP' });
+  }
+};
+
 // @desc    Reset password
 // @route   PUT /api/auth/reset-password/:token
 // @access  Public
@@ -589,14 +711,43 @@ const verifyToken = async (req, res) => {
   }
 };
 
+// @desc    Verify current password
+// @route   POST /api/auth/verify-password
+// @access  Private
+const verifyPassword = async (req, res) => {
+  try {
+    const { password } = req.body;
+
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const isValid = await user.comparePassword(password);
+
+    if (!isValid) {
+      return res.status(400).json({ success: false, message: 'Invalid password' });
+    }
+
+    res.status(200).json({ success: true, message: 'Password valid' });
+  } catch (error) {
+    console.error('Verify password error:', error);
+    res.status(500).json({ success: false, message: 'Server error verifying password' });
+  }
+};
+
 module.exports = {
   login,
   logout,
   getMe,
   updateProfile,
   changePassword,
+  requestOtp,
+  verifyOtp,
   forgotPassword,
   resetPassword,
   refreshToken,
-  verifyToken
+  verifyToken,
+  verifyPassword
 };
