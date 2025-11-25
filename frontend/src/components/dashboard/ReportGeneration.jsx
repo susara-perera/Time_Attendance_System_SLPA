@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import usePermission from '../../hooks/usePermission';
 import './ReportGeneration.css';
 import GroupReport from './GroupReport';
@@ -67,12 +67,11 @@ const ReportGeneration = () => {
   const [reportData, setReportData] = useState(null);
   const [error, setError] = useState('');
   const [employeeInfo, setEmployeeInfo] = useState(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery] = useState('');
   const autoSelectedDivisionRef = useRef(false);
   const autoSelectedSectionRef = useRef(false);
   const groupReportRef = useRef(null);
   const individualReportRef = useRef(null);
-  const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
   // Compute filtered data when user types in search box (employee id or name)
   const filteredData = useMemo(() => {
@@ -166,6 +165,7 @@ const ReportGeneration = () => {
       startDate: today,
       endDate: today
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Update date range based on time period selection
@@ -804,23 +804,25 @@ const ReportGeneration = () => {
     }
   };
 
-  const printReport = () => {
-    if (!reportData || !reportData.data || reportData.data.length === 0) {
-      alert('No data to print. Please generate a report first.');
-      return;
-    }
-    
-  // Create a new window for printing with formatted content, avoid about:blank in URL
-  const printWindow = window.open(' ', '', 'width=900,height=700');
-  const printContent = generatePrintContent();
-  printWindow.document.open();
-  printWindow.document.write(printContent);
-  printWindow.document.close();
-  printWindow.focus();
-  printWindow.print();
-  printWindow.close();
-  };
+  // Unused function - kept for future use
+  // const printReport = () => {
+  //   if (!reportData || !reportData.data || reportData.data.length === 0) {
+  //     alert('No data to print. Please generate a report first.');
+  //     return;
+  //   }
+  //   
+  //   // Create a new window for printing with formatted content, avoid about:blank in URL
+  //   const printWindow = window.open(' ', '', 'width=900,height=700');
+  //   const printContent = generatePrintContent();
+  //   printWindow.document.open();
+  //   printWindow.document.write(printContent);
+  //   printWindow.document.close();
+  //   printWindow.focus();
+  //   printWindow.print();
+  //   printWindow.close();
+  // };
 
+  // eslint-disable-next-line no-unused-vars
   const generatePrintContent = () => {
     const reportTitle = reportType === 'attendance' ? 'History Transaction Report' : 'Meal Consumption Report';
     // const subtitle = reportType === 'attendance' ? 'All Granted(ID & FP) Records' : 'All Meal Records';
@@ -1079,30 +1081,28 @@ const ReportGeneration = () => {
 
     // Subtitle for attendance report
     const subtitle = reportType === 'attendance' ? 'All Granted(ID & FP) Records' : 'All Meal Records';
-    // Employee info for print
-    let empNo = '';
-    let empName = '';
-    if (reportScope === 'individual' && employeeInfo) {
-      empNo = employeeInfo.employee_id || employeeInfo.employee_ID || employeeId || '';
-      empName = employeeInfo.name || employeeInfo.employee_name || employeeInfo.employeeName || '';
-    } else if (reportData && reportData.data && reportData.data.length > 0) {
-      // Try to extract from first record for group reports
-      const first = reportData.data[0];
-      empNo =
-        first.employee_id ||
-        first.employee_ID ||
-        first.emp_no ||
-        first.empNo ||
-        first.empid ||
-        first.employeeId ||
-        '';
-      empName =
-        first.employee_name ||
-        first.employeeName ||
-        first.emp_name ||
-        first.name ||
-        '';
-    }
+    // Employee info extraction - currently unused but kept for reference
+    // if (reportScope === 'individual' && employeeInfo) {
+    //   const empNo = employeeInfo.employee_id || employeeInfo.employee_ID || employeeId || '';
+    //   const empName = employeeInfo.name || employeeInfo.employee_name || employeeInfo.employeeName || '';
+    // } else if (reportData && reportData.data && reportData.data.length > 0) {
+    //   // Try to extract from first record for group reports
+    //   const first = reportData.data[0];
+    //   const empNo =
+    //     first.employee_id ||
+    //     first.employee_ID ||
+    //     first.emp_no ||
+    //     first.empNo ||
+    //     first.empid ||
+    //     first.employeeId ||
+    //     '';
+    //   const empName =
+    //     first.employee_name ||
+    //     first.employeeName ||
+    //     first.emp_name ||
+    //     first.name ||
+    //     '';
+    // }
 
     function renderPage(pageNum) {
   const pageRows = (pages[pageNum - 1] || []).join('');

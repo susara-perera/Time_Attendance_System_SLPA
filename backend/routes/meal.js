@@ -15,7 +15,10 @@ const {
   createMealBooking,
   getTodaysBookingsCount,
   getTodaysBookings,
-  setMealPreference
+  setMealPreference,
+  getSubsectionEmployees,
+  getMealPackageEmployees,
+  getMoneyAllowanceEmployees
 } = require('../controllers/mealController');
 const { 
   auth, 
@@ -202,6 +205,33 @@ router.post(
   '/preference',
   auth,
   setMealPreference
+);
+
+// @route   GET /api/meals/employees/subsection
+// @desc    Get subsection transferred employees (source for assignment)
+// @access  Private
+router.get(
+  '/employees/subsection',
+  auth,
+  getSubsectionEmployees
+);
+
+// @route   GET /api/meals/employees/meal-package
+// @desc    Get employees with meal package preference
+// @access  Private
+router.get(
+  '/employees/meal-package',
+  auth,
+  getMealPackageEmployees
+);
+
+// @route   GET /api/meals/employees/money-allowance
+// @desc    Get employees with money allowance preference
+// @access  Private
+router.get(
+  '/employees/money-allowance',
+  auth,
+  getMoneyAllowanceEmployees
 );
 
 module.exports = router;

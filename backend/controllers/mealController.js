@@ -947,9 +947,15 @@ const setMealPreference = async (req, res) => {
     const {
       employeeId,
       employeeName,
+      email,
       preference,
       divisionId,
-      sectionId
+      divisionName,
+      sectionId,
+      sectionName,
+      subsectionId,
+      subsectionName,
+      allowanceAmount
     } = req.body;
 
     // Validation
@@ -967,36 +973,62 @@ const setMealPreference = async (req, res) => {
       });
     }
 
-    const createdBy = req.user.id;
+    const addedBy = req.user.id;
 
     conn = await createMySQLConnection();
 
-    // Check if preference already exists
-    const [existing] = await conn.execute(
-      'SELECT id FROM meal_preferences WHERE employee_id = ?',
-      [employeeId]
-    );
+    // Start transaction
+    await conn.beginTransaction();
 
-    if (existing.length > 0) {
-      // Update existing preference
-      await conn.execute(
-        `UPDATE meal_preferences 
-         SET preference = ?, employee_name = ?, division_id = ?, section_id = ?, 
-             created_by = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE employee_id = ?`,
-        [preference, employeeName, divisionId, sectionId, createdBy, employeeId]
-      );
-    } else {
-      // Insert new preference
-      await conn.execute(
-        `INSERT INTO meal_preferences 
-         (employee_id, employee_name, division_id, section_id, preference, created_by)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [employeeId, employeeName, divisionId, sectionId, preference, createdBy]
-      );
+    try {
+      // Remove employee from both tables first
+      await conn.execute('DELETE FROM meal_package_employees WHERE employee_id = ?', [employeeId]);
+      await conn.execute('DELETE FROM money_allowance_employees WHERE employee_id = ?', [employeeId]);
+
+      const employeeData = JSON.stringify({
+        employeeId,
+        employeeName,
+        email,
+        divisionId,
+        divisionName,
+        sectionId,
+        sectionName,
+        subsectionId,
+        subsectionName
+      });
+
+      if (preference === 'meal') {
+        // Add to meal package table
+        await conn.execute(
+          `INSERT INTO meal_package_employees 
+           (employee_id, employee_name, email, division_id, division_name, section_id, section_name, 
+            subsection_id, subsection_name, added_by, employee_data)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [employeeId, employeeName, email, divisionId, divisionName, sectionId, sectionName, 
+           subsectionId, subsectionName, addedBy, employeeData]
+        );
+        console.log(`✅ Employee ${employeeId} added to meal package`);
+      } else {
+        // Add to money allowance table
+        const amount = allowanceAmount || 0.00;
+        await conn.execute(
+          `INSERT INTO money_allowance_employees 
+           (employee_id, employee_name, email, division_id, division_name, section_id, section_name, 
+            subsection_id, subsection_name, allowance_amount, added_by, employee_data)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [employeeId, employeeName, email, divisionId, divisionName, sectionId, sectionName, 
+           subsectionId, subsectionName, amount, addedBy, employeeData]
+        );
+        console.log(`✅ Employee ${employeeId} added to money allowance`);
+      }
+
+      // Commit transaction
+      await conn.commit();
+
+    } catch (error) {
+      await conn.rollback();
+      throw error;
     }
-
-    console.log(`✅ Meal preference set for employee ${employeeId}: ${preference}`);
 
     res.json({
       success: true,
@@ -1020,6 +1052,175 @@ const setMealPreference = async (req, res) => {
   }
 };
 
+// Get subsection transferred employees (source for meal assignment)
+const getSubsectionEmployees = async (req, res) => {
+  const { createMySQLConnection } = require('../config/mysql');
+  let conn;
+  
+  try {
+    const { divisionId, sectionId, subsectionId } = req.query;
+    
+    conn = await createMySQLConnection();
+    
+    let query = 'SELECT * FROM subsection_transfers WHERE 1=1';
+    const params = [];
+    
+    if (divisionId && divisionId !== 'all') {
+      query += ' AND division_code = ?';
+      params.push(divisionId);
+    }
+    if (sectionId && sectionId !== 'all') {
+      query += ' AND section_code = ?';
+      params.push(sectionId);
+    }
+    if (subsectionId && subsectionId !== 'all') {
+      query += ' AND sub_section_id = ?';
+      params.push(subsectionId);
+    }
+    
+    query += ' ORDER BY employee_name ASC';
+    
+    const [rows] = await conn.execute(query, params);
+    
+    // Check which employees are already assigned to meal package or money allowance
+    const employeeIds = rows.map(r => r.employee_id);
+    
+    let mealAssignments = [];
+    let moneyAssignments = [];
+    
+    if (employeeIds.length > 0) {
+      const placeholders = employeeIds.map(() => '?').join(',');
+      
+      const [mealRows] = await conn.execute(
+        `SELECT employee_id FROM meal_package_employees WHERE employee_id IN (${placeholders})`,
+        employeeIds
+      );
+      mealAssignments = mealRows.map(r => r.employee_id);
+      
+      const [moneyRows] = await conn.execute(
+        `SELECT employee_id FROM money_allowance_employees WHERE employee_id IN (${placeholders})`,
+        employeeIds
+      );
+      moneyAssignments = moneyRows.map(r => r.employee_id);
+    }
+    
+    // Add assignment status to each employee
+    const enrichedRows = rows.map(emp => ({
+      ...emp,
+      meal_assigned: mealAssignments.includes(emp.employee_id),
+      money_assigned: moneyAssignments.includes(emp.employee_id),
+      assignment_status: mealAssignments.includes(emp.employee_id) ? 'meal' : 
+                        moneyAssignments.includes(emp.employee_id) ? 'money' : 'none'
+    }));
+    
+    res.json({
+      success: true,
+      data: enrichedRows,
+      count: enrichedRows.length
+    });
+  } catch (error) {
+    console.error('Get subsection employees error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get subsection employees'
+    });
+  } finally {
+    if (conn) await conn.end();
+  }
+};
+
+// Get meal package employees with filters
+const getMealPackageEmployees = async (req, res) => {
+  const { createMySQLConnection } = require('../config/mysql');
+  let conn;
+  
+  try {
+    const { divisionId, sectionId, subsectionId } = req.query;
+    
+    conn = await createMySQLConnection();
+    
+    let query = 'SELECT * FROM meal_package_employees WHERE 1=1';
+    const params = [];
+    
+    if (divisionId && divisionId !== 'all') {
+      query += ' AND division_id = ?';
+      params.push(divisionId);
+    }
+    if (sectionId && sectionId !== 'all') {
+      query += ' AND section_id = ?';
+      params.push(sectionId);
+    }
+    if (subsectionId && subsectionId !== 'all') {
+      query += ' AND subsection_id = ?';
+      params.push(subsectionId);
+    }
+    
+    query += ' ORDER BY employee_name ASC';
+    
+    const [rows] = await conn.execute(query, params);
+    
+    res.json({
+      success: true,
+      data: rows,
+      count: rows.length
+    });
+  } catch (error) {
+    console.error('Get meal package employees error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get meal package employees'
+    });
+  } finally {
+    if (conn) await conn.end();
+  }
+};
+
+// Get money allowance employees with filters
+const getMoneyAllowanceEmployees = async (req, res) => {
+  const { createMySQLConnection } = require('../config/mysql');
+  let conn;
+  
+  try {
+    const { divisionId, sectionId, subsectionId } = req.query;
+    
+    conn = await createMySQLConnection();
+    
+    let query = 'SELECT * FROM money_allowance_employees WHERE 1=1';
+    const params = [];
+    
+    if (divisionId && divisionId !== 'all') {
+      query += ' AND division_id = ?';
+      params.push(divisionId);
+    }
+    if (sectionId && sectionId !== 'all') {
+      query += ' AND section_id = ?';
+      params.push(sectionId);
+    }
+    if (subsectionId && subsectionId !== 'all') {
+      query += ' AND subsection_id = ?';
+      params.push(subsectionId);
+    }
+    
+    query += ' ORDER BY employee_name ASC';
+    
+    const [rows] = await conn.execute(query, params);
+    
+    res.json({
+      success: true,
+      data: rows,
+      count: rows.length
+    });
+  } catch (error) {
+    console.error('Get money allowance employees error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get money allowance employees'
+    });
+  } finally {
+    if (conn) await conn.end();
+  }
+};
+
 module.exports = {
   getMeals,
   getMeal,
@@ -1036,5 +1237,8 @@ module.exports = {
   createMealBooking,
   getTodaysBookingsCount,
   getTodaysBookings,
-  setMealPreference
+  setMealPreference,
+  getSubsectionEmployees,
+  getMealPackageEmployees,
+  getMoneyAllowanceEmployees
 };

@@ -117,23 +117,54 @@ async function ensureMySQLSchema() {
     await conn.execute(ddlMealBookings);
     console.log('🛠️  Ensured MySQL table exists: meal_bookings');
     
-    const ddlMealPreferences = `
-      CREATE TABLE IF NOT EXISTS meal_preferences (
+    const ddlMealPackageEmployees = `
+      CREATE TABLE IF NOT EXISTS meal_package_employees (
         id INT AUTO_INCREMENT PRIMARY KEY,
         employee_id VARCHAR(50) NOT NULL UNIQUE,
         employee_name VARCHAR(150) NULL,
+        email VARCHAR(150) NULL,
         division_id VARCHAR(50) NULL,
+        division_name VARCHAR(150) NULL,
         section_id VARCHAR(50) NULL,
-        preference VARCHAR(20) NOT NULL DEFAULT 'meal',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        created_by VARCHAR(50) NULL,
+        section_name VARCHAR(150) NULL,
+        subsection_id INT NULL,
+        subsection_name VARCHAR(100) NULL,
+        added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        added_by VARCHAR(50) NULL,
+        employee_data JSON NULL,
         INDEX idx_employee_id (employee_id),
-        INDEX idx_preference (preference)
+        INDEX idx_division_id (division_id),
+        INDEX idx_section_id (section_id),
+        INDEX idx_subsection_id (subsection_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `;
-    await conn.execute(ddlMealPreferences);
-    console.log('🛠️  Ensured MySQL table exists: meal_preferences');
+    await conn.execute(ddlMealPackageEmployees);
+    console.log('🛠️  Ensured MySQL table exists: meal_package_employees');
+    
+    const ddlMoneyAllowanceEmployees = `
+      CREATE TABLE IF NOT EXISTS money_allowance_employees (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        employee_id VARCHAR(50) NOT NULL UNIQUE,
+        employee_name VARCHAR(150) NULL,
+        email VARCHAR(150) NULL,
+        division_id VARCHAR(50) NULL,
+        division_name VARCHAR(150) NULL,
+        section_id VARCHAR(50) NULL,
+        section_name VARCHAR(150) NULL,
+        subsection_id INT NULL,
+        subsection_name VARCHAR(100) NULL,
+        allowance_amount DECIMAL(10,2) DEFAULT 0.00,
+        added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        added_by VARCHAR(50) NULL,
+        employee_data JSON NULL,
+        INDEX idx_employee_id (employee_id),
+        INDEX idx_division_id (division_id),
+        INDEX idx_section_id (section_id),
+        INDEX idx_subsection_id (subsection_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `;
+    await conn.execute(ddlMoneyAllowanceEmployees);
+    console.log('🛠️  Ensured MySQL table exists: money_allowance_employees');
   } catch (err) {
     console.error('❌ Failed ensuring MySQL schema:', err.message);
   } finally {
