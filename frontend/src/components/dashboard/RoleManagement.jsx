@@ -3,7 +3,7 @@ import { AuthContext } from '../../context/AuthContext';
 import './RoleAccessManagement.css';
 
 const RoleManagement = () => {
-  const { user } = useContext(AuthContext);
+  const { user, hasPermission } = useContext(AuthContext);
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddRoleModal, setShowAddRoleModal] = useState(false);
@@ -20,26 +20,11 @@ const RoleManagement = () => {
 
   const isSuperAdmin = user?.role === 'super_admin';
 
-  // Add permission check functions for role management. Some deployments use 'roles' while older versions used 'rolesManage'.
-  const hasRoleManageReadPermission = () => {
-    if (isSuperAdmin) return true;
-    return (user?.permissions?.roles?.read === true) || (user?.permissions?.rolesManage?.read === true);
-  };
-
-  const hasRoleManageCreatePermission = () => {
-    if (isSuperAdmin) return true;
-    return (user?.permissions?.roles?.create === true) || (user?.permissions?.rolesManage?.create === true);
-  };
-
-  const hasRoleManageUpdatePermission = () => {
-    if (isSuperAdmin) return true;
-    return (user?.permissions?.roles?.update === true) || (user?.permissions?.rolesManage?.update === true);
-  };
-
-  const hasRoleManageDeletePermission = () => {
-    if (isSuperAdmin) return true;
-    return (user?.permissions?.roles?.delete === true) || (user?.permissions?.rolesManage?.delete === true);
-  };
+  // Role-based permission checks using AuthContext helper
+  const hasRoleManageReadPermission = () => isSuperAdmin || hasPermission('view_roles') || hasPermission('roles.read');
+  const hasRoleManageCreatePermission = () => isSuperAdmin || hasPermission('create_role') || hasPermission('roles.create');
+  const hasRoleManageUpdatePermission = () => isSuperAdmin || hasPermission('update_role') || hasPermission('roles.update') || hasPermission('permission_management.update_permission');
+  const hasRoleManageDeletePermission = () => isSuperAdmin || hasPermission('delete_role') || hasPermission('roles.delete');
 
   // Show success modal with message
   const showSuccessPopup = (message) => {

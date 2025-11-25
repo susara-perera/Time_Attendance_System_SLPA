@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import usePermission from '../../hooks/usePermission';
+import { useLanguage } from '../../context/LanguageContext';
 
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
@@ -23,6 +24,7 @@ const UserManagement = () => {
   const canCreateUser = usePermission('users', 'create');
   const canUpdateUser = usePermission('users', 'update');
   const canDeleteUser = usePermission('users', 'delete');
+  const { t } = useLanguage();
 
   // Helper function to get division name by ID
   const getDivisionName = (divisionId) => {
@@ -199,7 +201,7 @@ const UserManagement = () => {
   };
 
   const handleDeleteUser = async (userId) => {
-    if (window.confirm('Are you sure you want to delete this user?')) {
+    if (window.confirm(t('confirmDeleteUser'))) {
       try {
         const token = localStorage.getItem('token');
         const response = await fetch(`http://localhost:5000/api/users/${userId}`, {
@@ -212,14 +214,14 @@ const UserManagement = () => {
 
         if (response.ok) {
           setUsers(users.filter(user => user.id !== userId));
-          alert('User deleted successfully!');
+          alert(t('userDeletedSuccess'));
         } else {
           const error = await response.json();
-          alert(error.message || 'Failed to delete user');
+          alert(error.message || t('noUsersFound'));
         }
       } catch (error) {
         console.error('Error deleting user:', error);
-        alert('Error deleting user. Please try again.');
+        alert(t('userDeletedSuccess'));
       }
     }
   };
@@ -234,18 +236,18 @@ const UserManagement = () => {
     
     // Check if passwords match when adding a new user
     if (!editingUser && formData.password !== formData.confirmPassword) {
-      alert('Passwords do not match!');
+      alert(t('passwordsDoNotMatch') || 'Passwords do not match!');
       return;
     }
     
     // Validate required fields
     if (!formData.firstName || !formData.lastName || !formData.email || !formData.employeeId || !formData.role) {
-      alert('Please fill in all required fields!');
+      alert(t('pleaseFillRequired') || 'Please fill in all required fields!');
       return;
     }
     
     if (!editingUser && !formData.password) {
-      alert('Password is required for new users!');
+      alert(t('passwordRequired') || 'Password is required for new users!');
       return;
     }
 
@@ -327,14 +329,14 @@ const UserManagement = () => {
         
         setShowAddModal(false);
         setEditingUser(null);
-        alert(editingUser ? 'User updated successfully!' : 'User created successfully!');
+        alert(editingUser ? t('userUpdateSuccess') : t('userCreateSuccess'));
       } else {
         const error = await response.json();
-        alert(error.message || 'Failed to save user');
+        alert(error.message || (t('failedToSaveUser') || 'Failed to save user'));
       }
     } catch (error) {
       console.error('Error saving user:', error);
-      alert('Error saving user. Please try again.');
+      alert(t('failedToSaveUser') || 'Error saving user. Please try again.');
     }
   };
 
@@ -350,7 +352,7 @@ const UserManagement = () => {
     return (
       <div className="loading-container">
         <div className="spinner-border" role="status">
-          <span className="visually-hidden">Loading...</span>
+          <span className="visually-hidden">{t('loading') || 'Loading...'}</span>
         </div>
       </div>
     );
@@ -360,11 +362,11 @@ const UserManagement = () => {
     return (
       <div className="user-management">
         <div className="section-header">
-          <h2><i className="bi bi-people"></i> User Management</h2>
+          <h2><i className="bi bi-people"></i> {t('userManagement')}</h2>
         </div>
         <div className="professional-card">
           <div className="no-data">
-            <p>You do not have permission to view users. Contact a Super Admin for access.</p>
+            <p>{t('noPermissionViewUsers')}</p>
           </div>
         </div>
       </div>
@@ -375,12 +377,12 @@ const UserManagement = () => {
     <div className="user-management">
       {/* Professional Section Header */}
       <div className="section-header">
-        <h2><i className="bi bi-people"></i> User Management</h2>
+        <h2><i className="bi bi-people"></i> {t('userManagement')}</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button 
             className="btn-professional btn-primary"
             onClick={canCreateUser ? handleAddUser : undefined}
-            title={!canCreateUser ? 'You do not have permission to add users' : 'Add User'}
+            title={!canCreateUser ? t('noPermissionAddUser') : t('addUser')}
             disabled={!canCreateUser}
             style={{ cursor: canCreateUser ? 'pointer' : 'not-allowed' }}
           >
@@ -395,14 +397,14 @@ const UserManagement = () => {
           <table className="professional-table">
             <thead>
               <tr>
-                <th>Employee ID</th>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Role</th>
-                <th>Division</th>
-                <th>Section</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th>{t('employeeIdLabel')}</th>
+                <th>{t('nameLabel') || 'Name'}</th>
+                <th>{t('emailLabel')}</th>
+                <th>{t('roleLabel')}</th>
+                <th>{t('divisionLabel')}</th>
+                <th>{t('sectionLabel')}</th>
+                <th>{t('statusLabel') || 'Status'}</th>
+                <th>{t('actionsLabel') || 'Actions'}</th>
               </tr>
             </thead>
             <tbody>
@@ -451,9 +453,9 @@ const UserManagement = () => {
           </table>
         </div>
 
-        {users.length === 0 && (
+            {users.length === 0 && (
           <div className="no-data">
-            <p>No users found. Click "Add User" to create the first user.</p>
+            <p>{t('noUsersFound')}</p>
           </div>
         )}
       </div>
@@ -465,7 +467,7 @@ const UserManagement = () => {
             <div className="modal-header" style={{ borderBottom: '2px solid var(--gray-200)', paddingBottom: '20px', marginBottom: '24px' }}>
               <h3 style={{ fontSize: '24px', fontWeight: '700', color: 'var(--gray-900)', display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <i className="bi bi-person-plus" style={{ color: 'var(--primary)' }}></i>
-                {editingUser ? 'Edit User' : 'Add New User'}
+                {editingUser ? t('editUser') : t('addNewUser')}
               </h3>
               <button 
                 className="modal-close btn-professional btn-danger"
@@ -479,7 +481,7 @@ const UserManagement = () => {
             <form onSubmit={handleSubmit} className="modal-body">
               <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                 <div className="form-group">
-                  <label className="form-label">First Name *</label>
+                  <label className="form-label">{t('firstName')} *</label>
                   <input
                     type="text"
                     name="firstName"
@@ -490,7 +492,7 @@ const UserManagement = () => {
                   />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Last Name *</label>
+                  <label className="form-label">{t('lastName')} *</label>
                   <input
                     type="text"
                     name="lastName"
@@ -504,7 +506,7 @@ const UserManagement = () => {
 
               <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                 <div className="form-group">
-                  <label className="form-label">Email *</label>
+                  <label className="form-label">{t('emailLabel')} *</label>
                   <input
                     type="email"
                     name="email"
@@ -516,7 +518,7 @@ const UserManagement = () => {
                   />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Employee ID *</label>
+                  <label className="form-label">{t('employeeIdLabel')} *</label>
                   <input
                     type="text"
                     name="employeeId"
@@ -531,7 +533,7 @@ const UserManagement = () => {
 
               <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                 <div className="form-group">
-                  <label className="form-label">Division *</label>
+                  <label className="form-label">{t('divisionLabel')} *</label>
                   <select
                     name="division"
                     className="form-select"
@@ -539,7 +541,7 @@ const UserManagement = () => {
                     onChange={handleInputChange}
                     required
                   >
-                    <option value="">Select Division</option>
+                    <option value="">{t('selectDivision')}</option>
                     {divisions.map(division => (
                       <option key={division._id || division.id} value={division._id || division.id}>
                         {division.name} ({division.code})
@@ -548,7 +550,7 @@ const UserManagement = () => {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Role *</label>
+                  <label className="form-label">{t('roleLabel')} *</label>
                   <select
                     name="role"
                     className="form-select"
@@ -566,14 +568,14 @@ const UserManagement = () => {
               </div>
 
               <div className="form-group">
-                <label className="form-label">Section</label>
+                  <label className="form-label">{t('sectionLabel')}</label>
                 <select
                   name="section"
                   className="form-select"
                   value={formData.section}
                   onChange={handleInputChange}
                 >
-                  <option value="">Select Section</option>
+                    <option value="">{t('selectSection')}</option>
                   {sections.map(section => (
                     <option key={section._id || section.id} value={section._id || section.id}>
                       {section.name} ({section.code})
@@ -584,7 +586,7 @@ const UserManagement = () => {
 
               <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                 <div className="form-group">
-                  <label className="form-label">Password {!editingUser && '*'}</label>
+                  <label className="form-label">{t('passwordLabel')} {!editingUser && '*'}</label>
                   <input
                     type="password"
                     name="password"
@@ -597,7 +599,7 @@ const UserManagement = () => {
                   />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Confirm Password {!editingUser && '*'}</label>
+                  <label className="form-label">{t('confirmPasswordLabel')} {!editingUser && '*'}</label>
                   <input
                     type="password"
                     name="confirmPassword"
@@ -618,7 +620,7 @@ const UserManagement = () => {
                   onClick={() => setShowAddModal(false)}
                   style={{ background: 'var(--gray-500)' }}
                 >
-                  Cancel
+                  {t('cancel')}
                 </button>
                 <button 
                   type="submit"
@@ -628,7 +630,7 @@ const UserManagement = () => {
                   title={!canCreateUser && !editingUser ? 'You do not have permission to add users' : ''}
                 >
                   <i className="bi bi-check-circle"></i>
-                  {editingUser ? 'Update User' : (canCreateUser ? 'Add User' : 'No permission')}
+                  {editingUser ? t('updateUser') : (canCreateUser ? t('addUser') : t('noPermissionAddUser'))}
                 </button>
               </div>
             </form>

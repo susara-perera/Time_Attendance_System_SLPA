@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import './ReportGeneration.css';
+import { useLanguage } from '../../context/LanguageContext';
 
 const EmployeeManagement = () => {
   const [divisions, setDivisions] = useState([]);
@@ -24,6 +25,7 @@ const EmployeeManagement = () => {
   const [searchTerm, setSearchTerm] = useState('');
 
   const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+  const { t } = useLanguage();
 
   // Helpers: normalize backend data into a consistent shape
   const normalizeDivisions = (data = []) => {
@@ -641,9 +643,9 @@ const EmployeeManagement = () => {
         <div className="header-content">
           <h1>
             <i className="bi bi-people"></i>
-            Employee Management
+            {t('employeeManagement')}
           </h1>
-          <p className="header-subtitle">View all employee records from HRIS API with division and section filtering</p>
+          <p className="header-subtitle">{t('employeeHeaderSubtitle')}</p>
         </div>
       </div>
 
@@ -661,7 +663,7 @@ const EmployeeManagement = () => {
         }}>
           <i className="bi bi-funnel-fill" style={{ color: '#667eea', fontSize: '20px' }}></i>
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: '600', color: '#495057', marginBottom: '4px' }}>Active Filters:</div>
+            <div style={{ fontWeight: '600', color: '#495057', marginBottom: '4px' }}>{t('activeFiltersLabel')}</div>
             <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
               {selectedEmployeeDivision !== 'all' && (
                 <span style={{
@@ -735,7 +737,7 @@ const EmployeeManagement = () => {
               display: 'block',
               marginBottom: '4px'
             }}>
-              Division
+              {t('divisionLabel')}
             </label>
             <select 
               id="employee-division-select"
@@ -750,7 +752,7 @@ const EmployeeManagement = () => {
               }}
               disabled={loading}
             >
-              <option value="all">All Divisions</option>
+              <option value="all">{t('allDivisionsLabel')}</option>
               {!loading && getEmployeeDivisions().map(division => (
                 <option key={division.key} value={division.key}>
                   {division.name} ({division.count})
@@ -768,7 +770,7 @@ const EmployeeManagement = () => {
               display: 'block',
               marginBottom: '4px'
             }}>
-              Section
+              {t('sectionLabel')}
             </label>
             <select 
               id="employee-section-select"
@@ -784,10 +786,10 @@ const EmployeeManagement = () => {
               disabled={!selectedEmployeeDivision || selectedEmployeeDivision === 'all'}
             >
                 {!selectedEmployeeDivision || selectedEmployeeDivision === 'all' ? (
-                  <option value="all">Select division first</option>
+                  <option value="all">{t('selectDivisionFirst')}</option>
                 ) : (
                   <>
-                    <option value="all">All Sections</option>
+                    <option value="all">{t('allSectionsLabel')}</option>
                     {availableSections.length ? (
                       availableSections.map(section => (
                         <option key={section.id} value={section.id}>
@@ -795,7 +797,7 @@ const EmployeeManagement = () => {
                         </option>
                       ))
                     ) : (
-                      <option value="__no_sections" disabled>No sections</option>
+                      <option value="__no_sections" disabled>{t('noSections')}</option>
                     )}
                   </>
                 )}
@@ -811,7 +813,7 @@ const EmployeeManagement = () => {
               display: 'block',
               marginBottom: '4px'
             }}>
-              Sub-Section
+              {t('subSectionLabel')}
             </label>
             <select 
               id="employee-subsection-select"
@@ -827,10 +829,10 @@ const EmployeeManagement = () => {
               disabled={!selectedSection || selectedSection === 'all'}
             >
                 {!selectedSection || selectedSection === 'all' ? (
-                  <option value="all">Select section first</option>
+                  <option value="all">{t('selectSectionFirst')}</option>
                 ) : (
                   <>
-                    <option value="all">All Sub-Sections</option>
+                    <option value="all">{t('allSubSectionsLabel')}</option>
                     {availableSubSections.length ? (
                       availableSubSections.map(subSection => (
                         <option key={subSection._id} value={subSection._id}>
@@ -838,7 +840,7 @@ const EmployeeManagement = () => {
                         </option>
                       ))
                     ) : (
-                      <option value="__no_subsections" disabled>No sub-sections</option>
+                      <option value="__no_subsections" disabled>{t('noSubsections')}</option>
                     )}
                   </>
                 )}
@@ -854,7 +856,7 @@ const EmployeeManagement = () => {
               display: 'block',
               marginBottom: '4px'
             }}>
-              Search
+              {t('searchLabel')}
             </label>
             <div style={{ position: 'relative' }}>
               <i className="bi bi-search" style={{
@@ -869,7 +871,7 @@ const EmployeeManagement = () => {
                 id="employee-search"
                 type="text"
                 className="form-control"
-                placeholder="Search by ID, Name, Designation, NIC..."
+                placeholder={t('searchPlaceholder')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 style={{
@@ -894,7 +896,7 @@ const EmployeeManagement = () => {
                     padding: '4px',
                     fontSize: '16px'
                   }}
-                  title="Clear search"
+                  title={t('clearSearchTitle')}
                 >
                   <i className="bi bi-x-circle-fill"></i>
                 </button>
@@ -904,7 +906,7 @@ const EmployeeManagement = () => {
 
           {/* Refresh Button */}
           <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-            <button 
+              <button 
               onClick={refreshData}
               disabled={loading}
               style={{
@@ -927,7 +929,7 @@ const EmployeeManagement = () => {
               onMouseOut={(e) => (e.target.style.transform = 'translateY(0)')}
             >
               <i className="bi bi-arrow-clockwise"></i>
-              Refresh
+              {t('refresh')}
             </button>
           </div>
         </div>
@@ -941,7 +943,7 @@ const EmployeeManagement = () => {
       )}
 
       {loading ? (
-        <div style={{ 
+          <div style={{ 
           padding: '60px 20px', 
           textAlign: 'center',
           background: 'white',
@@ -950,9 +952,9 @@ const EmployeeManagement = () => {
           boxShadow: '0 2px 4px rgba(0,0,0,0.08)'
         }}>
           <div className="spinner-border" style={{ color: '#667eea', width: '3rem', height: '3rem' }} role="status">
-            <span className="visually-hidden">Loading...</span>
+            <span className="visually-hidden">{t('loading')}</span>
           </div>
-          <p style={{ marginTop: '20px', color: '#6c757d', fontSize: '16px' }}>Fetching employee data from HRIS API...</p>
+          <p style={{ marginTop: '20px', color: '#6c757d', fontSize: '16px' }}>{t('fetchingHris')}</p>
         </div>
       ) : (
         <div style={{ padding: '0 20px 20px 20px' }}>
@@ -1094,7 +1096,7 @@ const EmployeeManagement = () => {
                         fontSize: '16px'
                       }}>
                         <i className="bi bi-inbox" style={{ fontSize: '48px', display: 'block', marginBottom: '16px', opacity: 0.5 }}></i>
-                        No employees found
+                        {t('noEmployeesFoundMsg')}
                       </td>
                     </tr>
                   )}

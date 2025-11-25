@@ -5,6 +5,9 @@ const {
   getMe,
   updateProfile,
   changePassword,
+  requestOtp,
+  verifyOtp,
+  verifyPassword,
   forgotPassword,
   resetPassword,
   refreshToken,
@@ -42,10 +45,19 @@ router.put('/profile', auth, updateProfile);
 // @access  Private
 router.put('/change-password', auth, userValidation.changePassword, changePassword);
 
+// @route   POST /api/auth/verify-password
+// @desc    Verify current password (without changing it)
+// @access  Private
+router.post('/verify-password', auth, verifyPassword);
+
 // @route   POST /api/auth/forgot-password
 // @desc    Forgot password
 // @access  Public
 router.post('/forgot-password', authValidation.forgotPassword, forgotPassword);
+
+// OTP request / verify for forgot password flow
+router.post('/request-otp', authValidation.otpRequest, requestOtp);
+router.post('/verify-otp', authValidation.otpVerify, verifyOtp);
 
 // @route   PUT /api/auth/reset-password/:token
 // @desc    Reset password

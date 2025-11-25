@@ -4,6 +4,7 @@ import './ReportGeneration.css';
 import GroupReport from './GroupReport';
 import IndividualReport from './IndividualReport';
 import AuditReport from './AuditReport';
+import { useLanguage } from '../../context/LanguageContext';
 
 const ReportGeneration = () => {
   const [reportType, setReportType] = useState('attendance');
@@ -73,6 +74,7 @@ const ReportGeneration = () => {
   const groupReportRef = useRef(null);
   const individualReportRef = useRef(null);
   const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+  const { t } = useLanguage();
 
   // Compute filtered data when user types in search box (employee id or name)
   const filteredData = useMemo(() => {
@@ -153,7 +155,22 @@ const ReportGeneration = () => {
   };
 
   // permission checks
-  const canGenerate = usePermission('reports', 'create');
+  // Granular report permissions
+  const canGenerateFallback = usePermission('reports', 'create'); // legacy fallback
+  const canGenerateAttendance = usePermission('reports', 'attendance_generate');
+  const canDownloadAttendance = usePermission('reports', 'attendance_download');
+  const canGenerateAudit = usePermission('reports', 'audit_generate');
+  const canGenerateMeal = usePermission('reports', 'meal_generate');
+  const canViewReports = usePermission('reports', 'view_reports');
+
+  const hasGeneratePermissionForType = (type) => {
+    // Super-admins and legacy 'create' grant generation capability
+    // usePermission already checks current user context; keep fallback for backwards-compatibility
+    if (type === 'attendance') return !!(canGenerateAttendance || canGenerateFallback || canViewReports);
+    if (type === 'audit') return !!(canGenerateAudit || canGenerateFallback || canViewReports);
+    if (type === 'meal') return !!(canGenerateMeal || canGenerateFallback || canViewReports);
+    return !!(canGenerateFallback || canViewReports);
+  };
 
   // Fetch divisions and sections on component mount
   useEffect(() => {
@@ -416,8 +433,8 @@ const ReportGeneration = () => {
     e.preventDefault();
     setError('');
     
-    if (!canGenerate) {
-      setError('You do not have permission to generate reports');
+    if (!hasGeneratePermissionForType(reportType)) {
+      setError('You do not have permission to generate this type of report');
       return;
     }
 
@@ -705,6 +722,11 @@ const ReportGeneration = () => {
   const handlePrint = () => {
     if (!reportData || !reportData.data || reportData.data.length === 0) {
       alert('No data to print. Please generate a report first.');
+      return;
+    }
+    // Check download/print permission for attendance reports
+    if (reportType === 'attendance' && !canDownloadAttendance) {
+      setError('You do not have permission to download/print attendance reports');
       return;
     }
     if (reportType === 'audit') {
@@ -1219,9 +1241,13 @@ const ReportGeneration = () => {
         <div className="header-content">
           <h1>
             <i className="bi bi-graph-up-arrow"></i>
-            Report Generation Center
+            {t('reportGenerationTitle')}
           </h1>
+<<<<<<< HEAD
+          <p className="header-subtitle">Generate comprehensive attendance and meal reports with advanced filtering options</p>
+=======
           <p className="header-subtitle">Generate comprehensive Attendance and Audit reports with advanced filtering options</p>
+>>>>>>> 7dbbc37b950156431cf1a19ea88cac62dc0e4c77
         </div>
       </div>
 
@@ -1233,7 +1259,7 @@ const ReportGeneration = () => {
             <div className="form-group">
               <label htmlFor="reportType">
                 <i className="bi bi-file-earmark-text"></i>
-                Report Type
+                {t('reportTypeLabel')}
               </label>
               <select
                 id="reportType"
@@ -1241,6 +1267,32 @@ const ReportGeneration = () => {
                 onChange={(e) => setReportType(e.target.value)}
                 className="form-control"
               >
+<<<<<<< HEAD
+                <option value="attendance">{t('attendanceReport')}</option>
+                <option value="meal">{t('mealReport')}</option>
+                <option value="audit">{t('auditReport')}</option>
+              </select>
+            </div>
+
+            {/* Report Scope Selection */}
+            <div className="form-group">
+              <label htmlFor="reportScope">
+                <i className="bi bi-people"></i>
+                {t('reportScopeLabel')}
+              </label>
+              <select
+                id="reportScope"
+                value={reportScope}
+                onChange={(e) => setReportScope(e.target.value)}
+                className="form-control"
+                disabled={reportType === 'audit'}
+                title={reportType === 'audit' ? t('auditReport') + ' ' + t('groupReport') : t('reportScopeLabel')}
+              >
+                <option value="individual">{t('individualReport')}</option>
+                <option value="group">{t('groupReport')}</option>
+              </select>
+            </div>
+=======
                 <option value="attendance">Attendance Report</option>
                 <option value="audit">Audit Report</option>
               </select>
@@ -1266,6 +1318,7 @@ const ReportGeneration = () => {
                 </select>
               </div>
             )}
+>>>>>>> 7dbbc37b950156431cf1a19ea88cac62dc0e4c77
 
             {/* Report Grouping - only for group reports (not for attendance or meal) - Next to Report Scope */}
             {reportScope === 'group' && reportType !== 'attendance' && reportType !== 'meal' && (
@@ -1292,7 +1345,7 @@ const ReportGeneration = () => {
               <div className="form-group" style={{gridColumn: 'span 1'}}>
                 <label htmlFor="employeeId">
                   <i className="bi bi-person-badge"></i>
-                  Employee ID
+                  {t('employeeIdLabel')}
                 </label>
                 <input
                   type="text"
@@ -1300,9 +1353,9 @@ const ReportGeneration = () => {
                   value={employeeId}
                   onChange={(e) => setEmployeeId(e.target.value)}
                   className="form-control"
-                  placeholder="Enter employee ID"
+                  placeholder={t('enterEmployeeId')}
                   required={reportScope === 'individual'}
-                  title="Enter employee ID"
+                  title={t('enterEmployeeId')}
                 />
               </div>
             )}
@@ -1314,7 +1367,7 @@ const ReportGeneration = () => {
                 <div className="form-group" style={{gridColumn: 'span 1'}}>
                   <label htmlFor="divisionId">
                     <i className="bi bi-building"></i>
-                    Division
+                      {t('divisionLabel')}
                   </label>
                   <select
                     id="divisionId"
@@ -1324,7 +1377,7 @@ const ReportGeneration = () => {
                     disabled={reportScope === 'individual' && reportType !== 'meal'}
                     style={{ cursor: (reportScope === 'individual' && reportType !== 'meal') ? 'not-allowed' : 'pointer' }}
                   >
-                    <option value="all">All Divisions</option>
+                    <option value="all">{t('allDivisionsLabel')}</option>
                     {(Array.isArray(divisions) ? divisions : []).map(division => (
                       <option key={division._id || division.id} value={division._id || division.id}>
                         {division.name || division.division_name}
@@ -1337,7 +1390,7 @@ const ReportGeneration = () => {
                 <div className="form-group" style={{gridColumn: 'span 1'}}>
                   <label htmlFor="sectionId">
                     <i className="bi bi-diagram-3"></i>
-                    Section
+                      {t('sectionLabel')}
                   </label>
                   <select
                     id="sectionId"
@@ -1349,7 +1402,11 @@ const ReportGeneration = () => {
                     title={reportType === 'meal' ? 'Select a section' : (divisionId === 'all' ? 'All Divisions selected - Section must be All' : 'Select a section')}
                   >
                     <option value="all">
+<<<<<<< HEAD
+                      {t('allSectionsLabel')}
+=======
                       {divisionId === 'all' && reportType !== 'meal' ? 'All Sections' : 'All Sections'}
+>>>>>>> 7dbbc37b950156431cf1a19ea88cac62dc0e4c77
                     </option>
                     {(reportType === 'meal' || divisionId !== 'all') && (Array.isArray(sections) ? sections : []).map(section => (
                       <option key={section._id || section.id} value={section._id || section.id}>
@@ -1362,7 +1419,7 @@ const ReportGeneration = () => {
                 <div className="form-group" style={{gridColumn: 'span 1'}}>
                   <label htmlFor="subSectionId">
                     <i className="bi bi-diagram-2"></i>
-                    Sub Section
+                      {t('subSectionLabel')}
                   </label>
                   <select
                     id="subSectionId"
@@ -1374,7 +1431,11 @@ const ReportGeneration = () => {
                     title={reportType === 'meal' ? 'Select a sub section (optional)' : (divisionId === 'all' ? 'All Divisions selected - Sub Section must be All' : sectionId === 'all' ? 'Please select a section first' : 'Select a sub section')}
                   >
                     <option value="all">
+<<<<<<< HEAD
+                      {divisionId === 'all' ? t('allSubSectionsLabel') : sectionId === 'all' ? t('selectSectionFirst') : t('allSubSectionsLabel')}
+=======
                       {reportType === 'meal' ? 'All Sub Sections' : (divisionId === 'all' ? 'All Sub Sections' : sectionId === 'all' ? 'Select Section First' : 'All Sub Sections')}
+>>>>>>> 7dbbc37b950156431cf1a19ea88cac62dc0e4c77
                     </option>
                     {(reportType === 'meal' || (sectionId !== 'all' && divisionId !== 'all')) && (Array.isArray(subSections) ? subSections : []).map(sub => (
                       <option key={sub._id || sub.id} value={sub._id || sub.id}>
@@ -1408,6 +1469,23 @@ const ReportGeneration = () => {
               </>
             )}
 
+<<<<<<< HEAD
+            {/* Date Range */}
+            <div className="form-group">
+              <label htmlFor="startDate">
+                <i className="bi bi-calendar3"></i>
+                Start Date
+              </label>
+              <input
+                type="date"
+                id="startDate"
+                value={dateRange.startDate}
+                onChange={(e) => setDateRange({...dateRange, startDate: e.target.value})}
+                className="form-control"
+                required
+              />
+            </div>
+=======
             {/* Date Range - Hidden for Designation grouping and Meal Report */}
             {reportGrouping !== 'designation' && reportType !== 'meal' && (
               <>
@@ -1425,23 +1503,22 @@ const ReportGeneration = () => {
                     required
                   />
                 </div>
+>>>>>>> 7dbbc37b950156431cf1a19ea88cac62dc0e4c77
 
-                <div className="form-group">
-                  <label htmlFor="endDate">
-                    <i className="bi bi-calendar3"></i>
-                    End Date
-                  </label>
-                  <input
-                    type="date"
-                    id="endDate"
-                    value={dateRange.endDate}
-                    onChange={(e) => setDateRange({...dateRange, endDate: e.target.value})}
-                    className="form-control"
-                    required
-                  />
-                </div>
-              </>
-            )}
+            <div className="form-group">
+              <label htmlFor="endDate">
+                <i className="bi bi-calendar3"></i>
+                End Date
+              </label>
+              <input
+                type="date"
+                id="endDate"
+                value={dateRange.endDate}
+                onChange={(e) => setDateRange({...dateRange, endDate: e.target.value})}
+                className="form-control"
+                required
+              />
+            </div>
           </div>
 
           {/* Employee info preview (appears when division, section and employee ID are provided) */}
@@ -1471,18 +1548,18 @@ const ReportGeneration = () => {
           <div className="form-actions" style={{ marginBottom: '40px', display: 'flex', justifyContent: 'center' }}>
             <button
               type="submit"
-              disabled={loading || !canGenerate}
+              disabled={loading || !hasGeneratePermissionForType(reportType)}
               className="btn btn-primary btn-generate"
             >
               {loading ? (
                 <>
                   <i className="bi bi-hourglass-split spin"></i>
-                  Generating...
+                    {t('generating')}
                 </>
               ) : (
                 <>
                   <i className="bi bi-play-circle"></i>
-                  Generate Report
+                    {t('generateReport')}
                 </>
               )}
             </button>
@@ -1494,7 +1571,7 @@ const ReportGeneration = () => {
       {error && (
         <div className="error-message">
           <i className="bi bi-exclamation-triangle"></i>
-          {error}
+          {t('noDataFoundText') && error && error.includes('No records') ? t('noDataFoundText') : error}
         </div>
       )}
 
@@ -1621,6 +1698,41 @@ const ReportGeneration = () => {
             </div>
           </div>
 
+<<<<<<< HEAD
+          {/* Data Preview Row */}
+          <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '18px', marginBottom: '8px'}}>
+            <div style={{display: 'flex', alignItems: 'center', fontWeight: 600, fontSize: '1.15rem'}}>
+              <i className="bi bi-table" style={{marginRight: 10, marginLeft: 12, fontSize: '1.2rem'}}></i>
+              Data Preview
+            </div>
+            {/* Export Options - Only show for non-audit reports */}
+            {reportType !== 'audit' && (
+              <div className="action-group" style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                <span style={{fontWeight: 600, fontSize: '1.15rem', display: 'flex', alignItems: 'center', marginLeft: 12}}>
+                  <i className="bi bi-download" style={{marginRight: 6, fontSize: '1.2rem'}}></i>
+                  Export Options
+                </span>
+                {/* Print PDF should be controlled for attendance reports by attendance_download permission */}
+                {!(reportType === 'attendance') || canDownloadAttendance ? (
+                  <button
+                    onClick={() => exportReport('pdf')}
+                    className="btn btn-outline-primary"
+                    style={{marginLeft: 8, marginRight: 18, display: 'flex', alignItems: 'center', fontWeight: 500, fontSize: '1rem'}}
+                  >
+                    <i className="bi bi-file-earmark-pdf" style={{marginRight: 5, fontSize: '1.1rem'}}></i>
+                    Print PDF
+                  </button>
+                ) : (
+                  <button
+                    disabled
+                    title="You do not have permission to download this report"
+                    className="btn btn-outline-secondary"
+                    style={{marginLeft: 8, marginRight: 18, display: 'flex', alignItems: 'center', fontWeight: 500, fontSize: '1rem', opacity: 0.7}}
+                  >
+                    <i className="bi bi-file-earmark-pdf" style={{marginRight: 5, fontSize: '1.1rem'}}></i>
+                    Print PDF
+                  </button>
+=======
           {/* Data Preview Row - Hidden for Meal Reports */}
           {reportType !== 'meal' && (
             <>
@@ -1645,6 +1757,7 @@ const ReportGeneration = () => {
                       Print PDF
                     </button>
                   </div>
+>>>>>>> 7dbbc37b950156431cf1a19ea88cac62dc0e4c77
                 )}
               </div>
               <div className="data-preview">
@@ -1686,8 +1799,8 @@ const ReportGeneration = () => {
             <div className="empty-icon">
               <i className="bi bi-inbox"></i>
             </div>
-            <h4 className="empty-title">No Data Found</h4>
-            <p className="empty-text">No records found for the selected criteria. Try adjusting your filters.</p>
+            <h4 className="empty-title">{t('noDataFoundTitle')}</h4>
+            <p className="empty-text">{t('noDataFoundText')}</p>
           </div>
         </div>
       ) : !loading && (
@@ -1696,8 +1809,8 @@ const ReportGeneration = () => {
             <div className="empty-icon">
               <i className="bi bi-file-earmark-bar-graph"></i>
             </div>
-            <h4 className="empty-title">Ready to Generate Reports</h4>
-            <p className="empty-text">Configure your report parameters above and click "Generate Report" to start.</p>
+            <h4 className="empty-title">{t('readyToGenerateTitle')}</h4>
+            <p className="empty-text">{t('readyToGenerateText')}</p>
           </div>
         </div>
       )}
