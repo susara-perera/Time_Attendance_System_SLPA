@@ -11,7 +11,11 @@ const {
   getMealBookings,
   rateMeal,
   getMealStats,
-  generateMealMenu
+  generateMealMenu,
+  createMealBooking,
+  getTodaysBookingsCount,
+  getTodaysBookings,
+  setMealPreference
 } = require('../controllers/mealController');
 const { 
   auth, 
@@ -161,6 +165,43 @@ router.delete(
   auth,
   auditTrail('meal_booking_cancelled', 'Meal'),
   cancelMealBooking
+);
+
+// @route   POST /api/meal/book
+// @desc    Create a new meal booking (saves to MySQL)
+// @access  Private
+router.post(
+  '/book',
+  auth,
+  auditTrail('meal_booked', 'Meal'),
+  createMealBooking
+);
+
+// @route   GET /api/meals/bookings/today/count
+// @desc    Get today's bookings count
+// @access  Private
+router.get(
+  '/bookings/today/count',
+  auth,
+  getTodaysBookingsCount
+);
+
+// @route   GET /api/meals/bookings/today
+// @desc    Get today's bookings with full details
+// @access  Private
+router.get(
+  '/bookings/today',
+  auth,
+  getTodaysBookings
+);
+
+// @route   POST /api/meals/preference
+// @desc    Set employee meal preference
+// @access  Private
+router.post(
+  '/preference',
+  auth,
+  setMealPreference
 );
 
 module.exports = router;

@@ -1221,11 +1221,15 @@ const generateMySQLAttendanceReport = async (req, res) => {
 // @access  Private
 const generateMySQLMealReport = async (req, res) => {
   try {
+    console.log('=== MEAL REPORT REQUEST ===');
+    console.log('Request body:', req.body);
+
     const {
-      report_type = 'all',
-      employee_id = '',
       from_date,
-      to_date
+      to_date,
+      division_id = '',
+      section_id = '',
+      sub_section_id = ''
     } = req.body;
 
     // Validate required fields
@@ -1236,53 +1240,221 @@ const generateMySQLMealReport = async (req, res) => {
       });
     }
 
+    console.log(`\n📊 MEAL REPORT GENERATION STARTED (GROUP SCOPE ONLY)`);
+    console.log(`Date range: ${from_date} to ${to_date}`);
+    console.log(`Division filter: ${division_id || 'All'}`);
+    console.log(`Section filter: ${section_id || 'All'}`);
+    console.log(`Sub Section filter: ${sub_section_id || 'All'}`);
+
     // Create MySQL connection
     const connection = await createMySQLConnection();
+    console.log('✅ MySQL Connected successfully');
 
-    // Build meal report query
+    // Build meal report query from attendance table
+    // The MEAL-PKT-MNY column contains: 'I' or '1' for meal packet, 'mny' for meal money
+    // Must use backticks with proper escaping for column name with hyphens
     let sql = `SELECT 
-                id,
-                employee_id,
-                meal_date,
-                meal_type,
-                booking_time,
-                status
-               FROM meal_bookings 
-               WHERE meal_date BETWEEN ? AND ?`;
+                employee_ID,
+                date_,
+                \`MEAL-PKT-MNY\` as meal_indicator
+               FROM attendance 
+               WHERE date_ BETWEEN ? AND ?
+               AND \`MEAL-PKT-MNY\` IS NOT NULL 
+               AND \`MEAL-PKT-MNY\` != ''`;
     
     let params = [from_date, to_date];
 
-    // Add employee filter if specified
-    if (report_type === 'individual' && employee_id) {
-      sql += ` AND employee_id = ?`;
-      params.push(employee_id);
+    // Add ordering
+    sql += ` ORDER BY date_ DESC, employee_ID ASC`;
+
+    console.log('Executing meal query from attendance table...');
+    console.log('SQL:', sql);
+    const [mealRecords] = await connection.execute(sql, params);
+    console.log(`Found ${mealRecords.length} meal records`);
+
+    if (mealRecords.length === 0) {
+      await connection.end();
+      return res.status(200).json({
+        success: true,
+        data: [],
+        summary: {
+          totalMealPacketEmployees: 0,
+          totalMealMoneyEmployees: 0,
+          totalBothTypesEmployees: 0,
+          totalEmployees: 0,
+          totalMealRecords: 0,
+          dateRange: { from: from_date, to: to_date },
+          filters: {
+            division: division_id || 'All',
+            section: section_id || 'All',
+            subSection: sub_section_id || 'All'
+          }
+        },
+        message: 'No meal records found for the specified date range'
+      });
     }
 
-    // Add ordering
-    sql += ` ORDER BY meal_date DESC, booking_time DESC`;
+    // Get unique employee IDs who have meal records
+    const distinctEmployeeIds = [...new Set(mealRecords.map(r => String(r.employee_ID)))];
+    console.log(`Distinct employees with meals: ${distinctEmployeeIds.length}`);
 
-    // Execute query
-    const [meal_data] = await connection.execute(sql, params);
+    // Fetch employee details from HRIS
+    const hrisApiService = require('../services/hrisApiService');
+    let allEmployees = hrisApiService.getCachedEmployees();
+    
+    if (!allEmployees || allEmployees.length === 0) {
+      console.log('⚠️ Employee cache miss - fetching from HRIS...');
+      if (!hrisApiService.isCacheInitialized()) {
+        await hrisApiService.initializeCache();
+      }
+      allEmployees = hrisApiService.getCachedEmployees();
+      if (!allEmployees || allEmployees.length === 0) {
+        allEmployees = await hrisApiService.getCachedOrFetch('employee', {});
+      }
+    }
+    
+    console.log(`Fetched ${allEmployees.length} employees from HRIS`);
 
-    // Calculate summary statistics
+    // Filter employees by division/section if provided
+    let filteredEmployees = allEmployees;
+
+    if (sub_section_id && sub_section_id !== 'all') {
+      console.log(`🔍 Filtering by sub section: "${sub_section_id}"`);
+      try {
+        const [transferredRows] = await connection.execute(
+          'SELECT employee_id FROM subsection_transfers WHERE sub_section_id = ?',
+          [String(sub_section_id)]
+        );
+        const transferredEmployeeIds = transferredRows.map(row => String(row.employee_id));
+        console.log(`Found ${transferredEmployeeIds.length} transferred employees`);
+        
+        if (transferredEmployeeIds.length > 0) {
+          filteredEmployees = filteredEmployees.filter(emp => {
+            const empId = String(emp.EMP_NUMBER || emp.emp_no || emp.employee_no || '');
+            return transferredEmployeeIds.includes(empId);
+          });
+        }
+      } catch (err) {
+        console.error('Error fetching subsection transfers:', err);
+      }
+    } else if (section_id && section_id !== 'all') {
+      console.log(`🔍 Filtering by section: "${section_id}"`);
+      filteredEmployees = filteredEmployees.filter(emp => {
+        const empSectionName = (emp.currentwork?.HIE_NAME_3 || '').trim();
+        const filterSectionName = String(section_id).trim();
+        return empSectionName.toLowerCase() === filterSectionName.toLowerCase() ||
+               empSectionName.toLowerCase().includes(filterSectionName.toLowerCase());
+      });
+      console.log(`✅ Found ${filteredEmployees.length} employees in section`);
+    } else if (division_id && division_id !== 'all') {
+      console.log(`🔍 Filtering by division: "${division_id}"`);
+      filteredEmployees = filteredEmployees.filter(emp => {
+        const empDivisionName = (emp.currentwork?.HIE_NAME_2 || '').trim();
+        const filterDivisionName = String(division_id).trim();
+        return empDivisionName.toLowerCase() === filterDivisionName.toLowerCase() ||
+               empDivisionName.toLowerCase().includes(filterDivisionName.toLowerCase());
+      });
+      console.log(`✅ Found ${filteredEmployees.length} employees in division`);
+    }
+
+    // Match meal records with filtered employees
+    const employeeMap = new Map();
+    filteredEmployees.forEach(emp => {
+      const empId = String(emp.EMP_NUMBER || emp.emp_no || emp.employee_no || '');
+      employeeMap.set(empId, {
+        employee_ID: empId,
+        employee_name: emp.FULLNAME || emp.DISPLAY_NAME || 'Unknown',
+        division_name: emp.currentwork?.HIE_NAME_2 || '',
+        section_name: emp.currentwork?.HIE_NAME_3 || ''
+      });
+    });
+
+    // Process meal records and count employees professionally
+    // Track each employee's meal type across all dates
+    const employeeMealTypes = new Map(); // employee_ID -> { hasMealPacket: boolean, hasMealMoney: boolean }
+    const mealIndicatorSamples = new Set(); // Track unique meal indicators for debugging
+
+    mealRecords.forEach(record => {
+      const empId = String(record.employee_ID);
+      const employeeInfo = employeeMap.get(empId);
+
+      // Skip if employee not in filtered list (when filters are applied)
+      if ((division_id || section_id || sub_section_id) && !employeeInfo) {
+        return;
+      }
+
+      // Parse meal indicator from attendance table MEAL-PKT-MNY column
+      // Values: 'I' or '1' = meal packet, 'mny' = meal money
+      const mealIndicator = String(record.meal_indicator || '').trim().toLowerCase();
+      mealIndicatorSamples.add(mealIndicator); // Collect samples for logging
+      
+      const isMealPacket = mealIndicator === 'i' || mealIndicator === '1';
+      const isMealMoney = mealIndicator === 'mny' || mealIndicator.includes('mny');
+
+      // Initialize employee meal tracking if not exists
+      if (!employeeMealTypes.has(empId)) {
+        employeeMealTypes.set(empId, {
+          hasMealPacket: false,
+          hasMealMoney: false
+        });
+      }
+
+      // Update employee's meal type flags
+      const mealData = employeeMealTypes.get(empId);
+      if (isMealPacket) {
+        mealData.hasMealPacket = true;
+      }
+      if (isMealMoney) {
+        mealData.hasMealMoney = true;
+      }
+    });
+
+    // Count employees by meal type
+    let mealPacketCount = 0;
+    let mealMoneyCount = 0;
+    let bothTypesCount = 0;
+
+    employeeMealTypes.forEach((mealData, empId) => {
+      if (mealData.hasMealPacket && mealData.hasMealMoney) {
+        bothTypesCount++;
+      } else if (mealData.hasMealPacket) {
+        mealPacketCount++;
+      } else if (mealData.hasMealMoney) {
+        mealMoneyCount++;
+      }
+    });
+
+    // Calculate summary counts
     const summary = {
-      total_bookings: meal_data.length,
-      unique_employees: [...new Set(meal_data.map(record => record.employee_id))].length,
-      breakfast_bookings: meal_data.filter(record => record.meal_type === 'breakfast').length,
-      lunch_bookings: meal_data.filter(record => record.meal_type === 'lunch').length,
-      dinner_bookings: meal_data.filter(record => record.meal_type === 'dinner').length,
-      date_range: {
+      totalMealPacketEmployees: mealPacketCount,
+      totalMealMoneyEmployees: mealMoneyCount,
+      totalBothTypesEmployees: bothTypesCount,
+      totalEmployees: employeeMealTypes.size,
+      totalMealRecords: mealRecords.length,
+      dateRange: {
         from: from_date,
         to: to_date
+      },
+      filters: {
+        division: division_id || 'All',
+        section: section_id || 'All',
+        subSection: sub_section_id || 'All'
       }
     };
 
-    // Close connection
+    console.log(`\n📊 MEAL REPORT SUMMARY (PROFESSIONAL COUNT):`);
+    console.log(`   Meal indicators found: [${Array.from(mealIndicatorSamples).join(', ')}]`);
+    console.log(`   Employees with ONLY Meal Packets: ${summary.totalMealPacketEmployees}`);
+    console.log(`   Employees with ONLY Meal Money: ${summary.totalMealMoneyEmployees}`);
+    console.log(`   Employees with BOTH Types: ${summary.totalBothTypesEmployees}`);
+    console.log(`   Total Unique Employees: ${summary.totalEmployees}`);
+    console.log(`   Total Meal Records: ${summary.totalMealRecords}`);
+
     await connection.end();
 
     res.status(200).json({
       success: true,
-      data: meal_data,
+      data: [],
       summary,
       message: 'Meal report generated successfully'
     });

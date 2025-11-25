@@ -443,7 +443,8 @@ const ReportGeneration = () => {
       return;
     }
 
-    if (reportScope === 'individual' && !employeeId) {
+    // Only validate employee ID for individual scope reports (not for meal reports)
+    if (reportType !== 'meal' && reportScope === 'individual' && !employeeId) {
       setError('Please enter an employee ID for individual reports');
       return;
     }
@@ -583,23 +584,42 @@ const ReportGeneration = () => {
           section_name: payload.section_id
         });
       } else if (reportType === 'meal') {
-        // Use MongoDB API for meal reports
-        apiUrl = 'http://localhost:5000/api/meal-reports';
-        const params = new URLSearchParams({
-          startDate: dateRange.startDate,
-          endDate: dateRange.endDate,
-          scope: reportScope,
-          ...(reportScope === 'individual' && { employeeId }),
-          ...(reportScope === 'group' && {
-            divisionId: divisionId !== 'all' ? divisionId : '',
-            sectionId: sectionId !== 'all' ? sectionId : ''
-          })
-        });
-        apiUrl += `?${params}`;
+        // Use MySQL API for meal reports from attendance table (GROUP SCOPE ONLY)
+        apiUrl = 'http://localhost:5000/api/reports/mysql/meal';
+        
+        // Prepare payload for group meal report
+        payload = {
+          from_date: dateRange.startDate,
+          to_date: dateRange.endDate,
+          division_id: '',
+          section_id: '',
+          sub_section_id: ''
+        };
+
+        // Set division/section filters
+        if (divisionId && divisionId !== 'all') {
+          const selectedDivision = divisions.find(d => (d._id || d.id) === divisionId);
+          if (selectedDivision) {
+            payload.division_id = selectedDivision.hie_name || selectedDivision.name || '';
+          }
+        }
+        
+        if (sectionId && sectionId !== 'all') {
+          const selectedSection = sections.find(s => (s._id || s.id) === sectionId);
+          if (selectedSection) {
+            payload.section_id = selectedSection.hie_name || selectedSection.name || '';
+          }
+        }
+
+        if (subSectionId && subSectionId !== 'all') {
+          payload.sub_section_id = subSectionId;
+        }
+        
+        console.log('🍽️ Meal Report Payload (Group Scope):', payload);
       }
 
       let response;
-      if (reportType === 'attendance' || reportType === 'audit') {
+      if (reportType === 'attendance' || reportType === 'audit' || reportType === 'meal') {
         console.log('📤 Sending request to:', apiUrl);
         console.log('📤 Request payload:', JSON.stringify(payload, null, 2));
         
@@ -729,9 +749,8 @@ const ReportGeneration = () => {
 
   const getHeaders = () => {
     if (reportType === 'meal') {
-      return reportScope === 'individual'
-        ? ['Date', 'Time', 'Meal Type', 'Location', 'Quantity', 'Items']
-        : ['Employee ID', 'Employee Name', 'Date', 'Time', 'Meal Type', 'Location', 'Quantity', 'Items'];
+      // Meal report headers matching the MySQL attendance table structure
+      return ['Emp No', 'Emp Name', 'Division', 'Section', 'Date', 'Meal Packet', 'Meal Money'];
     } else if (reportScope === 'group' && reportData?.reportType === 'group') {
         // For group scope we want a flat punch-list style table similar to individual reports.
         return ['Emp No', 'Emp Name', 'Meal-Pkt-Mny', 'Punch Date', 'Punch Time', 'Function', 'Event Description'];
@@ -745,13 +764,16 @@ const ReportGeneration = () => {
   // If called with an attendance 'punch' object, it returns the standard row.
   const formatRow = (record) => {
     if (reportType === 'meal') {
-      const mealTime = new Date(record.mealTime || record.meal_time).toLocaleTimeString();
-      const items = record.items?.map(item => `${item.name} (${item.quantity})`).join(', ') || 'Standard Meal';
-      const quantity = record.items?.reduce((total, item) => total + item.quantity, 0) || 1;
-      
-      return reportScope === 'individual'
-        ? [record.date || record.meal_date, mealTime, record.mealType || record.meal_type, record.location || 'Cafeteria', quantity, items]
-        : [record.employee_id || record.user?.employeeId, record.employee_name || `${record.user?.firstName} ${record.user?.lastName}`, record.date || record.meal_date, mealTime, record.mealType || record.meal_type, record.location || 'Cafeteria', quantity, items];
+      // Format meal report row from attendance table
+      return [
+        record.employeeId || '',
+        record.employeeName || '',
+        record.division || 'N/A',
+        record.section || 'N/A',
+        record.date || '',
+        record.mealPacket || 'No',
+        record.mealMoney || 'No'
+      ];
     } else if (reportScope === 'group' && reportData?.reportType === 'group') {
       // For group reports we may be formatting individual punch records.
       // The incoming `record` in the group-preview mapping will be a punch-like object
@@ -1221,7 +1243,11 @@ const ReportGeneration = () => {
             <i className="bi bi-graph-up-arrow"></i>
             {t('reportGenerationTitle')}
           </h1>
+<<<<<<< HEAD
           <p className="header-subtitle">Generate comprehensive attendance and meal reports with advanced filtering options</p>
+=======
+          <p className="header-subtitle">Generate comprehensive Attendance and Audit reports with advanced filtering options</p>
+>>>>>>> 7dbbc37b950156431cf1a19ea88cac62dc0e4c77
         </div>
       </div>
 
@@ -1241,6 +1267,7 @@ const ReportGeneration = () => {
                 onChange={(e) => setReportType(e.target.value)}
                 className="form-control"
               >
+<<<<<<< HEAD
                 <option value="attendance">{t('attendanceReport')}</option>
                 <option value="meal">{t('mealReport')}</option>
                 <option value="audit">{t('auditReport')}</option>
@@ -1265,9 +1292,36 @@ const ReportGeneration = () => {
                 <option value="group">{t('groupReport')}</option>
               </select>
             </div>
+=======
+                <option value="attendance">Attendance Report</option>
+                <option value="audit">Audit Report</option>
+              </select>
+            </div>
 
-            {/* Report Grouping - only for group reports (not for attendance) - Next to Report Scope */}
-            {reportScope === 'group' && reportType !== 'attendance' && (
+            {/* Report Scope Selection - Hidden for Meal Report */}
+            {reportType !== 'meal' && (
+              <div className="form-group">
+                <label htmlFor="reportScope">
+                  <i className="bi bi-people"></i>
+                  Report Scope
+                </label>
+                <select
+                  id="reportScope"
+                  value={reportScope}
+                  onChange={(e) => setReportScope(e.target.value)}
+                  className="form-control"
+                  disabled={reportType === 'audit'}
+                  title={reportType === 'audit' ? 'Audit reports use group scope' : 'Select report scope'}
+                >
+                  <option value="individual">Individual Report</option>
+                  <option value="group">Group Report</option>
+                </select>
+              </div>
+            )}
+>>>>>>> 7dbbc37b950156431cf1a19ea88cac62dc0e4c77
+
+            {/* Report Grouping - only for group reports (not for attendance or meal) - Next to Report Scope */}
+            {reportScope === 'group' && reportType !== 'attendance' && reportType !== 'meal' && (
               <div className="form-group">
                 <label htmlFor="reportGrouping">
                   <i className="bi bi-collection"></i>
@@ -1286,8 +1340,8 @@ const ReportGeneration = () => {
               </div>
             )}
 
-            {/* Employee ID - only visible for individual scope */}
-            {reportScope === 'individual' && (
+            {/* Employee ID - only visible for individual scope and not for meal report */}
+            {reportScope === 'individual' && reportType !== 'meal' && (
               <div className="form-group" style={{gridColumn: 'span 1'}}>
                 <label htmlFor="employeeId">
                   <i className="bi bi-person-badge"></i>
@@ -1306,8 +1360,8 @@ const ReportGeneration = () => {
               </div>
             )}
 
-            {/* Division and Section - only visible for group scope */}
-            {reportScope === 'group' && (
+            {/* Division and Section - only visible for group scope or meal report */}
+            {(reportScope === 'group' || reportType === 'meal') && (
               <>
                 {/* Division - always visible, disabled for individual scope */}
                 <div className="form-group" style={{gridColumn: 'span 1'}}>
@@ -1320,8 +1374,8 @@ const ReportGeneration = () => {
                     value={divisionId}
                     onChange={(e) => setDivisionId(e.target.value)}
                     className="form-control"
-                    disabled={reportScope === 'individual'}
-                    style={{ cursor: reportScope === 'individual' ? 'not-allowed' : 'pointer' }}
+                    disabled={reportScope === 'individual' && reportType !== 'meal'}
+                    style={{ cursor: (reportScope === 'individual' && reportType !== 'meal') ? 'not-allowed' : 'pointer' }}
                   >
                     <option value="all">{t('allDivisionsLabel')}</option>
                     {(Array.isArray(divisions) ? divisions : []).map(division => (
@@ -1332,7 +1386,7 @@ const ReportGeneration = () => {
                   </select>
                 </div>
 
-                {/* Section - always visible, disabled for individual scope */}
+                {/* Section - always visible, disabled for individual scope (but enabled for meal report) */}
                 <div className="form-group" style={{gridColumn: 'span 1'}}>
                   <label htmlFor="sectionId">
                     <i className="bi bi-diagram-3"></i>
@@ -1343,21 +1397,25 @@ const ReportGeneration = () => {
                     value={sectionId}
                     onChange={(e) => setSectionId(e.target.value)}
                     className="form-control"
-                    disabled={reportScope === 'individual' || divisionId === 'all'}
-                    style={{ cursor: (reportScope === 'individual' || divisionId === 'all') ? 'not-allowed' : 'pointer' }}
-                    title={divisionId === 'all' ? 'All Divisions selected - Section must be All' : 'Select a section'}
+                    disabled={reportType === 'meal' ? false : (reportScope === 'individual' || divisionId === 'all')}
+                    style={{ cursor: (reportType === 'meal' ? 'pointer' : ((reportScope === 'individual' || divisionId === 'all') ? 'not-allowed' : 'pointer')) }}
+                    title={reportType === 'meal' ? 'Select a section' : (divisionId === 'all' ? 'All Divisions selected - Section must be All' : 'Select a section')}
                   >
                     <option value="all">
+<<<<<<< HEAD
                       {t('allSectionsLabel')}
+=======
+                      {divisionId === 'all' && reportType !== 'meal' ? 'All Sections' : 'All Sections'}
+>>>>>>> 7dbbc37b950156431cf1a19ea88cac62dc0e4c77
                     </option>
-                    {divisionId !== 'all' && (Array.isArray(sections) ? sections : []).map(section => (
+                    {(reportType === 'meal' || divisionId !== 'all') && (Array.isArray(sections) ? sections : []).map(section => (
                       <option key={section._id || section.id} value={section._id || section.id}>
                         {section.name || section.section_name}
                       </option>
                     ))}
                   </select>
                 </div>
-                {/* Sub Section - only visible for group scope */}
+                {/* Sub Section - only visible for group scope (optional for meal report) */}
                 <div className="form-group" style={{gridColumn: 'span 1'}}>
                   <label htmlFor="subSectionId">
                     <i className="bi bi-diagram-2"></i>
@@ -1368,14 +1426,18 @@ const ReportGeneration = () => {
                     value={subSectionId}
                     onChange={e => setSubSectionId(e.target.value)}
                     className="form-control"
-                    disabled={reportScope !== 'group' || sectionId === 'all' || divisionId === 'all'}
-                    style={{ cursor: (reportScope !== 'group' || sectionId === 'all' || divisionId === 'all') ? 'not-allowed' : 'pointer' }}
-                    title={divisionId === 'all' ? 'All Divisions selected - Sub Section must be All' : sectionId === 'all' ? 'Please select a section first' : 'Select a sub section'}
+                    disabled={reportType === 'meal' ? false : (reportScope !== 'group' || sectionId === 'all' || divisionId === 'all')}
+                    style={{ cursor: (reportType === 'meal' ? 'pointer' : ((reportScope !== 'group' || sectionId === 'all' || divisionId === 'all') ? 'not-allowed' : 'pointer')) }}
+                    title={reportType === 'meal' ? 'Select a sub section (optional)' : (divisionId === 'all' ? 'All Divisions selected - Sub Section must be All' : sectionId === 'all' ? 'Please select a section first' : 'Select a sub section')}
                   >
                     <option value="all">
+<<<<<<< HEAD
                       {divisionId === 'all' ? t('allSubSectionsLabel') : sectionId === 'all' ? t('selectSectionFirst') : t('allSubSectionsLabel')}
+=======
+                      {reportType === 'meal' ? 'All Sub Sections' : (divisionId === 'all' ? 'All Sub Sections' : sectionId === 'all' ? 'Select Section First' : 'All Sub Sections')}
+>>>>>>> 7dbbc37b950156431cf1a19ea88cac62dc0e4c77
                     </option>
-                    {sectionId !== 'all' && divisionId !== 'all' && (Array.isArray(subSections) ? subSections : []).map(sub => (
+                    {(reportType === 'meal' || (sectionId !== 'all' && divisionId !== 'all')) && (Array.isArray(subSections) ? subSections : []).map(sub => (
                       <option key={sub._id || sub.id} value={sub._id || sub.id}>
                         {sub.subSection?.sub_hie_name || sub.subSection?.name || sub.subSection?.hie_name || sub.subSection?.sub_hie_code || sub.subSection?.code || 'Unnamed'}
                       </option>
@@ -1383,8 +1445,8 @@ const ReportGeneration = () => {
                   </select>
                 </div>
 
-                {/* Time Period Selection - Next to Sub Section - Hidden for Designation grouping and Attendance reports */}
-                {reportGrouping !== 'designation' && reportType !== 'attendance' && (
+                {/* Time Period Selection - Next to Sub Section - Hidden for Designation grouping, Attendance and Meal reports */}
+                {reportGrouping !== 'designation' && reportType !== 'attendance' && reportType !== 'meal' && (
                   <div className="form-group" style={{gridColumn: 'span 1'}}>
                     <label htmlFor="timePeriod">
                       <i className="bi bi-calendar-range"></i>
@@ -1407,6 +1469,7 @@ const ReportGeneration = () => {
               </>
             )}
 
+<<<<<<< HEAD
             {/* Date Range */}
             <div className="form-group">
               <label htmlFor="startDate">
@@ -1422,6 +1485,25 @@ const ReportGeneration = () => {
                 required
               />
             </div>
+=======
+            {/* Date Range - Hidden for Designation grouping and Meal Report */}
+            {reportGrouping !== 'designation' && reportType !== 'meal' && (
+              <>
+                <div className="form-group">
+                  <label htmlFor="startDate">
+                    <i className="bi bi-calendar3"></i>
+                    Start Date
+                  </label>
+                  <input
+                    type="date"
+                    id="startDate"
+                    value={dateRange.startDate}
+                    onChange={(e) => setDateRange({...dateRange, startDate: e.target.value})}
+                    className="form-control"
+                    required
+                  />
+                </div>
+>>>>>>> 7dbbc37b950156431cf1a19ea88cac62dc0e4c77
 
             <div className="form-group">
               <label htmlFor="endDate">
@@ -1537,9 +1619,86 @@ const ReportGeneration = () => {
                 </span>
                 <span style={{color: '#666', fontWeight: 400, fontSize: '0.98rem', marginLeft: 'auto'}}>Generated at {new Date().toLocaleString()}</span>
               </div>
+              
+              {/* Meal Report Summary Stats */}
+              {reportType === 'meal' && reportData.summary && (
+                <div style={{borderTop: '1px solid #eee', paddingTop: 12, marginTop: 10}}>
+                  <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '12px'}}>
+                    <div style={{
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: 12, 
+                      padding: '14px 18px', 
+                      backgroundColor: '#f0f9ff', 
+                      borderRadius: '8px',
+                      border: '1px solid #bfdbfe'
+                    }}>
+                      <i className="bi bi-basket-fill" style={{fontSize: '1.6rem', color: '#0284c7'}}></i>
+                      <div>
+                        <div style={{fontSize: '0.85rem', color: '#64748b', marginBottom: '2px'}}>Meal Packets Only</div>
+                        <div style={{fontSize: '1.5rem', fontWeight: 'bold', color: '#0284c7'}}>{reportData.summary.totalMealPacketEmployees || 0}</div>
+                      </div>
+                    </div>
+                    
+                    <div style={{
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: 12, 
+                      padding: '14px 18px', 
+                      backgroundColor: '#fef3c7', 
+                      borderRadius: '8px',
+                      border: '1px solid #fcd34d'
+                    }}>
+                      <i className="bi bi-cash-coin" style={{fontSize: '1.6rem', color: '#d97706'}}></i>
+                      <div>
+                        <div style={{fontSize: '0.85rem', color: '#78716c', marginBottom: '2px'}}>Meal Money Only</div>
+                        <div style={{fontSize: '1.5rem', fontWeight: 'bold', color: '#d97706'}}>{reportData.summary.totalMealMoneyEmployees || 0}</div>
+                      </div>
+                    </div>
+                    
+                    <div style={{
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: 12, 
+                      padding: '14px 18px', 
+                      backgroundColor: '#f3e8ff', 
+                      borderRadius: '8px',
+                      border: '1px solid #d8b4fe'
+                    }}>
+                      <i className="bi bi-award-fill" style={{fontSize: '1.6rem', color: '#9333ea'}}></i>
+                      <div>
+                        <div style={{fontSize: '0.85rem', color: '#6b7280', marginBottom: '2px'}}>Both Types</div>
+                        <div style={{fontSize: '1.5rem', fontWeight: 'bold', color: '#9333ea'}}>{reportData.summary.totalBothTypesEmployees || 0}</div>
+                      </div>
+                    </div>
+                    
+                    <div style={{
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: 12, 
+                      padding: '14px 18px', 
+                      backgroundColor: '#dcfce7', 
+                      borderRadius: '8px',
+                      border: '1px solid #86efac'
+                    }}>
+                      <i className="bi bi-people-fill" style={{fontSize: '1.6rem', color: '#15803d'}}></i>
+                      <div>
+                        <div style={{fontSize: '0.85rem', color: '#64748b', marginBottom: '2px'}}>Total Unique Employees</div>
+                        <div style={{fontSize: '1.5rem', fontWeight: 'bold', color: '#15803d'}}>{reportData.summary.totalEmployees || 0}</div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div style={{display: 'flex', justifyContent: 'center', padding: '8px', backgroundColor: '#f8fafc', borderRadius: '6px', fontSize: '0.9rem', color: '#64748b'}}>
+                    <i className="bi bi-info-circle" style={{marginRight: '6px'}}></i>
+                    Total meal records processed: <b style={{marginLeft: '4px', color: '#475569'}}>{reportData.summary.totalMealRecords || 0}</b>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
+<<<<<<< HEAD
           {/* Data Preview Row */}
           <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '18px', marginBottom: '8px'}}>
             <div style={{display: 'flex', alignItems: 'center', fontWeight: 600, fontSize: '1.15rem'}}>
@@ -1573,11 +1732,35 @@ const ReportGeneration = () => {
                     <i className="bi bi-file-earmark-pdf" style={{marginRight: 5, fontSize: '1.1rem'}}></i>
                     Print PDF
                   </button>
+=======
+          {/* Data Preview Row - Hidden for Meal Reports */}
+          {reportType !== 'meal' && (
+            <>
+              <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '18px', marginBottom: '8px'}}>
+                <div style={{display: 'flex', alignItems: 'center', fontWeight: 600, fontSize: '1.15rem'}}>
+                  <i className="bi bi-table" style={{marginRight: 10, marginLeft: 12, fontSize: '1.2rem'}}></i>
+                  Data Preview
+                </div>
+                {/* Export Options - Only show for non-audit reports */}
+                {reportType !== 'audit' && (
+                  <div className="action-group" style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                    <span style={{fontWeight: 600, fontSize: '1.15rem', display: 'flex', alignItems: 'center', marginLeft: 12}}>
+                      <i className="bi bi-download" style={{marginRight: 6, fontSize: '1.2rem'}}></i>
+                      Export Options
+                    </span>
+                    <button
+                      onClick={() => exportReport('pdf')}
+                      className="btn btn-outline-primary"
+                      style={{marginLeft: 8, marginRight: 18, display: 'flex', alignItems: 'center', fontWeight: 500, fontSize: '1rem'}}
+                    >
+                      <i className="bi bi-file-earmark-pdf" style={{marginRight: 5, fontSize: '1.1rem'}}></i>
+                      Print PDF
+                    </button>
+                  </div>
+>>>>>>> 7dbbc37b950156431cf1a19ea88cac62dc0e4c77
                 )}
               </div>
-            )}
-          </div>
-          <div className="data-preview">
+              <div className="data-preview">
             <div className="table-responsive">
               {reportType === 'audit' ? (
                 <AuditReport
@@ -1605,6 +1788,8 @@ const ReportGeneration = () => {
               )}
             </div>
           </div>
+            </>
+          )}
         </div>
       ) : reportData && (
         (!reportData.data || reportData.data.length === 0)

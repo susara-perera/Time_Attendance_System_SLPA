@@ -724,6 +724,302 @@ const generateMealMenu = async (req, res) => {
   }
 };
 
+// @desc    Create a meal booking (save to MySQL)
+// @route   POST /api/meal/book
+// @access  Private
+const createMealBooking = async (req, res) => {
+  const { createMySQLConnection } = require('../config/mysql');
+  let conn;
+  
+  try {
+    const {
+      divisionId,
+      divisionName,
+      sectionId,
+      sectionName,
+      mealDate,
+      mealType,
+      quantity,
+      specialRequirements
+    } = req.body;
+
+    // Validation
+    if (!divisionId || !sectionId || !mealDate || !mealType || !quantity) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: divisionId, sectionId, mealDate, mealType, quantity'
+      });
+    }
+
+    // Get user info from request
+    const userId = req.user.id;
+    const employeeId = req.user.employeeId || null;
+    const employeeName = `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim();
+
+    conn = await createMySQLConnection();
+
+    // Insert meal booking into MySQL (matching actual table structure)
+    const insertQuery = `
+      INSERT INTO meal_bookings 
+      (division_id, meal_date, meal_type, quantity, special_requirements, booked_by, status)
+      VALUES (?, ?, ?, ?, ?, ?, 'pending')
+    `;
+
+    const [result] = await conn.execute(insertQuery, [
+      divisionId,
+      mealDate,
+      mealType,
+      parseInt(quantity),
+      specialRequirements || null,
+      userId
+    ]);
+
+    console.log('✅ Meal booking created in MySQL:', result.insertId);
+
+    res.status(201).json({
+      success: true,
+      message: 'Meal booked successfully',
+      data: {
+        id: result.insertId,
+        divisionId,
+        divisionName,
+        sectionId,
+        sectionName,
+        mealDate,
+        mealType,
+        quantity,
+        specialRequirements,
+        bookedBy: userId,
+        status: 'pending'
+      }
+    });
+  } catch (error) {
+    console.error('Create meal booking error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create meal booking'
+    });
+  } finally {
+    if (conn) await conn.end();
+  }
+};
+
+// @desc    Get today's bookings count
+// @route   GET /api/meals/bookings/today/count
+// @access  Private
+const getTodaysBookingsCount = async (req, res) => {
+  const { createMySQLConnection } = require('../config/mysql');
+  let conn;
+  
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    
+    conn = await createMySQLConnection();
+    
+    const query = `
+      SELECT COUNT(*) as count 
+      FROM meal_bookings 
+      WHERE meal_date = ? AND status IN ('pending', 'confirmed')
+    `;
+    
+    const [rows] = await conn.execute(query, [today]);
+    const count = rows[0]?.count || 0;
+    
+    res.json({
+      success: true,
+      count: count
+    });
+  } catch (error) {
+    console.error('Get today\'s bookings count error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get today\'s bookings count'
+    });
+  } finally {
+    if (conn) await conn.end();
+  }
+};
+
+// @desc    Get today's bookings with full details
+// @route   GET /api/meals/bookings/today
+// @access  Private
+const getTodaysBookings = async (req, res) => {
+  const { createMySQLConnection } = require('../config/mysql');
+  const User = require('../models/User');
+  let conn;
+  
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    
+    conn = await createMySQLConnection();
+    
+    // Query only MySQL meal_bookings table
+    const query = `
+      SELECT 
+        id,
+        division_id,
+        meal_date,
+        meal_type,
+        quantity,
+        special_requirements,
+        booked_by,
+        status,
+        created_at,
+        updated_at
+      FROM meal_bookings
+      WHERE meal_date = ?
+      ORDER BY created_at DESC
+    `;
+    
+    const [rows] = await conn.execute(query, [today]);
+    
+    // Get user info from MongoDB for each booking
+    const bookingsWithUserInfo = await Promise.all(
+      rows.map(async (row) => {
+        let userInfo = {
+          employeeId: 'N/A',
+          employeeName: 'Unknown User',
+          email: 'N/A',
+          divisionName: 'N/A',
+          sectionName: 'N/A'
+        };
+        
+        try {
+          // Fetch user from MongoDB
+          const user = await User.findById(row.booked_by)
+            .populate('division', 'name')
+            .populate('section', 'name')
+            .lean();
+          
+          if (user) {
+            userInfo = {
+              employeeId: user.employeeId || 'N/A',
+              employeeName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Unknown User',
+              email: user.email || 'N/A',
+              divisionName: user.division?.name || 'N/A',
+              sectionName: user.section?.name || 'N/A'
+            };
+          }
+        } catch (err) {
+          console.error('Error fetching user info:', err);
+        }
+        
+        return {
+          id: row.id,
+          divisionId: row.division_id,
+          mealDate: row.meal_date,
+          mealType: row.meal_type,
+          quantity: row.quantity,
+          specialRequirements: row.special_requirements || '-',
+          bookedBy: row.booked_by,
+          status: row.status,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          ...userInfo
+        };
+      })
+    );
+    
+    res.json({
+      success: true,
+      count: bookingsWithUserInfo.length,
+      data: bookingsWithUserInfo
+    });
+  } catch (error) {
+    console.error('Get today\'s bookings error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get today\'s bookings'
+    });
+  } finally {
+    if (conn) await conn.end();
+  }
+};
+
+// @desc    Set employee meal preference
+// @route   POST /api/meals/preference
+// @access  Private
+const setMealPreference = async (req, res) => {
+  const { createMySQLConnection } = require('../config/mysql');
+  let conn;
+  
+  try {
+    const {
+      employeeId,
+      employeeName,
+      preference,
+      divisionId,
+      sectionId
+    } = req.body;
+
+    // Validation
+    if (!employeeId || !preference) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: employeeId, preference'
+      });
+    }
+
+    if (!['meal', 'money'].includes(preference)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid preference. Must be "meal" or "money"'
+      });
+    }
+
+    const createdBy = req.user.id;
+
+    conn = await createMySQLConnection();
+
+    // Check if preference already exists
+    const [existing] = await conn.execute(
+      'SELECT id FROM meal_preferences WHERE employee_id = ?',
+      [employeeId]
+    );
+
+    if (existing.length > 0) {
+      // Update existing preference
+      await conn.execute(
+        `UPDATE meal_preferences 
+         SET preference = ?, employee_name = ?, division_id = ?, section_id = ?, 
+             created_by = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE employee_id = ?`,
+        [preference, employeeName, divisionId, sectionId, createdBy, employeeId]
+      );
+    } else {
+      // Insert new preference
+      await conn.execute(
+        `INSERT INTO meal_preferences 
+         (employee_id, employee_name, division_id, section_id, preference, created_by)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [employeeId, employeeName, divisionId, sectionId, preference, createdBy]
+      );
+    }
+
+    console.log(`✅ Meal preference set for employee ${employeeId}: ${preference}`);
+
+    res.json({
+      success: true,
+      message: 'Meal preference saved successfully',
+      data: {
+        employeeId,
+        employeeName,
+        preference,
+        divisionId,
+        sectionId
+      }
+    });
+  } catch (error) {
+    console.error('Set meal preference error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to set meal preference'
+    });
+  } finally {
+    if (conn) await conn.end();
+  }
+};
+
 module.exports = {
   getMeals,
   getMeal,
@@ -736,5 +1032,9 @@ module.exports = {
   getMealBookings,
   rateMeal,
   getMealStats,
-  generateMealMenu
+  generateMealMenu,
+  createMealBooking,
+  getTodaysBookingsCount,
+  getTodaysBookings,
+  setMealPreference
 };
