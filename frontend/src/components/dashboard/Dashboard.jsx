@@ -146,6 +146,31 @@ const Dashboard = () => {
     return () => clearInterval(timer);
   }, []);
 
+  // Time-based greeting (Good morning / afternoon / evening)
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'good morning';
+    if (hour < 18) return 'good afternoon';
+    return 'good evening';
+  };
+
+  // Prefer "First Last" when available, fall back to other identifiers
+  const displayName = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() || user?.name || user?.username || user?.email || '';
+  // Build initials for a small avatar fallback
+  const initials = (() => {
+    try {
+      if (displayName) {
+        const parts = displayName.split(' ').filter(Boolean);
+        return parts.map(p => p[0]).slice(0, 2).join('').toUpperCase();
+      }
+      if (user?.email) return String(user.email[0] || 'U').toUpperCase();
+    } catch (e) {
+      // fallback
+    }
+    return 'U';
+  })();
+  
+
   // Listen for external navigation events (e.g., from other components)
   React.useEffect(() => {
     const handler = (e) => {
@@ -374,14 +399,27 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Center Time Display */}
-          <div className="header-time-center">
-            <div className="time">{currentTime.time}</div>
-            <div className="date">{currentTime.date}</div>
+          {/* Center Greeting - appears in the header center column */}
+          <div className="nav-center">
+            <div className="header-greeting" aria-live="polite" aria-label={`Greeting: Hello ${displayName || user?.email || 'User'}`}>
+              <div className="greeting-pill" title={`Hello ${displayName || user?.email || 'User'}`}>
+                <div className="greeting-avatar" aria-hidden="true">{initials}</div>
+                <div className="greeting-content">
+                  <div className="greeting-line">Hello <span className="greeting-name">{displayName || user?.email || 'User'}</span></div>
+                  <div className="greeting-when">{getGreeting()}</div>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* User Section */}
           <div className="nav-user">
+            <div className="header-info" aria-live="polite">
+              <div className="header-time-center">
+                <div className="time">{currentTime.time}</div>
+                <div className="date">{currentTime.date}</div>
+              </div>
+            </div>
             {/* Header Actions */}
             <div className="header-actions">
               <button 

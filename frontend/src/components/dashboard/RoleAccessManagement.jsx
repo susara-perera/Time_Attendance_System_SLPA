@@ -6,7 +6,7 @@ import RoleManagement from './RoleManagement';
 import './RoleAccessManagement.css';
 
 const RoleAccessManagement = () => {
-  const { user } = useContext(AuthContext);
+  const { user, hasPermission } = useContext(AuthContext);
   const isSuperAdmin = user?.role === 'super_admin';
 
   const [roles, setRoles] = useState([]);
@@ -86,11 +86,16 @@ const RoleAccessManagement = () => {
   }, [showRoleManagement, selectedRole, isSavingAny]);
 
   // Permission checks
-  const hasRoleReadPermission = () => isSuperAdmin || user?.permissions?.roles?.read;
+  // Permission checks
+  const hasViewRolesPermission = () => isSuperAdmin || hasPermission('view_roles') || hasPermission('roles.read');
+
+  const hasRoleReadPermission = () => hasViewRolesPermission();
+
   // Allow users who have explicit permission-management update rights
   // to modify role permissions as well (in addition to roles.update).
-  const hasRoleUpdatePermission = () => isSuperAdmin || user?.permissions?.roles?.update || user?.permissions?.permission_management?.update_permission;
-  const hasRoleManageReadPermission = () => isSuperAdmin || (user?.permissions?.roles?.read === true) || (user?.permissions?.rolesManage?.read === true);
+  const hasRoleUpdatePermission = () => isSuperAdmin || hasPermission('update_role') || hasPermission('roles.update') || hasPermission('permission_management.update_permission');
+
+  const hasRoleManageReadPermission = () => hasViewRolesPermission();
 
   // Fetch roles from backend
   const fetchRoles = async (showRefreshIndicator = false) => {
@@ -544,7 +549,16 @@ const RoleAccessManagement = () => {
               Role Access Management
             </h2>
             <div className="header-actions">
-              <button className="btn-manage-roles" onClick={() => hasRoleManageReadPermission() ? setShowRoleManagement(true) : undefined} disabled={!hasRoleManageReadPermission()} title={!hasRoleManageReadPermission() ? "You need 'roles.read' access to manage roles" : "Manage Roles"}>
+              <button
+                className="btn-manage-roles"
+                onClick={() => {
+                  if (!hasViewRolesPermission()) return;
+                  // Use the Dashboard's global navigate event to switch to the Role Management page
+                  window.dispatchEvent(new CustomEvent('navigateTo', { detail: 'role-management' }));
+                }}
+                disabled={!hasViewRolesPermission()}
+                title={!hasViewRolesPermission() ? "You need 'view_roles' or 'roles.read' access to manage roles" : "Manage Roles"}
+              >
                 <i className="bi bi-gear" style={{ marginRight: '6px', fontSize: '1.1rem' }}></i> Manage Roles
               </button>
             </div>
