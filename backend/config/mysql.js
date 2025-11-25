@@ -116,6 +116,24 @@ async function ensureMySQLSchema() {
     console.log('🛠️  Ensured MySQL table exists: subsection_transfers');
     await conn.execute(ddlMealBookings);
     console.log('🛠️  Ensured MySQL table exists: meal_bookings');
+    
+    const ddlMealPreferences = `
+      CREATE TABLE IF NOT EXISTS meal_preferences (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        employee_id VARCHAR(50) NOT NULL UNIQUE,
+        employee_name VARCHAR(150) NULL,
+        division_id VARCHAR(50) NULL,
+        section_id VARCHAR(50) NULL,
+        preference VARCHAR(20) NOT NULL DEFAULT 'meal',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        created_by VARCHAR(50) NULL,
+        INDEX idx_employee_id (employee_id),
+        INDEX idx_preference (preference)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `;
+    await conn.execute(ddlMealPreferences);
+    console.log('🛠️  Ensured MySQL table exists: meal_preferences');
   } catch (err) {
     console.error('❌ Failed ensuring MySQL schema:', err.message);
   } finally {

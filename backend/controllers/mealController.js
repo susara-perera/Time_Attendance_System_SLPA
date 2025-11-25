@@ -936,6 +936,90 @@ const getTodaysBookings = async (req, res) => {
   }
 };
 
+// @desc    Set employee meal preference
+// @route   POST /api/meals/preference
+// @access  Private
+const setMealPreference = async (req, res) => {
+  const { createMySQLConnection } = require('../config/mysql');
+  let conn;
+  
+  try {
+    const {
+      employeeId,
+      employeeName,
+      preference,
+      divisionId,
+      sectionId
+    } = req.body;
+
+    // Validation
+    if (!employeeId || !preference) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: employeeId, preference'
+      });
+    }
+
+    if (!['meal', 'money'].includes(preference)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid preference. Must be "meal" or "money"'
+      });
+    }
+
+    const createdBy = req.user.id;
+
+    conn = await createMySQLConnection();
+
+    // Check if preference already exists
+    const [existing] = await conn.execute(
+      'SELECT id FROM meal_preferences WHERE employee_id = ?',
+      [employeeId]
+    );
+
+    if (existing.length > 0) {
+      // Update existing preference
+      await conn.execute(
+        `UPDATE meal_preferences 
+         SET preference = ?, employee_name = ?, division_id = ?, section_id = ?, 
+             created_by = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE employee_id = ?`,
+        [preference, employeeName, divisionId, sectionId, createdBy, employeeId]
+      );
+    } else {
+      // Insert new preference
+      await conn.execute(
+        `INSERT INTO meal_preferences 
+         (employee_id, employee_name, division_id, section_id, preference, created_by)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [employeeId, employeeName, divisionId, sectionId, preference, createdBy]
+      );
+    }
+
+    console.log(`✅ Meal preference set for employee ${employeeId}: ${preference}`);
+
+    res.json({
+      success: true,
+      message: 'Meal preference saved successfully',
+      data: {
+        employeeId,
+        employeeName,
+        preference,
+        divisionId,
+        sectionId
+      }
+    });
+  } catch (error) {
+    console.error('Set meal preference error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to set meal preference'
+    });
+  } finally {
+    if (conn) await conn.end();
+  }
+};
+
 module.exports = {
   getMeals,
   getMeal,
@@ -951,5 +1035,6 @@ module.exports = {
   generateMealMenu,
   createMealBooking,
   getTodaysBookingsCount,
-  getTodaysBookings
+  getTodaysBookings,
+  setMealPreference
 };

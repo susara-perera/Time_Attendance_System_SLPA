@@ -14,7 +14,8 @@ const {
   generateMealMenu,
   createMealBooking,
   getTodaysBookingsCount,
-  getTodaysBookings
+  getTodaysBookings,
+  setMealPreference
 } = require('../controllers/mealController');
 const { 
   auth, 
@@ -192,6 +193,15 @@ router.get(
   '/bookings/today',
   auth,
   getTodaysBookings
+);
+
+// @route   POST /api/meals/preference
+// @desc    Set employee meal preference
+// @access  Private
+router.post(
+  '/preference',
+  auth,
+  setMealPreference
 );
 
 module.exports = router;

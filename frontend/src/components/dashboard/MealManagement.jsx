@@ -22,6 +22,11 @@ const MealManagement = () => {
   const [showBookingsReport, setShowBookingsReport] = useState(false);
   const [showCountReport, setShowCountReport] = useState(false);
   const [reportData, setReportData] = useState(null);
+  const [showPreferenceModal, setShowPreferenceModal] = useState(false);
+  const [employeeSearch, setEmployeeSearch] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [mealPreference, setMealPreference] = useState('meal');
 
   // Fetch divisions and sections on component mount
   useEffect(() => {
@@ -314,6 +319,85 @@ const MealManagement = () => {
     }
   };
 
+  const handleSearchEmployee = async () => {
+    if (!employeeSearch.trim()) {
+      setMessage('Please enter employee ID or name');
+      setMessageType('error');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:5000/api/hris/employees/search?query=${encodeURIComponent(employeeSearch)}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      const result = await response.json();
+      
+      if (response.ok && result.success) {
+        setSearchResults(result.data || []);
+        if (result.data.length === 0) {
+          setMessage('No employees found');
+          setMessageType('error');
+        }
+      } else {
+        setMessage('Error searching employees');
+        setMessageType('error');
+      }
+    } catch (error) {
+      console.error('Employee search error:', error);
+      setMessage('Network error occurred');
+      setMessageType('error');
+    }
+  };
+
+  const handleSetMealPreference = async () => {
+    if (!selectedEmployee) {
+      setMessage('Please select an employee');
+      setMessageType('error');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:5000/api/meals/preference', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          employeeId: selectedEmployee.emp_no || selectedEmployee.employeeId,
+          employeeName: selectedEmployee.name || selectedEmployee.employeeName,
+          preference: mealPreference,
+          divisionId: selectedEmployee.division_id || userInfo?.division?.id,
+          sectionId: selectedEmployee.section_id || userInfo?.section?.id
+        })
+      });
+
+      const result = await response.json();
+      
+      if (response.ok && result.success) {
+        setMessage(`Employee meal preference set to ${mealPreference === 'meal' ? 'Physical Meal' : 'Meal Allowance'} successfully!`);
+        setMessageType('success');
+        setShowPreferenceModal(false);
+        setEmployeeSearch('');
+        setSearchResults([]);
+        setSelectedEmployee(null);
+        setTimeout(() => setMessage(''), 3000);
+      } else {
+        setMessage(result.message || 'Error setting preference');
+        setMessageType('error');
+      }
+    } catch (error) {
+      console.error('Set preference error:', error);
+      setMessage('Network error occurred');
+      setMessageType('error');
+    }
+  };
+
   const handleGenerateTodaysBookings = async () => {
     setGeneratingReport(true);
     setShowCountReport(false);
@@ -597,7 +681,7 @@ const MealManagement = () => {
               </button>
               
               <button 
-                className="btn btn-success w-100" 
+                className="btn btn-success w-100 mb-2" 
                 onClick={handleGenerateMealCountReport}
                 disabled={generatingReport}
               >
@@ -610,6 +694,13 @@ const MealManagement = () => {
                     <i className="bi bi-bar-chart"></i> Generate Meal Count Report
                   </>
                 )}
+              </button>
+              
+              <button 
+                className="btn btn-warning w-100" 
+                onClick={() => setShowPreferenceModal(true)}
+              >
+                <i className="bi bi-gear"></i> Set Meal Preference
               </button>
             </div>
           </div>
@@ -764,6 +855,148 @@ const MealManagement = () => {
                       </tbody>
                     </table>
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Meal Preference Modal */}
+        {showPreferenceModal && (
+          <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+            <div className="modal-dialog modal-lg">
+              <div className="modal-content">
+                <div className="modal-header bg-warning">
+                  <h5 className="modal-title">
+                    <i className="bi bi-gear"></i> Set Employee Meal Preference
+                  </h5>
+                  <button 
+                    type="button" 
+                    className="btn-close" 
+                    onClick={() => {
+                      setShowPreferenceModal(false);
+                      setEmployeeSearch('');
+                      setSearchResults([]);
+                      setSelectedEmployee(null);
+                    }}
+                  ></button>
+                </div>
+                <div className="modal-body">
+                  <div className="alert alert-info">
+                    <i className="bi bi-info-circle"></i> Choose whether employees receive physical meals or meal allowance money
+                  </div>
+
+                  {/* Employee Search */}
+                  <div className="mb-3">
+                    <label className="form-label fw-bold">Search Employee</label>
+                    <div className="input-group">
+                      <input 
+                        type="text"
+                        className="form-control"
+                        placeholder="Enter employee ID or name..."
+                        value={employeeSearch}
+                        onChange={(e) => setEmployeeSearch(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && handleSearchEmployee()}
+                      />
+                      <button 
+                        className="btn btn-primary" 
+                        onClick={handleSearchEmployee}
+                      >
+                        <i className="bi bi-search"></i> Search
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Search Results */}
+                  {searchResults.length > 0 && (
+                    <div className="mb-3">
+                      <label className="form-label fw-bold">Select Employee</label>
+                      <div className="list-group" style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                        {searchResults.map((emp) => (
+                          <button
+                            key={emp.emp_no || emp.employeeId}
+                            className={`list-group-item list-group-item-action ${selectedEmployee?.emp_no === emp.emp_no ? 'active' : ''}`}
+                            onClick={() => setSelectedEmployee(emp)}
+                          >
+                            <div className="d-flex justify-content-between">
+                              <div>
+                                <strong>{emp.emp_no || emp.employeeId}</strong> - {emp.name || emp.employeeName}
+                              </div>
+                              <small className="text-muted">{emp.section_name || 'N/A'}</small>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Selected Employee */}
+                  {selectedEmployee && (
+                    <div className="alert alert-success">
+                      <strong>Selected:</strong> {selectedEmployee.emp_no || selectedEmployee.employeeId} - {selectedEmployee.name || selectedEmployee.employeeName}
+                    </div>
+                  )}
+
+                  {/* Preference Selection */}
+                  <div className="mb-3">
+                    <label className="form-label fw-bold">Meal Preference</label>
+                    <div className="row">
+                      <div className="col-md-6">
+                        <div 
+                          className={`card ${mealPreference === 'meal' ? 'border-primary border-3' : ''}`}
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => setMealPreference('meal')}
+                        >
+                          <div className="card-body text-center">
+                            <i className="bi bi-egg-fried fs-1 text-primary"></i>
+                            <h5 className="mt-2">Physical Meal</h5>
+                            <p className="text-muted small">Employee receives actual meal from cafeteria</p>
+                            {mealPreference === 'meal' && (
+                              <i className="bi bi-check-circle-fill text-primary fs-4"></i>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="col-md-6">
+                        <div 
+                          className={`card ${mealPreference === 'money' ? 'border-success border-3' : ''}`}
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => setMealPreference('money')}
+                        >
+                          <div className="card-body text-center">
+                            <i className="bi bi-cash-coin fs-1 text-success"></i>
+                            <h5 className="mt-2">Meal Allowance</h5>
+                            <p className="text-muted small">Employee receives money instead of meal</p>
+                            {mealPreference === 'money' && (
+                              <i className="bi bi-check-circle-fill text-success fs-4"></i>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary" 
+                    onClick={() => {
+                      setShowPreferenceModal(false);
+                      setEmployeeSearch('');
+                      setSearchResults([]);
+                      setSelectedEmployee(null);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="button" 
+                    className="btn btn-primary" 
+                    onClick={handleSetMealPreference}
+                    disabled={!selectedEmployee}
+                  >
+                    <i className="bi bi-check-circle"></i> Save Preference
+                  </button>
                 </div>
               </div>
             </div>
