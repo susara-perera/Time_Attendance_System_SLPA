@@ -1,6 +1,7 @@
 import React, { useState, useContext } from 'react';
 import { AuthContext } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+import usePermission from '../../hooks/usePermission';
 import DashboardStats from './DashboardStats';
 import UserManagement from './UserManagement';
 import EmployeeManagement from './EmployeeManagement';
@@ -22,6 +23,26 @@ const Dashboard = () => {
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const { user, logout } = useContext(AuthContext);
   const { t } = useLanguage();
+  const canViewSettingsPerm = usePermission('settings', 'view');
+  // Also support legacy/explicit permission key `settings_view` stored under `permissions.settings`
+  const canViewSettings = (user && user.role === 'super_admin') || canViewSettingsPerm || !!(user?.permissions && user.permissions.settings && (user.permissions.settings.settings_view === true || user.permissions.settings.view === true));
+
+  // Employee view permission (master view for Employee Management)
+  const canViewEmployeesPerm = usePermission('employees', 'read');
+  // Also support legacy keys stored under `permissions.employees` (e.g., `employees_view` or `view`)
+  const canViewEmployees = (user && user.role === 'super_admin') || canViewEmployeesPerm || !!(user?.permissions && user.permissions.employees && (user.permissions.employees.employees_view === true || user.permissions.employees.view === true));
+
+  // Division view permission (master view for Division Management)
+  const canViewDivisionsPerm = usePermission('divisions', 'read');
+  const canViewDivisions = (user && user.role === 'super_admin') || canViewDivisionsPerm || !!(user?.permissions && user.permissions.divisions && (user.permissions.divisions.divisions_view === true || user.permissions.divisions.view === true));
+
+  // Section view permission (master view for Section Management)
+  const canViewSectionsPerm = usePermission('sections', 'read');
+  const canViewSections = (user && user.role === 'super_admin') || canViewSectionsPerm || !!(user?.permissions && user.permissions.sections && (user.permissions.sections.sections_view === true || user.permissions.sections.view === true));
+
+  // Permission Management view permission controls visibility of Roles & Permissions quick action
+  const canViewPermissionManagementPerm = usePermission('permission_management', 'view_permission');
+  const canViewPermissionManagement = (user && user.role === 'super_admin') || canViewPermissionManagementPerm || !!(user?.permissions && user.permissions.roles && (user.permissions.roles.read === true || user.permissions.roles.view === true));
 
   // Helper to display possibly-object profile fields safely
   const getDisplay = (v) => {
@@ -170,6 +191,13 @@ const Dashboard = () => {
     }
   };
 
+  // Users view permission (master view for User Management quick-action)
+  const canViewUsersPerm = usePermission('users', 'read');
+  const canViewUsers = (user && user.role === 'super_admin') || canViewUsersPerm || !!(user?.permissions && user.permissions.users && (user.permissions.users.users_view === true || user.permissions.users.view === true));
+
+  // Reports view permission controls visibility of Report Generation quick action
+  const canViewReportsPerm = usePermission('reports', 'view_reports');
+  const canViewReports = (user && user.role === 'super_admin') || canViewReportsPerm || !!(user?.permissions && user.permissions.reports && (user.permissions.reports.view_reports === true || user.permissions.reports.view === true));
   const quickActions = [
     {
       id: 'home',
@@ -279,7 +307,21 @@ const Dashboard = () => {
             <div className="sidebar-actions">
               {quickActions.map((action) => {
                 if (!hasAccess(action.roles)) return null;
-                
+                // Hide the settings quick action if the user lacks the settings view permission
+                if (action.id === 'settings' && !canViewSettings) return null;
+                // Hide the reports quick action if user lacks reports view permission
+                if (action.id === 'reports' && !canViewReports) return null;
+                // Hide Employee Management quick action if user lacks employee view permission
+                if (action.id === 'employees' && !canViewEmployees) return null;
+                // Hide Division Management quick action if user lacks division view permission
+                if (action.id === 'divisions' && !canViewDivisions) return null;
+                // Hide Section Management quick action if user lacks section view permission
+                if (action.id === 'sections' && !canViewSections) return null;
+                // Hide Users quick action if user lacks users view permission
+                if (action.id === 'users' && !canViewUsers) return null;
+                // Hide Roles & Permissions quick action if user lacks permission management view permission
+                if (action.id === 'roles' && !canViewPermissionManagement) return null;
+
                 return (
                   <button
                     key={action.id}
@@ -350,13 +392,15 @@ const Dashboard = () => {
                 <i className="bi bi-person-circle"></i>
               </button>
               
-              <button 
-                className="header-action-btn settings-btn" 
-                onClick={() => handleQuickAction('settings')}
-                title={t('settings')}
-              >
-                <i className="bi bi-gear"></i>
-              </button>
+              {canViewSettings && (
+                <button 
+                  className="header-action-btn settings-btn" 
+                  onClick={() => handleQuickAction('settings')}
+                  title={t('settings')}
+                >
+                  <i className="bi bi-gear"></i>
+                </button>
+              )}
               
               <button className="logout-btn" onClick={handleLogout}>
                 <span>{t('logout')}</span>
@@ -397,16 +441,18 @@ const Dashboard = () => {
                 </div>
               </div>
               <div className="profile-dropdown-footer">
-                <button 
-                  className="profile-dropdown-btn"
-                  onClick={() => {
-                    setShowProfileDropdown(false);
-                    handleQuickAction('settings');
-                  }}
-                >
-                  <i className="bi bi-gear"></i>
-                  <span>{t('settings')}</span>
-                </button>
+                {canViewSettings && (
+                  <button 
+                    className="profile-dropdown-btn"
+                    onClick={() => {
+                      setShowProfileDropdown(false);
+                      handleQuickAction('settings');
+                    }}
+                  >
+                    <i className="bi bi-gear"></i>
+                    <span>{t('settings')}</span>
+                  </button>
+                )}
               </div>
             </div>
           )}

@@ -155,7 +155,22 @@ const ReportGeneration = () => {
   };
 
   // permission checks
-  const canGenerate = usePermission('reports', 'create');
+  // Granular report permissions
+  const canGenerateFallback = usePermission('reports', 'create'); // legacy fallback
+  const canGenerateAttendance = usePermission('reports', 'attendance_generate');
+  const canDownloadAttendance = usePermission('reports', 'attendance_download');
+  const canGenerateAudit = usePermission('reports', 'audit_generate');
+  const canGenerateMeal = usePermission('reports', 'meal_generate');
+  const canViewReports = usePermission('reports', 'view_reports');
+
+  const hasGeneratePermissionForType = (type) => {
+    // Super-admins and legacy 'create' grant generation capability
+    // usePermission already checks current user context; keep fallback for backwards-compatibility
+    if (type === 'attendance') return !!(canGenerateAttendance || canGenerateFallback || canViewReports);
+    if (type === 'audit') return !!(canGenerateAudit || canGenerateFallback || canViewReports);
+    if (type === 'meal') return !!(canGenerateMeal || canGenerateFallback || canViewReports);
+    return !!(canGenerateFallback || canViewReports);
+  };
 
   // Fetch divisions and sections on component mount
   useEffect(() => {
@@ -418,8 +433,8 @@ const ReportGeneration = () => {
     e.preventDefault();
     setError('');
     
-    if (!canGenerate) {
-      setError('You do not have permission to generate reports');
+    if (!hasGeneratePermissionForType(reportType)) {
+      setError('You do not have permission to generate this type of report');
       return;
     }
 
@@ -687,6 +702,11 @@ const ReportGeneration = () => {
   const handlePrint = () => {
     if (!reportData || !reportData.data || reportData.data.length === 0) {
       alert('No data to print. Please generate a report first.');
+      return;
+    }
+    // Check download/print permission for attendance reports
+    if (reportType === 'attendance' && !canDownloadAttendance) {
+      setError('You do not have permission to download/print attendance reports');
       return;
     }
     if (reportType === 'audit') {
@@ -1446,7 +1466,7 @@ const ReportGeneration = () => {
           <div className="form-actions" style={{ marginBottom: '40px', display: 'flex', justifyContent: 'center' }}>
             <button
               type="submit"
-              disabled={loading || !canGenerate}
+              disabled={loading || !hasGeneratePermissionForType(reportType)}
               className="btn btn-primary btn-generate"
             >
               {loading ? (
@@ -1533,14 +1553,27 @@ const ReportGeneration = () => {
                   <i className="bi bi-download" style={{marginRight: 6, fontSize: '1.2rem'}}></i>
                   Export Options
                 </span>
-                <button
-                  onClick={() => exportReport('pdf')}
-                  className="btn btn-outline-primary"
-                  style={{marginLeft: 8, marginRight: 18, display: 'flex', alignItems: 'center', fontWeight: 500, fontSize: '1rem'}}
-                >
-                  <i className="bi bi-file-earmark-pdf" style={{marginRight: 5, fontSize: '1.1rem'}}></i>
-                  Print PDF
-                </button>
+                {/* Print PDF should be controlled for attendance reports by attendance_download permission */}
+                {!(reportType === 'attendance') || canDownloadAttendance ? (
+                  <button
+                    onClick={() => exportReport('pdf')}
+                    className="btn btn-outline-primary"
+                    style={{marginLeft: 8, marginRight: 18, display: 'flex', alignItems: 'center', fontWeight: 500, fontSize: '1rem'}}
+                  >
+                    <i className="bi bi-file-earmark-pdf" style={{marginRight: 5, fontSize: '1.1rem'}}></i>
+                    Print PDF
+                  </button>
+                ) : (
+                  <button
+                    disabled
+                    title="You do not have permission to download this report"
+                    className="btn btn-outline-secondary"
+                    style={{marginLeft: 8, marginRight: 18, display: 'flex', alignItems: 'center', fontWeight: 500, fontSize: '1rem', opacity: 0.7}}
+                  >
+                    <i className="bi bi-file-earmark-pdf" style={{marginRight: 5, fontSize: '1.1rem'}}></i>
+                    Print PDF
+                  </button>
+                )}
               </div>
             )}
           </div>

@@ -1,8 +1,9 @@
 
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import './settings-theme.css';
 import { useLanguage } from '../../context/LanguageContext';
+import { AuthContext } from '../../context/AuthContext';
 
 const TOOLTIP = {
   systemName: 'The name displayed across the system.',
@@ -34,6 +35,32 @@ const Settings = () => {
   const [activeTab, setActiveTab] = useState('general');
   // Additional settings state
   const { lang, setLang, t } = useLanguage();
+  const { user } = useContext(AuthContext);
+
+  const hasSettingPerm = (permId) => {
+    if (!user) return false;
+    if (user.role === 'super_admin') return true;
+    const s = user.permissions?.settings || {};
+    // support boolean or string 'true' values
+    return s[permId] === true || s[permId] === 'true' || false;
+  };
+
+  // Ensure activeTab defaults to the first permitted tab and cannot point to a tab the user
+  // does not have permission for.
+  useEffect(() => {
+    const tabsOrder = ['profile', 'general', 'appearance', 'security'];
+    const mapping = {
+      profile: 'profile_update',
+      general: 'settings_general',
+      appearance: 'settings_appearance',
+      security: 'settings_security'
+    };
+    // If current activeTab is not permitted, pick the first permitted tab
+    if (!hasSettingPerm(mapping[activeTab])) {
+      const firstAllowed = tabsOrder.find(t => hasSettingPerm(mapping[t]));
+      if (firstAllowed) setActiveTab(firstAllowed);
+    }
+  }, [user, activeTab]);
   const [theme, setTheme] = useState(() => {
     try {
       return localStorage.getItem('appTheme') || 'Light';
@@ -195,31 +222,41 @@ const Settings = () => {
         {/* Sidebar Navigation */}
         <div className="col-12 col-md-3 col-lg-2 mb-4">
           <div className="list-group shadow-sm" style={{ maxWidth: 220 }}>
-            <button
-              className={`list-group-item list-group-item-action${activeTab === 'profile' ? ' active' : ''}`}
-              onClick={() => setActiveTab('profile')}
-            >
-              <i className="bi bi-person me-2"></i> {t('profile')}
-            </button>
+            {hasSettingPerm('profile_update') && (
+              <button
+                className={`list-group-item list-group-item-action${activeTab === 'profile' ? ' active' : ''}`}
+                onClick={() => setActiveTab('profile')}
+              >
+                <i className="bi bi-person me-2"></i> {t('profile')}
+              </button>
+            )}
 
-            <button
-              className={`list-group-item list-group-item-action${activeTab === 'general' ? ' active' : ''}`}
-              onClick={() => setActiveTab('general')}
-            >
-              <i className="bi bi-gear me-2"></i> {t('general')}
-            </button>
-            <button
-              className={`list-group-item list-group-item-action${activeTab === 'appearance' ? ' active' : ''}`}
-              onClick={() => setActiveTab('appearance')}
-            >
-              <i className="bi bi-palette me-2"></i> {t('appearance')}
-            </button>
-            <button
-              className={`list-group-item list-group-item-action${activeTab === 'security' ? ' active' : ''}`}
-              onClick={() => setActiveTab('security')}
-            >
-              <i className="bi bi-shield-lock me-2"></i> {t('security')}
-            </button>
+            {hasSettingPerm('settings_general') && (
+              <button
+                className={`list-group-item list-group-item-action${activeTab === 'general' ? ' active' : ''}`}
+                onClick={() => setActiveTab('general')}
+              >
+                <i className="bi bi-gear me-2"></i> {t('general')}
+              </button>
+            )}
+
+            {hasSettingPerm('settings_appearance') && (
+              <button
+                className={`list-group-item list-group-item-action${activeTab === 'appearance' ? ' active' : ''}`}
+                onClick={() => setActiveTab('appearance')}
+              >
+                <i className="bi bi-palette me-2"></i> {t('appearance')}
+              </button>
+            )}
+
+            {hasSettingPerm('settings_security') && (
+              <button
+                className={`list-group-item list-group-item-action${activeTab === 'security' ? ' active' : ''}`}
+                onClick={() => setActiveTab('security')}
+              >
+                <i className="bi bi-shield-lock me-2"></i> {t('security')}
+              </button>
+            )}
           </div>
         </div>
 
@@ -230,6 +267,7 @@ const Settings = () => {
               <h3 className="mb-0"><i className="bi bi-gear me-2"></i>{t('systemSettings')}</h3>
             </div>
           </div>
+          {/* Subsection buttons are hidden when the user lacks their permissions. */}
           {activeTab === 'general' && (
             <div className="card shadow-sm" style={{ width: '100%' }}>
               <div className="card-body" style={{ padding: '22px' }}>
