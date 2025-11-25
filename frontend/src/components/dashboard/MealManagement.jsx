@@ -122,6 +122,7 @@ const MealManagement = () => {
   // Filter employees when search or filters change
   useEffect(() => {
     filterHRISEmployees();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employeeSearch, modalDivision, modalSection, modalSubSection, hrisEmployees]);
 
   // Manual loading - removed automatic refresh

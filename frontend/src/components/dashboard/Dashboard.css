@@ -1126,6 +1126,7 @@ Enhanced Button Colors with Gradients
   border: 1px solid rgba(16,24,40,0.06);
   box-shadow: 0 6px 18px rgba(16,24,40,0.06);
   transition: transform 180ms ease, box-shadow 180ms ease;
+  -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
 }
 
