@@ -1796,27 +1796,44 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
         console.log(`   💡 Try using one of the available HRIS section names listed above`);
       }
     } else if (division_id) {
-      // Filter by division name from HRIS
+      // Filter by division name from HRIS - but also check if it's actually a section name
       console.log(`\n🔍 Filtering by DIVISION: "${division_id}"`);
+      
+      // Show unique division names and section names in HRIS for debugging
+      const uniqueDivisions = [...new Set(allEmployees.map(e => e.currentwork?.HIE_NAME_2).filter(Boolean))];
+      const uniqueSections = [...new Set(allEmployees.map(e => e.currentwork?.HIE_NAME_3).filter(Boolean))];
+      console.log(`   📋 Available HRIS division names (${uniqueDivisions.length}):`, uniqueDivisions.sort().slice(0, 10));
+      console.log(`   📋 Available HRIS section names (${uniqueSections.length}):`, uniqueSections.sort().slice(0, 20));
+      
       filteredByDivisionSection = filteredByDivisionSection.filter(emp => {
         const empDivisionName = (emp.currentwork?.HIE_NAME_2 || '').trim();
-        const filterDivisionName = String(division_id).trim();
+        const empSectionName = (emp.currentwork?.HIE_NAME_3 || '').trim();
+        const filterName = String(division_id).trim();
         
-        // Try exact match first, then contains match
-        const exactMatch = empDivisionName.toLowerCase() === filterDivisionName.toLowerCase();
-        const containsMatch = empDivisionName.toLowerCase().includes(filterDivisionName.toLowerCase()) ||
-                             filterDivisionName.toLowerCase().includes(empDivisionName.toLowerCase());
+        // Check if filter matches division (HIE_NAME_2)
+        const divExactMatch = empDivisionName.toLowerCase() === filterName.toLowerCase();
+        const divContainsMatch = empDivisionName.toLowerCase().includes(filterName.toLowerCase()) ||
+                                filterName.toLowerCase().includes(empDivisionName.toLowerCase());
         
-        return exactMatch || containsMatch;
+        // Also check if filter matches section (HIE_NAME_3) - in case user selected a section from division dropdown
+        const secExactMatch = empSectionName.toLowerCase() === filterName.toLowerCase();
+        const secContainsMatch = empSectionName.toLowerCase().includes(filterName.toLowerCase()) ||
+                                filterName.toLowerCase().includes(empSectionName.toLowerCase());
+        
+        return divExactMatch || divContainsMatch || secExactMatch || secContainsMatch;
       });
-      console.log(`   ✅ Found ${filteredByDivisionSection.length} HRIS employees in division "${division_id}"`);
+      console.log(`   ✅ Found ${filteredByDivisionSection.length} HRIS employees matching "${division_id}"`);
       
       if (filteredByDivisionSection.length > 0) {
         console.log(`   Sample employees:`, filteredByDivisionSection.slice(0, 3).map(e => ({
           id: e.EMP_NUMBER,
           name: e.FULLNAME,
-          division: e.currentwork?.HIE_NAME_2
+          division: e.currentwork?.HIE_NAME_2,
+          section: e.currentwork?.HIE_NAME_3
         })));
+      } else {
+        console.log(`   ⚠️  No match! Your filter "${division_id}" doesn't match any HRIS division or section names`);
+        console.log(`   💡 Try using one of the available names listed above`);
       }
     } else {
       console.log(`   ℹ️  No division/section filter applied - using all employees`);

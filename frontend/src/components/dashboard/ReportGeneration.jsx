@@ -490,32 +490,51 @@ const ReportGeneration = () => {
             // If section is selected, use section's HRIS names
             const selectedSection = sections.find(s => (s._id || s.id || s.section_id) === sectionId);
             if (selectedSection) {
-              // Use the HRIS section name (HIE_NAME_3 from HRIS)
-              payload.section_id = selectedSection.section_name || selectedSection.name || '';
+              // Use the HRIS section name (HIE_NAME_3 from HRIS) - name field contains the HIE_NAME_3 value
+              payload.section_id = selectedSection.name || selectedSection.section_name || 
+                                  selectedSection.hie_name || selectedSection.SECTION_NAME || '';
               // Use the HRIS division name (HIE_NAME_2 from HRIS) that this section belongs to
-              payload.division_id = selectedSection.division_name || '';
+              payload.division_id = selectedSection.divisionName || selectedSection.division_name || 
+                                   selectedSection.DIVISION_NAME || '';
               
-              console.log('Selected section details:', {
+              console.log('🎯 Selected section details:', {
                 section_id: sectionId,
                 section_name: payload.section_id,
                 division_name: payload.division_id,
-                full_section: selectedSection
+                full_section: selectedSection,
+                available_fields: {
+                  name: selectedSection.name,
+                  section_name: selectedSection.section_name,
+                  hie_name: selectedSection.hie_name,
+                  divisionName: selectedSection.divisionName,
+                  division_name: selectedSection.division_name
+                }
               });
             }
           } else if (divisionId !== 'all') {
-            // If only division selected, use division's HRIS name
+            // If division selected with "All Sections", use division's HRIS name and empty section
             const selectedDivision = divisions.find(d => (d._id || d.id) === divisionId);
             if (selectedDivision) {
-              // Use the HRIS division name (hie_name)
-              payload.division_id = selectedDivision.hie_name || selectedDivision.name || '';
+              // Use the HRIS division name - hie_relationship is the actual HIE_NAME_2 field from HRIS
+              // Backend matches against emp.currentwork.HIE_NAME_2, so use hie_relationship first
+              payload.division_id = selectedDivision.hie_relationship || selectedDivision.hie_name || 
+                                   selectedDivision.name || selectedDivision.DIVISION_NAME || '';
+              // Empty section means all sections in this division
+              payload.section_id = '';
               
-              console.log('Selected division details:', {
+              console.log('🎯 Selected division with all sections:', {
                 division_id: divisionId,
                 division_name: payload.division_id,
-                full_division: selectedDivision
+                section_filter: 'All Sections',
+                full_division: selectedDivision,
+                available_fields: {
+                  hie_relationship: selectedDivision.hie_relationship,
+                  hie_name: selectedDivision.hie_name,
+                  name: selectedDivision.name,
+                  DIVISION_NAME: selectedDivision.DIVISION_NAME
+                }
               });
             }
-            payload.section_id = '';
           } else {
             payload.division_id = '';
             payload.section_id = '';
@@ -1264,7 +1283,6 @@ const ReportGeneration = () => {
                 className="form-control"
               >
                 <option value="attendance">{t('attendanceReport')}</option>
-                <option value="meal">{t('mealReport')}</option>
                 <option value="audit">{t('auditReport')}</option>
               </select>
             </div>
@@ -1429,36 +1447,40 @@ const ReportGeneration = () => {
               </>
             )}
 
-            {/* Date Range */}
-            <div className="form-group">
-              <label htmlFor="startDate">
-                <i className="bi bi-calendar3"></i>
-                Start Date
-              </label>
-              <input
-                type="date"
-                id="startDate"
-                value={dateRange.startDate}
-                onChange={(e) => setDateRange({...dateRange, startDate: e.target.value})}
-                className="form-control"
-                required
-              />
-            </div>
+            {/* Date Range - Hidden for Designation grouping */}
+            {reportGrouping !== 'designation' && (
+              <>
+                <div className="form-group">
+                  <label htmlFor="startDate">
+                    <i className="bi bi-calendar3"></i>
+                    Start Date
+                  </label>
+                  <input
+                    type="date"
+                    id="startDate"
+                    value={dateRange.startDate}
+                    onChange={(e) => setDateRange({...dateRange, startDate: e.target.value})}
+                    className="form-control"
+                    required
+                  />
+                </div>
 
-            <div className="form-group">
-              <label htmlFor="endDate">
-                <i className="bi bi-calendar3"></i>
-                End Date
-              </label>
-              <input
-                type="date"
-                id="endDate"
-                value={dateRange.endDate}
-                onChange={(e) => setDateRange({...dateRange, endDate: e.target.value})}
-                className="form-control"
-                required
-              />
-            </div>
+                <div className="form-group">
+                  <label htmlFor="endDate">
+                    <i className="bi bi-calendar3"></i>
+                    End Date
+                  </label>
+                  <input
+                    type="date"
+                    id="endDate"
+                    value={dateRange.endDate}
+                    onChange={(e) => setDateRange({...dateRange, endDate: e.target.value})}
+                    className="form-control"
+                    required
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           {/* Employee info preview (appears when division, section and employee ID are provided) */}
