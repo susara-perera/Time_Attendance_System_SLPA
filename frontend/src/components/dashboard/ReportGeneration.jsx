@@ -8,6 +8,7 @@ import { useLanguage } from '../../context/LanguageContext';
 
 const ReportGeneration = () => {
   const { t } = useLanguage();
+  const [activeStep, setActiveStep] = useState('report');
   const [reportType, setReportType] = useState('attendance');
   const [reportScope, setReportScope] = useState('individual');
   const [timePeriod, setTimePeriod] = useState('none');
@@ -20,6 +21,12 @@ const ReportGeneration = () => {
   const [allSections, setAllSections] = useState([]);
   const [subSections, setSubSections] = useState([]);
   const [subSectionId, setSubSectionId] = useState('all');
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [endMonth, setEndMonth] = useState(new Date());
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [calendarSelectMode, setCalendarSelectMode] = useState('start'); // 'start' or 'end'
+  const [lastClickTime, setLastClickTime] = useState(0);
+  const [lastClickedDay, setLastClickedDay] = useState(null);
   
   // Filter sections for selected division (client-side filtering like EmployeeManagement)
   useEffect(() => {
@@ -490,10 +497,10 @@ const ReportGeneration = () => {
             // If section is selected, use section's HRIS names
             const selectedSection = sections.find(s => (s._id || s.id || s.section_id) === sectionId);
             if (selectedSection) {
-              // Use the HRIS section name (HIE_NAME_3 from HRIS) - name field contains the HIE_NAME_3 value
+              // Use the HRIS section name (HIE_NAME_4 from HRIS) - name field contains the HIE_NAME_4 value
               payload.section_id = selectedSection.name || selectedSection.section_name || 
                                   selectedSection.hie_name || selectedSection.SECTION_NAME || '';
-              // Use the HRIS division name (HIE_NAME_2 from HRIS) that this section belongs to
+              // Use the HRIS division name (HIE_NAME_3 from HRIS) that this section belongs to
               payload.division_id = selectedSection.divisionName || selectedSection.division_name || 
                                    selectedSection.DIVISION_NAME || '';
               
@@ -515,10 +522,9 @@ const ReportGeneration = () => {
             // If division selected with "All Sections", use division's HRIS name and empty section
             const selectedDivision = divisions.find(d => (d._id || d.id) === divisionId);
             if (selectedDivision) {
-              // Use the HRIS division name - hie_relationship is the actual HIE_NAME_2 field from HRIS
-              // Backend matches against emp.currentwork.HIE_NAME_2, so use hie_relationship first
-              payload.division_id = selectedDivision.hie_relationship || selectedDivision.hie_name || 
-                                   selectedDivision.name || selectedDivision.DIVISION_NAME || '';
+              // Use the HRIS division name (prefer hie_name which is HIE_NAME_3); fall back to hie_relationship if needed
+              // Backend matches against emp.currentwork.HIE_NAME_3, so use hie_name first
+              payload.division_id = selectedDivision.hie_name || selectedDivision.hie_relationship || selectedDivision.name || selectedDivision.DIVISION_NAME || '';
               // Empty section means all sections in this division
               payload.section_id = '';
               
@@ -703,6 +709,7 @@ const ReportGeneration = () => {
           setEmployeeInfo(data.employee_info);
         }
         setError('');
+        setShowReportModal(true); // Open modal when report is generated
       } else if (reportArray.length === 0) {
         console.warn('⚠️ No records found in response');
         console.log('Response details:', {
@@ -1253,31 +1260,738 @@ const ReportGeneration = () => {
     `;
   };
 
+  // Calendar helper functions
+  const getDaysInMonth = (date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    return new Date(year, month + 1, 0).getDate();
+  };
+
+  const getFirstDayOfMonth = (date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    return new Date(year, month, 1).getDay();
+  };
+
+  const generateCalendarDays = (monthDate) => {
+    const daysInMonth = getDaysInMonth(monthDate);
+    const firstDay = getFirstDayOfMonth(monthDate);
+    const days = [];
+    
+    // Add empty cells for days before the first day of month
+    for (let i = 0; i < firstDay; i++) {
+      days.push(null);
+    }
+    
+    // Add actual days
+    for (let day = 1; day <= daysInMonth; day++) {
+      days.push(day);
+    }
+    
+    return days;
+  };
+
+  // Unified calendar date click handler - single click selects the date
+  const handleCalendarDateClick = (day, monthDate) => {
+    if (!day) return;
+    
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const selectedDate = new Date(year, month, day);
+    const dateStr = selectedDate.toISOString().split('T')[0];
+    
+    // If no dates selected yet, or clicking while in "start" mode, select single date
+    if (!dateRange.startDate || calendarSelectMode === 'start') {
+      // Select this date as both start and end (single day)
+      setDateRange({ startDate: dateStr, endDate: dateStr });
+      setCalendarSelectMode('end'); // Next click will extend the range
+      return;
+    }
+    
+    // If we have a start date and in "end" mode, create a range
+    if (calendarSelectMode === 'end') {
+      if (dateStr < dateRange.startDate) {
+        // Clicked before start date - make this the new start, keep end as old start
+        setDateRange({ startDate: dateStr, endDate: dateRange.startDate });
+      } else if (dateStr === dateRange.startDate) {
+        // Clicked same date - keep as single day
+        setDateRange({ startDate: dateStr, endDate: dateStr });
+      } else {
+        // Clicked after start - extend range
+        setDateRange({ ...dateRange, endDate: dateStr });
+      }
+      setCalendarSelectMode('start'); // Reset for next selection
+    }
+  };
+
+  const handleStartDateClick = (day) => {
+    if (day) {
+      const year = currentMonth.getFullYear();
+      const month = currentMonth.getMonth();
+      const selectedDate = new Date(year, month, day);
+      const dateStr = selectedDate.toISOString().split('T')[0];
+      
+      // If end date exists and new start date is after end date, update end date to match
+      if (dateRange.endDate && dateStr > dateRange.endDate) {
+        setDateRange({ startDate: dateStr, endDate: dateStr });
+      } else {
+        setDateRange({ ...dateRange, startDate: dateStr });
+      }
+    }
+  };
+
+  const handleEndDateClick = (day) => {
+    if (day) {
+      const year = endMonth.getFullYear();
+      const month = endMonth.getMonth();
+      const selectedDate = new Date(year, month, day);
+      const dateStr = selectedDate.toISOString().split('T')[0];
+      
+      // If start date exists and new end date is before start date, update start date to match
+      if (dateRange.startDate && dateStr < dateRange.startDate) {
+        setDateRange({ startDate: dateStr, endDate: dateStr });
+      } else {
+        setDateRange({ ...dateRange, endDate: dateStr });
+      }
+    }
+  };
+
+  // Check if a date is the start date
+  const isStartDate = (day, monthDate) => {
+    if (!day || !dateRange.startDate) return false;
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const dateStr = new Date(year, month, day).toISOString().split('T')[0];
+    return dateStr === dateRange.startDate;
+  };
+
+  // Check if a date is the end date
+  const isEndDate = (day, monthDate) => {
+    if (!day || !dateRange.endDate) return false;
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const dateStr = new Date(year, month, day).toISOString().split('T')[0];
+    return dateStr === dateRange.endDate;
+  };
+
+  // Check if date is today
+  const isToday = (day, monthDate) => {
+    if (!day) return false;
+    const today = new Date();
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    return day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
+  };
+
+  const previousMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
+  };
+
+  const nextMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
+  };
+
+  const previousEndMonth = () => {
+    setEndMonth(new Date(endMonth.getFullYear(), endMonth.getMonth() - 1, 1));
+  };
+
+  const nextEndMonth = () => {
+    setEndMonth(new Date(endMonth.getFullYear(), endMonth.getMonth() + 1, 1));
+  };
+
+  const isStartDateSelected = (day, monthDate) => {
+    if (!day) return false;
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const dateStr = new Date(year, month, day).toISOString().split('T')[0];
+    return dateStr === dateRange.startDate;
+  };
+
+  const isEndDateSelected = (day, monthDate) => {
+    if (!day) return false;
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const dateStr = new Date(year, month, day).toISOString().split('T')[0];
+    return dateStr === dateRange.endDate;
+  };
+
+  const isDateInRange = (day, monthDate) => {
+    if (!day || !dateRange.startDate || !dateRange.endDate) return false;
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const dateStr = new Date(year, month, day).toISOString().split('T')[0];
+    return dateStr >= dateRange.startDate && dateStr <= dateRange.endDate;
+  };
+
+  const isDateDisabledForStart = (day, monthDate) => {
+    if (!day || !dateRange.endDate) return false;
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const dateStr = new Date(year, month, day).toISOString().split('T')[0];
+    return dateStr > dateRange.endDate;
+  };
+
+  const isDateDisabledForEnd = (day, monthDate) => {
+    if (!day || !dateRange.startDate) return false;
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const dateStr = new Date(year, month, day).toISOString().split('T')[0];
+    return dateStr < dateRange.startDate;
+  };
+
+  const steps = [
+    { id: 'report', label: 'Report', icon: 'bi-file-earmark-check' },
+    { id: 'filters', label: 'Filters', icon: 'bi-funnel' },
+    { id: 'dateRange', label: 'Date Range', icon: 'bi-calendar-range' }
+  ];
+
   return (
     <div className="report-generation">
       {/* Header Section */}
       <div className="report-header">
-        <div className="header-content">
+        <div className="header-content header-no-subtitle">
           <h1>
             <i className="bi bi-graph-up-arrow"></i>
-            {t('reportGenerationTitle')}
+            Report Generation Center
           </h1>
-          <p className="header-subtitle">Generate comprehensive attendance and meal reports with advanced filtering options</p>
         </div>
       </div>
 
-      {/* Report Configuration Form */}
-      <div className="report-config">
+      {/* Form Container */}
+      <div className="report-form-container">
         <form onSubmit={handleSubmit} className="config-form">
-          <div className="form-grid" style={{display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '16px', alignItems: 'end'}}>
+            
+            <div className="simple-form-layout">
+            
+            {/* Section 1: Report Type & Scope */}
+            <div className="form-section-group">
+              <div className="form-row">
+                <div className="form-field">
+                  <label htmlFor="reportType">
+                    <i className="bi bi-file-earmark-text"></i>
+                    Report Type
+                  </label>
+                  <select
+                    id="reportType"
+                    value={reportType}
+                    onChange={(e) => setReportType(e.target.value)}
+                    className="form-control"
+                  >
+                    <option value="attendance">Attendance Report</option>
+                    <option value="audit">Audit Report</option>
+                    <option value="meal">Meal Report</option>
+                  </select>
+                </div>
+
+                <div className="form-field">
+                  <label htmlFor="reportScope">
+                    <i className="bi bi-people"></i>
+                    Report Scope
+                  </label>
+                  <select
+                    id="reportScope"
+                    value={reportScope}
+                    onChange={(e) => setReportScope(e.target.value)}
+                    className="form-control"
+                    disabled={reportType === 'audit'}
+                  >
+                    <option value="individual">Individual Report</option>
+                    <option value="group">Group Report</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 2: Filters */}
+            <div className="form-section-group">
+              {/* Employee ID for Individual Scope */}
+              {reportScope === 'individual' && reportType !== 'meal' && (
+                <div className="form-row">
+                  <div className="form-field full-width">
+                    <label htmlFor="employeeId">
+                      <i className="bi bi-person-badge"></i>
+                      {t('employeeIdLabel')}
+                    </label>
+                    <input
+                      type="text"
+                      id="employeeId"
+                      value={employeeId}
+                      onChange={(e) => setEmployeeId(e.target.value)}
+                      className="form-control"
+                      placeholder={t('enterEmployeeId')}
+                      required={reportScope === 'individual'}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Division, Section, Sub-Section - All in one row */}
+              {reportScope !== 'individual' && (
+                <div className="form-row">
+                  <div className="form-field">
+                    <label htmlFor="divisionId">
+                      <i className="bi bi-building"></i>
+                      {t('divisionLabel')}
+                    </label>
+                    <select
+                      id="divisionId"
+                      value={divisionId}
+                      onChange={(e) => setDivisionId(e.target.value)}
+                      className="form-control"
+                    >
+                      <option value="all">{t('allDivisionsLabel')}</option>
+                      {(Array.isArray(divisions) ? divisions : []).map(division => (
+                        <option key={division._id || division.id} value={division._id || division.id}>
+                          {division.name || division.division_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-field">
+                    <label htmlFor="sectionId">
+                      <i className="bi bi-diagram-3"></i>
+                      {t('sectionLabel')}
+                    </label>
+                    <select
+                      id="sectionId"
+                      value={sectionId}
+                      onChange={(e) => setSectionId(e.target.value)}
+                      className="form-control"
+                      disabled={divisionId === 'all'}
+                    >
+                      <option value="all">{t('allSectionsLabel')}</option>
+                      {divisionId !== 'all' && (Array.isArray(sections) ? sections : []).map(section => (
+                        <option key={section._id || section.id} value={section._id || section.id}>
+                          {section.name || section.section_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-field">
+                    <label htmlFor="subSectionId">
+                      <i className="bi bi-diagram-2"></i>
+                      {t('subSectionLabel')}
+                    </label>
+                    <select
+                      id="subSectionId"
+                      value={subSectionId}
+                      onChange={e => setSubSectionId(e.target.value)}
+                      className="form-control"
+                      disabled={sectionId === 'all' || divisionId === 'all'}
+                    >
+                      <option value="all">{t('allSubSectionsLabel')}</option>
+                      {(sectionId !== 'all' && divisionId !== 'all') && (Array.isArray(subSections) ? subSections : []).map(sub => (
+                        <option key={sub._id || sub.id} value={sub._id || sub.id}>
+                          {sub.subSection?.sub_hie_name || sub.subSection?.name || sub.subSection?.hie_name || 'Unnamed'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Report Grouping & Time Period */}
+              {reportScope === 'group' && reportType !== 'attendance' && reportType !== 'meal' && (
+                <div className="form-row">
+                  <div className="form-field">
+                    <label htmlFor="reportGrouping">
+                      <i className="bi bi-collection"></i>
+                      Group By
+                    </label>
+                    <select
+                      id="reportGrouping"
+                      value={reportGrouping}
+                      onChange={(e) => setReportGrouping(e.target.value)}
+                      className="form-control"
+                    >
+                      <option value="none">None</option>
+                      <option value="designation">Designation Wise</option>
+                      <option value="punch">F1-0 (Punch Type)</option>
+                    </select>
+                  </div>
+
+                  {reportGrouping !== 'designation' && (
+                    <div className="form-field">
+                      <label htmlFor="timePeriod">
+                        <i className="bi bi-calendar-range"></i>
+                        Time Period
+                      </label>
+                      <select
+                        id="timePeriod"
+                        value={timePeriod}
+                        onChange={(e) => setTimePeriod(e.target.value)}
+                        className="form-control"
+                      >
+                        <option value="none">None</option>
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                        <option value="annually">Annually</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Section 3: Date Range with Full Calendar UI */}
+            {reportGrouping !== 'designation' && (
+              <div className="form-section-group date-range-section">
+                {/* Selected Date Range Display */}
+                <div className="selected-date-display">
+                  <div className="date-display-item">
+                    <span className="date-label"><i className="bi bi-calendar-check"></i> Start Date</span>
+                    <span className={`date-value ${dateRange.startDate ? 'selected' : 'placeholder'}`}>
+                      {dateRange.startDate 
+                        ? new Date(dateRange.startDate + 'T00:00:00').toLocaleDateString('en-US', { 
+                            weekday: 'short', 
+                            month: 'short', 
+                            day: 'numeric', 
+                            year: 'numeric' 
+                          })
+                        : 'Click a date'}
+                    </span>
+                  </div>
+                  <div className="date-range-arrow">
+                    <i className="bi bi-arrow-right"></i>
+                  </div>
+                  <div className="date-display-item">
+                    <span className="date-label"><i className="bi bi-calendar-check"></i> End Date</span>
+                    <span className={`date-value ${dateRange.endDate ? 'selected' : 'placeholder'}`}>
+                      {dateRange.endDate 
+                        ? new Date(dateRange.endDate + 'T00:00:00').toLocaleDateString('en-US', { 
+                            weekday: 'short', 
+                            month: 'short', 
+                            day: 'numeric', 
+                            year: 'numeric' 
+                          })
+                        : 'Click another date'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Selection Mode Indicator */}
+                <div className="selection-mode-indicator">
+                  <span className={`mode-badge ${calendarSelectMode === 'start' ? 'active' : ''}`}>
+                    <i className="bi bi-1-circle"></i> Click date to select
+                  </span>
+                  <span className={`mode-badge ${calendarSelectMode === 'end' ? 'active' : ''}`}>
+                    <i className="bi bi-2-circle"></i> Click another for range
+                  </span>
+                  <span className="hint-text">
+                    <i className="bi bi-info-circle"></i> Single click = one day
+                  </span>
+                </div>
+
+                {/* Quick Date Selection Buttons */}
+                <div className="quick-date-buttons enhanced">
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      const today = new Date().toISOString().split('T')[0];
+                      setDateRange({ startDate: today, endDate: today });
+                      setCalendarSelectMode('start');
+                    }}
+                    className={`btn btn-quick ${dateRange.startDate === new Date().toISOString().split('T')[0] && dateRange.endDate === new Date().toISOString().split('T')[0] ? 'active' : ''}`}
+                  >
+                    <i className="bi bi-calendar-day"></i> Today
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      const today = new Date();
+                      const yesterday = new Date(today);
+                      yesterday.setDate(today.getDate() - 1);
+                      setDateRange({ 
+                        startDate: yesterday.toISOString().split('T')[0], 
+                        endDate: yesterday.toISOString().split('T')[0] 
+                      });
+                      setCalendarSelectMode('start');
+                    }}
+                    className="btn btn-quick"
+                  >
+                    <i className="bi bi-calendar-minus"></i> Yesterday
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      const today = new Date();
+                      const lastWeek = new Date(today);
+                      lastWeek.setDate(today.getDate() - 7);
+                      setDateRange({ 
+                        startDate: lastWeek.toISOString().split('T')[0], 
+                        endDate: today.toISOString().split('T')[0] 
+                      });
+                      setCalendarSelectMode('start');
+                    }}
+                    className="btn btn-quick"
+                  >
+                    <i className="bi bi-calendar-week"></i> Last 7 Days
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      const today = new Date();
+                      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+                      setDateRange({ 
+                        startDate: startOfMonth.toISOString().split('T')[0], 
+                        endDate: today.toISOString().split('T')[0] 
+                      });
+                      setCalendarSelectMode('start');
+                    }}
+                    className="btn btn-quick"
+                  >
+                    <i className="bi bi-calendar-month"></i> This Month
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      const today = new Date();
+                      const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+                      const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+                      setDateRange({ 
+                        startDate: startOfLastMonth.toISOString().split('T')[0], 
+                        endDate: endOfLastMonth.toISOString().split('T')[0] 
+                      });
+                      setCalendarSelectMode('start');
+                    }}
+                    className="btn btn-quick"
+                  >
+                    <i className="bi bi-calendar2-minus"></i> Last Month
+                  </button>
+                </div>
+
+                {/* Full Calendar UI */}
+                <div className="calendar-container">
+                  <div className="calendar-widget main-calendar">
+                    <div className="calendar-header-controls">
+                      <button type="button" onClick={previousMonth} className="calendar-nav-btn">
+                        <i className="bi bi-chevron-left"></i>
+                      </button>
+                      <div className="calendar-month-year">
+                        {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                      </div>
+                      <button type="button" onClick={nextMonth} className="calendar-nav-btn">
+                        <i className="bi bi-chevron-right"></i>
+                      </button>
+                    </div>
+                    
+                    <div className="calendar-grid">
+                      <div className="calendar-weekdays">
+                        <div className="calendar-weekday sun">SUN</div>
+                        <div className="calendar-weekday">MON</div>
+                        <div className="calendar-weekday">TUE</div>
+                        <div className="calendar-weekday">WED</div>
+                        <div className="calendar-weekday">THU</div>
+                        <div className="calendar-weekday">FRI</div>
+                        <div className="calendar-weekday sat">SAT</div>
+                      </div>
+                      
+                      <div className="calendar-days">
+                        {generateCalendarDays(currentMonth).map((day, index) => {
+                          const dayClasses = [
+                            'calendar-day',
+                            !day ? 'empty' : '',
+                            isStartDate(day, currentMonth) ? 'start-date' : '',
+                            isEndDate(day, currentMonth) ? 'end-date' : '',
+                            isDateInRange(day, currentMonth) ? 'in-range' : '',
+                            isToday(day, currentMonth) ? 'today' : '',
+                            (index % 7 === 0) ? 'sunday' : '',
+                            (index % 7 === 6) ? 'saturday' : ''
+                          ].filter(Boolean).join(' ');
+                          
+                          return (
+                            <div
+                              key={index}
+                              className={dayClasses}
+                              onClick={() => handleCalendarDateClick(day, currentMonth)}
+                            >
+                              {day && <span className="day-number">{day}</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Hidden native date inputs for form validation */}
+                <input
+                  type="hidden"
+                  id="startDate"
+                  value={dateRange.startDate}
+                  required
+                />
+                <input
+                  type="hidden"
+                  id="endDate"
+                  value={dateRange.endDate}
+                  required
+                />
+              </div>
+            )}
+
+                {/* Hidden Calendar Widgets - keeping structure but hiding */}
+                <div className="dual-calendar-container" style={{ display: 'none', marginTop: '24px' }}>
+                  {/* Start Date Calendar */}
+                  <div className="calendar-widget">
+                    <div className="calendar-header-controls">
+                      <button type="button" onClick={previousMonth} className="calendar-nav-btn">
+                        <i className="bi bi-chevron-left"></i>
+                      </button>
+                      <div className="calendar-month-year">
+                        {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                      </div>
+                      <button type="button" onClick={nextMonth} className="calendar-nav-btn">
+                        <i className="bi bi-chevron-right"></i>
+                      </button>
+                    </div>
+                    
+                    <div className="calendar-grid">
+                      <div className="calendar-weekdays">
+                        <div className="calendar-weekday">MON</div>
+                        <div className="calendar-weekday">TUE</div>
+                        <div className="calendar-weekday">WED</div>
+                        <div className="calendar-weekday">THU</div>
+                        <div className="calendar-weekday">FRI</div>
+                        <div className="calendar-weekday">SAT</div>
+                        <div className="calendar-weekday">SUN</div>
+                      </div>
+                      
+                      <div className="calendar-days">
+                        {generateCalendarDays(currentMonth).map((day, index) => (
+                          <div
+                            key={index}
+                            className={`calendar-day ${!day ? 'empty' : ''} ${isStartDateSelected(day, currentMonth) ? 'selected' : ''} ${isDateInRange(day, currentMonth) ? 'in-range' : ''} ${isDateDisabledForStart(day, currentMonth) ? 'disabled' : ''}`}
+                            onClick={() => !isDateDisabledForStart(day, currentMonth) && handleStartDateClick(day)}
+                          >
+                            {day}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* End Date Calendar */}
+                  <div className="calendar-widget">
+                    <div className="calendar-header-controls">
+                      <button type="button" onClick={previousEndMonth} className="calendar-nav-btn">
+                        <i className="bi bi-chevron-left"></i>
+                      </button>
+                      <div className="calendar-month-year">
+                        {endMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                      </div>
+                      <button type="button" onClick={nextEndMonth} className="calendar-nav-btn">
+                        <i className="bi bi-chevron-right"></i>
+                      </button>
+                    </div>
+                    
+                    <div className="calendar-grid">
+                      <div className="calendar-weekdays">
+                        <div className="calendar-weekday">MON</div>
+                        <div className="calendar-weekday">TUE</div>
+                        <div className="calendar-weekday">WED</div>
+                        <div className="calendar-weekday">THU</div>
+                        <div className="calendar-weekday">FRI</div>
+                        <div className="calendar-weekday">SAT</div>
+                        <div className="calendar-weekday">SUN</div>
+                      </div>
+                      
+                      <div className="calendar-days">
+                        {generateCalendarDays(endMonth).map((day, index) => (
+                          <div
+                            key={index}
+                            className={`calendar-day ${!day ? 'empty' : ''} ${isEndDateSelected(day, endMonth) ? 'selected' : ''} ${isDateInRange(day, endMonth) ? 'in-range' : ''} ${isDateDisabledForEnd(day, endMonth) ? 'disabled' : ''}`}
+                            onClick={() => !isDateDisabledForEnd(day, endMonth) && handleEndDateClick(day)}
+                          >
+                            {day}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Quick Selection Buttons - Centered Below Both Calendars */}
+                  <div className="calendar-quick-buttons-wrapper">
+                    <div className="calendar-quick-buttons">
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          const today = new Date();
+                          const todayStr = today.toISOString().split('T')[0];
+                          setDateRange({ startDate: todayStr, endDate: todayStr });
+                        }}
+                        className="btn btn-sm btn-outline-secondary"
+                      >
+                        Today
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          const today = new Date();
+                          const yesterday = new Date(today);
+                          yesterday.setDate(today.getDate() - 1);
+                          const yesterdayStr = yesterday.toISOString().split('T')[0];
+                          setDateRange({ startDate: yesterdayStr, endDate: yesterdayStr });
+                        }}
+                        className="btn btn-sm btn-outline-secondary"
+                      >
+                        Yesterday
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          const today = new Date();
+                          const lastWeek = new Date(today);
+                          lastWeek.setDate(today.getDate() - 7);
+                          setDateRange({ 
+                            startDate: lastWeek.toISOString().split('T')[0], 
+                            endDate: today.toISOString().split('T')[0] 
+                          });
+                        }}
+                        className="btn btn-sm btn-outline-secondary"
+                      >
+                        Last 7 Days
+                      </button>
+                    </div>
+                  </div>
+                </div>
+            </div>
+
+            {/* Generate Report Button */}
+            <div className="form-actions" style={{ marginTop: '2rem', display: 'flex', justifyContent: 'center' }}>
+              <button
+                type="submit"
+                disabled={loading || !hasGeneratePermissionForType(reportType)}
+                className="btn btn-primary btn-generate"
+              >
+                {loading ? (
+                  <>
+                    <i className="bi bi-hourglass-split spin"></i>
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <i className="bi bi-play-circle"></i>
+                    Generate Report
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Old form structure for reference - will be hidden */}
+            <div style={{ display: 'none' }}>
+            <div className="form-grid" style={{display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '16px', alignItems: 'end'}}>
             {/* Report Type Selection */}
             <div className="form-group">
-              <label htmlFor="reportType">
+              <label htmlFor="reportType-old">
                 <i className="bi bi-file-earmark-text"></i>
                 {t('reportTypeLabel')}
               </label>
               <select
-                id="reportType"
+                id="reportType-old"
                 value={reportType}
                 onChange={(e) => setReportType(e.target.value)}
                 className="form-control"
@@ -1482,10 +2196,11 @@ const ReportGeneration = () => {
               </>
             )}
           </div>
+          </div>
 
           {/* Employee info preview (appears when division, section and employee ID are provided) */}
           {employeeId && employeeInfo && (
-            <div style={{ gridColumn: '1 / -1', margin: '14px 0', display: 'flex', justifyContent: 'center' }}>
+            <div style={{ margin: '24px 0', display: 'flex', justifyContent: 'center' }}>
               <div style={{ background: '#fff', border: '1px solid #e6eefc', padding: '12px 18px', borderRadius: 10, boxShadow: '0 2px 8px rgba(102,126,234,0.06)', minWidth: 360 }}>
                 <div style={{ fontWeight: 700, marginBottom: 6 }}>{employeeInfo.FULLNAME || employeeInfo.FULL_NAME || employeeInfo.CALLING_NAME || employeeInfo.name || employeeInfo.employee_name || ''}</div>
                 <div style={{ display: 'flex', gap: 12, fontSize: 14 }}>
@@ -1499,33 +2214,13 @@ const ReportGeneration = () => {
 
           {/* If employeeId provided but no match found AND no report data, show warning */}
           {employeeId && !employeeInfo && reportData && reportData.data && reportData.data.length === 0 && (
-            <div style={{ gridColumn: '1 / -1', margin: '8px 0 18px', display: 'flex', justifyContent: 'center' }}>
+            <div style={{ margin: '8px 0 18px', display: 'flex', justifyContent: 'center' }}>
               <div style={{ background: '#fff6f6', border: '1px solid #fde2e2', padding: '10px 14px', borderRadius: 8, color: '#c53030', minWidth: 360, textAlign: 'center' }}>
                 No employee found for the entered ID in the selected division/section.
               </div>
             </div>
           )}
 
-          {/* Generate Button */}
-          <div className="form-actions" style={{ marginBottom: '40px', display: 'flex', justifyContent: 'center' }}>
-            <button
-              type="submit"
-              disabled={loading || !hasGeneratePermissionForType(reportType)}
-              className="btn btn-primary btn-generate"
-            >
-              {loading ? (
-                <>
-                  <i className="bi bi-hourglass-split spin"></i>
-                    {t('generating')}
-                </>
-              ) : (
-                <>
-                  <i className="bi bi-play-circle"></i>
-                    {t('generateReport')}
-                </>
-              )}
-            </button>
-          </div>
         </form>
       </div>
 
@@ -1537,10 +2232,13 @@ const ReportGeneration = () => {
         </div>
       )}
 
-      {/* Report Results */}
-      {reportData && (
-        (reportData.data && reportData.data.length > 0)
-      ) ? (
+      {/* Report Results Modal */}
+      {showReportModal && reportData && (reportData.data && reportData.data.length > 0) && (
+        <div className="report-modal-overlay" onClick={() => setShowReportModal(false)}>
+          <div className="report-modal-content" onClick={(e) => e.stopPropagation()}>
+            <button className="report-modal-close" onClick={() => setShowReportModal(false)}>
+              <i className="bi bi-x-lg"></i>
+            </button>
         <div className="report-results">
           <div className="results-header">
             <div className="filter-summary attractive-summary-card" style={{
@@ -1726,9 +2424,16 @@ const ReportGeneration = () => {
             </div>
           </div>
         </div>
-      ) : reportData && (
-        (!reportData.data || reportData.data.length === 0)
-      ) ? (
+          </div>
+        </div>
+      )}
+
+      {showReportModal && reportData && (!reportData.data || reportData.data.length === 0) && (
+        <div className="report-modal-overlay" onClick={() => setShowReportModal(false)}>
+          <div className="report-modal-content" onClick={(e) => e.stopPropagation()}>
+            <button className="report-modal-close" onClick={() => setShowReportModal(false)}>
+              <i className="bi bi-x-lg"></i>
+            </button>
         <div className="report-results">
           <div className="empty-state">
             <div className="empty-icon">
@@ -1738,7 +2443,16 @@ const ReportGeneration = () => {
             <p className="empty-text">{t('noDataFoundText')}</p>
           </div>
         </div>
-      ) : !loading && (
+          </div>
+        </div>
+      )}
+
+      {!loading && showReportModal && !reportData && (
+        <div className="report-modal-overlay" onClick={() => setShowReportModal(false)}>
+          <div className="report-modal-content" onClick={(e) => e.stopPropagation()}>
+            <button className="report-modal-close" onClick={() => setShowReportModal(false)}>
+              <i className="bi bi-x-lg"></i>
+            </button>
         <div className="report-results">
           <div className="empty-state">
             <div className="empty-icon">
@@ -1746,6 +2460,8 @@ const ReportGeneration = () => {
             </div>
             <h4 className="empty-title">{t('readyToGenerateTitle')}</h4>
             <p className="empty-text">{t('readyToGenerateText')}</p>
+          </div>
+        </div>
           </div>
         </div>
       )}

@@ -22,6 +22,8 @@ const auditLogSchema = new mongoose.Schema({
   'division_created', 'division_updated', 'division_deleted', 'section_created', 'section_updated', 'section_deleted',
   // SubSection actions
   'subsection_created', 'subsection_updated', 'subsection_deleted', 'subsections_viewed', 'subsection_viewed',
+  // MySQL transfer actions
+  'mysql_transfers_all_listed',
   // Employee Transfer actions
   'employee_transferred_to_subsection', 'employee_transfer_recalled',
       

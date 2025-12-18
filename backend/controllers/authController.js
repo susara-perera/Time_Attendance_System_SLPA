@@ -94,7 +94,13 @@ const login = async (req, res) => {
     }
 
     // Check password
+    console.log('Login attempt for user:', user.email);
+    console.log('Password received:', password ? `Yes (length: ${password.length})` : 'No');
+    console.log('Stored password hash exists:', user.password ? 'Yes' : 'No');
+    console.log('Stored hash length:', user.password ? user.password.length : 0);
+    
     const isPasswordValid = await user.comparePassword(password);
+    console.log('Password comparison result:', isPasswordValid);
     
     if (!isPasswordValid) {
       // Login attempt increment removed for development

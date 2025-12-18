@@ -1,4 +1,5 @@
 const { createMySQLConnection } = require('../config/mysql');
+const AuditLog = require('../models/AuditLog');
 
 // Map DB row -> API shape compatible with existing frontend usage
 function mapRow(row) {
@@ -90,6 +91,32 @@ exports.create = async (req, res, next) => {
     const [row] = await conn.execute('SELECT * FROM subsections WHERE section_id = ? AND sub_code = ? LIMIT 1', [payload.section_id, payload.sub_code]);
     const created = Array.isArray(row) && row[0] ? mapRow(row[0]) : null;
 
+    // Log audit trail for MySQL sub-section creation
+    if (req.user?._id) {
+      try {
+        await AuditLog.createLog({
+          user: req.user._id,
+          action: 'mysql_subsection_created',
+          entity: { type: 'MySQLSubSection', id: created?._id, name: payload.sub_name },
+          category: 'data_modification',
+          severity: 'medium',
+          description: `MySQL Sub-section "${payload.sub_name}" created`,
+          details: `Created MySQL sub-section "${payload.sub_name}" (${payload.sub_code}) under section "${payload.section_name}"`,
+          metadata: {
+            database: 'mysql',
+            sectionId: payload.section_id,
+            sectionName: payload.section_name,
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+            method: req.method,
+            endpoint: req.originalUrl
+          }
+        });
+      } catch (auditErr) {
+        console.error('[AuditLog] Failed to log MySQL sub-section creation:', auditErr);
+      }
+    }
+
     return res.status(201).json({ success: true, message: 'Sub-section created successfully', data: created });
   } catch (err) {
     // Duplicate entry
@@ -135,6 +162,31 @@ exports.update = async (req, res, next) => {
     const [rows] = await conn.execute('SELECT * FROM subsections WHERE id = ? LIMIT 1', [String(id)]);
     const updated = Array.isArray(rows) && rows[0] ? mapRow(rows[0]) : null;
 
+    // Log audit trail for MySQL sub-section update
+    if (req.user?._id) {
+      try {
+        await AuditLog.createLog({
+          user: req.user._id,
+          action: 'mysql_subsection_updated',
+          entity: { type: 'MySQLSubSection', id: id, name: updated?.subSection?.sub_hie_name },
+          category: 'data_modification',
+          severity: 'medium',
+          description: `MySQL Sub-section updated`,
+          details: `Updated MySQL sub-section to "${newName}" (${newCode})`,
+          changes: { after: { name: newName, code: newCode } },
+          metadata: {
+            database: 'mysql',
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+            method: req.method,
+            endpoint: req.originalUrl
+          }
+        });
+      } catch (auditErr) {
+        console.error('[AuditLog] Failed to log MySQL sub-section update:', auditErr);
+      }
+    }
+
     return res.json({ success: true, message: 'Sub-section updated successfully', data: updated });
   } catch (err) {
     if (err && err.code === 'ER_DUP_ENTRY') {
@@ -153,10 +205,41 @@ exports.remove = async (req, res, next) => {
   try {
     const { id } = req.params;
     conn = await createMySQLConnection();
+    
+    // Fetch the subsection before deletion for audit log
+    const [existingRows] = await conn.execute('SELECT * FROM subsections WHERE id = ? LIMIT 1', [String(id)]);
+    const existing = Array.isArray(existingRows) && existingRows[0] ? existingRows[0] : null;
+    
     const [result] = await conn.execute('DELETE FROM subsections WHERE id = ?', [String(id)]);
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'Sub-section not found' });
     }
+
+    // Log audit trail for MySQL sub-section deletion
+    if (req.user?._id) {
+      try {
+        await AuditLog.createLog({
+          user: req.user._id,
+          action: 'mysql_subsection_deleted',
+          entity: { type: 'MySQLSubSection', id: id, name: existing?.sub_name },
+          category: 'data_modification',
+          severity: 'high',
+          description: `MySQL Sub-section "${existing?.sub_name || id}" deleted`,
+          details: `Deleted MySQL sub-section "${existing?.sub_name}" (${existing?.sub_code}) from section "${existing?.section_name}"`,
+          metadata: {
+            database: 'mysql',
+            deletedData: existing,
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+            method: req.method,
+            endpoint: req.originalUrl
+          }
+        });
+      } catch (auditErr) {
+        console.error('[AuditLog] Failed to log MySQL sub-section deletion:', auditErr);
+      }
+    }
+
     return res.json({ success: true, message: 'Sub-section deleted successfully' });
   } catch (err) {
     console.error('[MySQL] delete subsection failed:', err);

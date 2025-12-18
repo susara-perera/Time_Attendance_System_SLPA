@@ -5,14 +5,28 @@
   position: relative;
 }
 
-/* Professional Footer Bar - Above Video */
+/* Professional Footer Bar - Above Video with Enhanced Animation */
 .dashboard-footer {
-  background: linear-gradient(135deg, #1e293b 0%, #0f172a 50%, #1e293b 100%);
-  border-top: 2px solid #3b82f6;
-  padding: 0.25rem 0; /* Even smaller - very thin footer */
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 40%, #1e3a8a 100%);
+  border-top: 3px solid;
+  border-image: linear-gradient(90deg, #3b82f6, #8b5cf6, #06b6d4, #3b82f6) 1;
+  padding: 0.25rem 0;
   position: relative;
   z-index: 1;
-  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 -6px 30px rgba(0, 0, 0, 0.35);
+  animation: slideInUp 0.6s ease-out forwards;
+}
+
+.dashboard-footer::before {
+  content: '';
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6, #06b6d4, #10b981, #3b82f6);
+  background-size: 200% 100%;
+  animation: gradientMove 4s linear infinite;
 }
 
 .footer-content {
@@ -40,12 +54,19 @@
 
 .footer-logo i {
   color: #3b82f6;
-  font-size: 1rem; /* Much smaller icon */
-  background: rgba(59, 130, 246, 0.1);
-  padding: 0.25rem; /* Very small padding */
-  border-radius: 6px; /* Smaller radius */
-  border: 2px solid rgba(59, 130, 246, 0.2);
-  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+  font-size: 1rem;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(139, 92, 246, 0.1) 100%);
+  padding: 0.3rem;
+  border-radius: 8px;
+  border: 2px solid rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.35);
+  transition: all 0.3s ease;
+  animation: pulseGlow 3s ease-in-out infinite;
+}
+
+.footer-logo:hover i {
+  transform: scale(1.1) rotate(5deg);
+  box-shadow: 0 0 30px rgba(59, 130, 246, 0.5);
 }
 
 .footer-brand {
@@ -155,22 +176,39 @@
 }
 
 .status-dot.online {
-  background: #10b981;
-  animation: pulse 2s ease-in-out infinite;
+  background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+  animation: statusPulse 2s ease-in-out infinite;
   box-shadow: 0 0 12px rgba(16, 185, 129, 0.8);
 }
 
-@keyframes pulse {
+@keyframes statusPulse {
   0%, 100% { 
     opacity: 1; 
     transform: scale(1);
-    box-shadow: 0 0 12px rgba(16, 185, 129, 0.8);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
   }
   50% { 
-    opacity: 0.7;
+    opacity: 0.8;
     transform: scale(1.2);
-    box-shadow: 0 0 20px rgba(16, 185, 129, 1);
+    box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
   }
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(59, 130, 246, 0.3),
+                0 4px 15px rgba(59, 130, 246, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.5),
+                0 6px 25px rgba(59, 130, 246, 0.35);
+  }
+}
+
+@keyframes gradientMove {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
 .version-info {
@@ -178,13 +216,20 @@
   font-weight: 700;
   font-size: 0.85rem;
   padding: 0.5rem 1rem;
-  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 50%, #1d4ed8 100%);
   border-radius: 20px;
-  border: 1px solid rgba(59, 130, 246, 0.4);
+  border: 1px solid rgba(59, 130, 246, 0.5);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.35);
   -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
+  transition: all 0.3s ease;
+  animation: pulseGlow 4s ease-in-out infinite;
+}
+
+.version-info:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 8px 25px rgba(59, 130, 246, 0.5);
 }
 
 /* Video Background Section */
@@ -244,13 +289,22 @@
   gap: 0.5rem;
 }
 
-/* Text Styles with Professional Colors and Single Color Animation */
+/* Text Styles with Professional Colors and Enhanced Animation */
 .video-title {
-  font-size: 1rem; /* Reduced from 2rem */
+  font-size: 1rem;
   font-weight: 700;
   color: #ffffff;
-  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
-  animation: professionalColorChange 6s ease-in-out infinite;
+  text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.8);
+  animation: professionalColorChange 6s ease-in-out infinite, textGlow 3s ease-in-out infinite;
+}
+
+@keyframes textGlow {
+  0%, 100% {
+    filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.3));
+  }
+  50% {
+    filter: drop-shadow(0 0 15px rgba(59, 130, 246, 0.6));
+  }
 }
 
 .authority-name {

@@ -45,9 +45,25 @@ const userSchema = new mongoose.Schema({
       return this.role !== 'super_admin';
     }
   },
+  divisionName: {
+    type: String,
+    trim: true
+  },
+  divisionCode: {
+    type: String,
+    trim: true
+  },
   section: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Section'
+  },
+  sectionName: {
+    type: String,
+    trim: true
+  },
+  sectionCode: {
+    type: String,
+    trim: true
   },
   phone: {
     type: String,

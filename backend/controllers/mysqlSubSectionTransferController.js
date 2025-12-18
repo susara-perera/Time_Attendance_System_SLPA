@@ -1,4 +1,5 @@
 const { createMySQLConnection } = require('../config/mysql');
+const AuditLog = require('../models/AuditLog');
 
 // List transfers for a specific subsection
 exports.getTransferredEmployees = async (req, res, next) => {
@@ -86,6 +87,34 @@ exports.transferEmployeeToSubSection = async (req, res, next) => {
     );
     const created = Array.isArray(rows) && rows[0] ? rows[0] : null;
 
+    // Log audit trail for MySQL employee transfer
+    if (req.user?._id) {
+      try {
+        await AuditLog.createLog({
+          user: req.user._id,
+          action: 'mysql_employee_transferred',
+          entity: { type: 'MySQLTransfer', id: created?.id, name: employeeName },
+          category: 'data_modification',
+          severity: 'medium',
+          description: `Employee "${employeeName}" transferred to sub-section "${sub_hie_name}"`,
+          details: `Transferred employee ${employeeId} (${employeeName}) to MySQL sub-section "${sub_hie_name}" (${sub_hie_code})`,
+          metadata: {
+            database: 'mysql',
+            employeeId,
+            employeeName,
+            subSectionId: sub_section_id,
+            subSectionName: sub_hie_name,
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+            method: req.method,
+            endpoint: req.originalUrl
+          }
+        });
+      } catch (auditErr) {
+        console.error('[AuditLog] Failed to log MySQL employee transfer:', auditErr);
+      }
+    }
+
     return res.status(201).json({ success: true, message: 'Employee transferred successfully', data: created });
   } catch (err) {
     if (err && err.code === 'ER_DUP_ENTRY') {
@@ -142,6 +171,31 @@ exports.transferEmployeesToSubSectionBulk = async (req, res, next) => {
 
     await conn.execute(sql, params);
 
+    // Log audit trail for MySQL bulk employee transfer
+    if (req.user?._id) {
+      try {
+        await AuditLog.createLog({
+          user: req.user._id,
+          action: 'mysql_employees_bulk_transferred',
+          entity: { type: 'MySQLTransfer', name: `${transfers.length} employees` },
+          category: 'data_modification',
+          severity: 'medium',
+          description: `Bulk transferred ${transfers.length} employees to sub-sections`,
+          details: `Bulk transferred ${transfers.length} employees to MySQL sub-sections`,
+          metadata: {
+            database: 'mysql',
+            transferCount: transfers.length,
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+            method: req.method,
+            endpoint: req.originalUrl
+          }
+        });
+      } catch (auditErr) {
+        console.error('[AuditLog] Failed to log MySQL bulk employee transfer:', auditErr);
+      }
+    }
+
     // Fetch rows for the last N inserted entries using a reasonable filter (employee IDs and sub_section_id)
     // For simplicity, return the count created as we don't necessarily have the inserted IDs.
     return res.status(201).json({ success: true, message: `Bulk transfer completed: ${transfers.length} records created`, data: { count: transfers.length } });
@@ -172,6 +226,14 @@ exports.recallTransfer = async (req, res, next) => {
     conn = await createMySQLConnection();
     const empKey = String(employeeId);
     const subKey = parseInt(finalSubSectionId, 10);
+    
+    // Fetch the transfer record before deletion for audit log
+    const [existingRows] = await conn.execute(
+      'SELECT * FROM subsection_transfers WHERE employee_id = ? AND sub_section_id = ? LIMIT 1',
+      [empKey, subKey]
+    );
+    const existing = Array.isArray(existingRows) && existingRows[0] ? existingRows[0] : null;
+    
     const [result] = await conn.execute(
       'DELETE FROM subsection_transfers WHERE employee_id = ? AND sub_section_id = ?',
       [empKey, subKey]
@@ -179,6 +241,35 @@ exports.recallTransfer = async (req, res, next) => {
 
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'Transfer record not found' });
+    }
+
+    // Log audit trail for MySQL transfer recall
+    if (req.user?._id) {
+      try {
+        await AuditLog.createLog({
+          user: req.user._id,
+          action: 'mysql_transfer_recalled',
+          entity: { type: 'MySQLTransfer', id: existing?.id, name: existing?.employee_name },
+          category: 'data_modification',
+          severity: 'medium',
+          description: `Employee "${existing?.employee_name || employeeId}" transfer recalled`,
+          details: `Recalled transfer of employee ${employeeId} from MySQL sub-section ${existing?.sub_hie_name || finalSubSectionId}`,
+          metadata: {
+            database: 'mysql',
+            employeeId: empKey,
+            employeeName: existing?.employee_name,
+            subSectionId: subKey,
+            subSectionName: existing?.sub_hie_name,
+            recalledData: existing,
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+            method: req.method,
+            endpoint: req.originalUrl
+          }
+        });
+      } catch (auditErr) {
+        console.error('[AuditLog] Failed to log MySQL transfer recall:', auditErr);
+      }
     }
 
     return res.json({ success: true, message: 'Transfer recalled successfully' });
@@ -249,6 +340,32 @@ exports.recallTransfersBulk = async (req, res, next) => {
       totalDeleted += result.affectedRows || 0;
     }
     await conn.commit();
+
+    // Log audit trail for MySQL bulk transfer recall
+    if (req.user?._id) {
+      try {
+        await AuditLog.createLog({
+          user: req.user._id,
+          action: 'mysql_transfers_bulk_recalled',
+          entity: { type: 'MySQLTransfer', name: `${totalDeleted} transfers` },
+          category: 'data_modification',
+          severity: 'medium',
+          description: `Bulk recalled ${totalDeleted} employee transfers`,
+          details: `Bulk recalled ${totalDeleted} employee transfers from MySQL sub-sections`,
+          metadata: {
+            database: 'mysql',
+            deletedCount: totalDeleted,
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+            method: req.method,
+            endpoint: req.originalUrl
+          }
+        });
+      } catch (auditErr) {
+        console.error('[AuditLog] Failed to log MySQL bulk transfer recall:', auditErr);
+      }
+    }
+
     return res.json({ success: true, message: `Bulk recall completed, ${totalDeleted} records deleted`, data: { deleted: totalDeleted } });
   } catch (err) {
     if (conn) {

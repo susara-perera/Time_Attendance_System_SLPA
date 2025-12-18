@@ -139,6 +139,29 @@ const createMeal = async (req, res) => {
       createdBy: req.user.id
     });
 
+    // Log meal creation
+    try {
+      await AuditLog.createLog({
+        user: req.user._id,
+        action: 'meal_created',
+        entity: { type: 'Meal', id: meal._id, name: meal.name },
+        category: 'data_modification',
+        severity: 'low',
+        description: `Meal "${meal.name}" created`,
+        details: `Created meal "${meal.name}" (${meal.mealType}) for ${moment(meal.date).format('YYYY-MM-DD')}`,
+        metadata: {
+          mealType,
+          price,
+          ipAddress: req.ip,
+          userAgent: req.get('User-Agent'),
+          method: req.method,
+          endpoint: req.originalUrl
+        }
+      });
+    } catch (auditErr) {
+      console.error('[AuditLog] Failed to log meal creation:', auditErr);
+    }
+
     res.status(201).json({
       success: true,
       data: meal,
@@ -205,6 +228,28 @@ const updateMeal = async (req, res) => {
       { new: true, runValidators: true }
     );
 
+    // Log meal update
+    try {
+      await AuditLog.createLog({
+        user: req.user._id,
+        action: 'meal_updated',
+        entity: { type: 'Meal', id: updatedMeal._id, name: updatedMeal.name },
+        category: 'data_modification',
+        severity: 'low',
+        description: `Meal "${updatedMeal.name}" updated`,
+        details: `Updated meal "${updatedMeal.name}" (${updatedMeal.mealType})`,
+        changes: { before: { name: meal.name, status: meal.status, price: meal.price }, after: { name, status, price } },
+        metadata: {
+          ipAddress: req.ip,
+          userAgent: req.get('User-Agent'),
+          method: req.method,
+          endpoint: req.originalUrl
+        }
+      });
+    } catch (auditErr) {
+      console.error('[AuditLog] Failed to log meal update:', auditErr);
+    }
+
     res.json({
       success: true,
       data: updatedMeal,
@@ -244,6 +289,27 @@ const deleteMeal = async (req, res) => {
       status: 'deleted',
       updatedBy: req.user.id
     });
+
+    // Log meal deletion
+    try {
+      await AuditLog.createLog({
+        user: req.user._id,
+        action: 'meal_deleted',
+        entity: { type: 'Meal', id: meal._id, name: meal.name },
+        category: 'data_modification',
+        severity: 'medium',
+        description: `Meal "${meal.name}" deleted`,
+        details: `Deleted meal "${meal.name}" (${meal.mealType})`,
+        metadata: {
+          ipAddress: req.ip,
+          userAgent: req.get('User-Agent'),
+          method: req.method,
+          endpoint: req.originalUrl
+        }
+      });
+    } catch (auditErr) {
+      console.error('[AuditLog] Failed to log meal deletion:', auditErr);
+    }
 
     res.json({
       success: true,
@@ -328,6 +394,30 @@ const bookMeal = async (req, res) => {
 
     await meal.save();
 
+    // Log meal booking
+    try {
+      await AuditLog.createLog({
+        user: req.user._id,
+        action: 'meal_booked',
+        entity: { type: 'Meal', id: meal._id, name: meal.name },
+        category: 'data_modification',
+        severity: 'low',
+        description: `Meal "${meal.name}" booked`,
+        details: `User booked meal "${meal.name}" x${quantity} (Total: ${meal.price * quantity})`,
+        metadata: {
+          quantity,
+          totalPrice: meal.price * quantity,
+          specialRequests,
+          ipAddress: req.ip,
+          userAgent: req.get('User-Agent'),
+          method: req.method,
+          endpoint: req.originalUrl
+        }
+      });
+    } catch (auditErr) {
+      console.error('[AuditLog] Failed to log meal booking:', auditErr);
+    }
+
     res.json({
       success: true,
       message: 'Meal booked successfully',
@@ -386,6 +476,27 @@ const cancelMealBooking = async (req, res) => {
     // Remove booking
     meal.bookings.splice(bookingIndex, 1);
     await meal.save();
+
+    // Log meal booking cancellation
+    try {
+      await AuditLog.createLog({
+        user: req.user._id,
+        action: 'meal_booking_cancelled',
+        entity: { type: 'Meal', id: meal._id, name: meal.name },
+        category: 'data_modification',
+        severity: 'low',
+        description: `Meal "${meal.name}" booking cancelled`,
+        details: `User cancelled booking for meal "${meal.name}"`,
+        metadata: {
+          ipAddress: req.ip,
+          userAgent: req.get('User-Agent'),
+          method: req.method,
+          endpoint: req.originalUrl
+        }
+      });
+    } catch (auditErr) {
+      console.error('[AuditLog] Failed to log meal booking cancellation:', auditErr);
+    }
 
     res.json({
       success: true,

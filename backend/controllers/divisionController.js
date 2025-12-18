@@ -696,20 +696,20 @@ const getDivisionMySQLSections = async (req, res) => {
       });
     }
 
-    // Build division name map for reference
+    // Build division name map for reference (use HIE_CODE_4 as division primary key)
     const divisionMap = {};
     divisions.forEach(div => {
-      divisionMap[div.HIE_CODE] = div.HIE_NAME;
+      divisionMap[div.HIE_CODE_4 || div.HIE_CODE] = div.HIE_NAME_3 || div.HIE_NAME;
     });
 
     // If divisionId is 'all', return all sections
     if (!divisionId || divisionId === 'all') {
       const formattedSections = allSections.map(section => ({
-        _id: String(section.HIE_CODE || ''),
-        section_id: String(section.HIE_CODE || ''),
-        section_code: String(section.HIE_CODE || ''),
-        section_name: section.HIE_NAME || 'Unknown Section',
-        name: section.HIE_NAME || 'Unknown Section',
+        _id: String(section.HIE_CODE_3 || section.HIE_CODE || ''),
+        section_id: String(section.HIE_CODE_3 || section.HIE_CODE || ''),
+        section_code: String(section.HIE_CODE_3 || section.HIE_CODE || ''),
+        section_name: section.HIE_NAME_4 || section.HIE_NAME || 'Unknown Section',
+        name: section.HIE_NAME_4 || section.HIE_NAME || 'Unknown Section',
         division_id: String(section.HIE_RELATIONSHIP || ''),
         division_code: String(section.HIE_RELATIONSHIP || ''),
         division_name: divisionMap[section.HIE_RELATIONSHIP] || '',
@@ -723,13 +723,13 @@ const getDivisionMySQLSections = async (req, res) => {
       });
     }
 
-    // Try to find division by HIE_CODE first, then by name match
+    // Try to find division by HIE_CODE_4 first, then by name match
     console.log(`🔍 Looking for division with ID: "${divisionId}"`);
-    console.log(`Available divisions:`, divisions.slice(0, 5).map(d => ({ code: d.HIE_CODE, name: d.HIE_NAME })));
+    console.log(`Available divisions:`, divisions.slice(0, 5).map(d => ({ code: d.HIE_CODE_4 || d.HIE_CODE, name: d.HIE_NAME_3 || d.HIE_NAME })));
     
     let divisionData = divisions.find(d => 
-      String(d.HIE_CODE) === String(divisionId) ||
-      String(d.HIE_CODE).toLowerCase() === String(divisionId).toLowerCase()
+      String(d.HIE_CODE_4 || d.HIE_CODE) === String(divisionId) ||
+      String(d.HIE_CODE_4 || d.HIE_CODE).toLowerCase() === String(divisionId).toLowerCase()
     );
     
     // If not found by code, try exact name match
@@ -851,17 +851,17 @@ const getHrisDivisions = async (req, res) => {
     
     // Transform HRIS data to match frontend expectations
     const transformedDivisions = divisions.map((division, index) => ({
-      _id: division.HIE_CODE || `hris_${index}`,
-      code: division.HIE_CODE || 'N/A',
-      name: division.HIE_NAME || 'Unknown Division',
+      _id: division.HIE_CODE_4 || division.HIE_CODE || `hris_${index}`,
+      code: division.HIE_CODE_4 || division.HIE_CODE || 'N/A',
+      name: division.HIE_NAME_3 || division.HIE_NAME || 'Unknown Division',
       description: division.HIE_NAME_SINHALA || '',
       isActive: true, // Assume all HRIS divisions are active
       employeeCount: 0, // Will need separate call to get this
       createdAt: new Date().toISOString(),
       status: 'ACTIVE',
       // Additional HRIS specific fields
-      hie_code: division.HIE_CODE,
-      hie_name: division.HIE_NAME,
+      hie_code: division.HIE_CODE_4 || division.HIE_CODE,
+      hie_name: division.HIE_NAME_3 || division.HIE_NAME,
       hie_relationship: division.HIE_RELATIONSHIP,
       def_level: division.DEF_LEVEL
     }));

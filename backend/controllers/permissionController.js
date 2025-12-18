@@ -1,4 +1,5 @@
 const Role = require('../models/Role');
+const AuditLog = require('../models/AuditLog');
 
 // Return the permission catalog (categories and permission ids/names)
 const getPermissionCatalog = async (req, res) => {
@@ -106,6 +107,29 @@ const updateRolePermissions = async (req, res) => {
 
     const role = await Role.findByIdAndUpdate(roleId, { permissions, updatedAt: Date.now() }, { new: true });
     if (!role) return res.status(404).json({ success: false, message: 'Role not found' });
+
+    // Log audit trail for permission update
+    if (req.user?._id) {
+      try {
+        await AuditLog.createLog({
+          user: req.user._id,
+          action: 'permissions_updated',
+          entity: { type: 'User', id: role._id, name: role.label },
+          category: 'data_modification',
+          severity: 'high',
+          description: `Permissions updated for role "${role.label}"`,
+          details: `Updated permissions for role "${role.label}" (${role.value})`,
+          metadata: {
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+            method: req.method,
+            endpoint: req.originalUrl
+          }
+        });
+      } catch (auditErr) {
+        console.error('[AuditLog] Failed to log permission update:', auditErr);
+      }
+    }
 
     res.status(200).json({ success: true, data: role });
   } catch (err) {

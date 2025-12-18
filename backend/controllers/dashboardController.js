@@ -94,10 +94,11 @@ const getDashboardStats = async (req, res) => {
       hrisEmployees = null;
     }
     // If HRIS unavailable, fallback to Mongo users
+    // Prefer HRIS-backed employee total but count only active employees (isActive === true)
     const totalEmployees = (hrisEmployees && Array.isArray(hrisEmployees) && hrisEmployees.length > 0)
-      ? hrisEmployees.length
+      ? hrisEmployees.filter(emp => emp && emp.isActive === true).length
       : totalUsers;
-    console.log(`HRIS employee count for dashboard: ${hrisEmployees && Array.isArray(hrisEmployees) ? hrisEmployees.length : 'N/A'}`);
+    console.log(`HRIS active employee count for dashboard: ${hrisEmployees && Array.isArray(hrisEmployees) ? hrisEmployees.filter(emp => emp && emp.isActive === true).length : 'N/A'}`);
     const presentToday = attendanceStats[0]?.employees_present || 0;
     const totalScans = attendanceStats[0]?.total_scans || 0;
     const inScans = attendanceStats[0]?.in_scans || 0;

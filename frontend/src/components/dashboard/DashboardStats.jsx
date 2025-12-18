@@ -1,368 +1,716 @@
-
-import React, { useState, useEffect } from 'react';
-import { useLanguage } from '../../context/LanguageContext';
-import { Doughnut, Bar } from 'react-chartjs-2';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
   PointElement,
   LineElement,
+  BarElement,
+  ArcElement,
   Title,
   Tooltip,
   Legend,
-  ArcElement,
-  BarElement,
+  Filler
 } from 'chart.js';
+import { Line, Doughnut, Bar } from 'react-chartjs-2';
+import './DashboardStats.css';
 
+// Register Chart.js components
 ChartJS.register(
   CategoryScale,
   LinearScale,
   PointElement,
   LineElement,
+  BarElement,
+  ArcElement,
   Title,
   Tooltip,
   Legend,
-  ArcElement,
-  BarElement
+  Filler
 );
 
-const quickLinks = (t) => [
-  { label: t('addUser'), icon: 'bi-people', action: 'users', color: 'success' },
-  { label: t('employeeManagement'), icon: 'bi-person-badge', action: 'employees', color: 'secondary' },
-  { label: t('reportGeneration'), icon: 'bi-graph-up', action: 'reports', color: 'info' },
-  { label: t('mealManagement'), icon: 'bi-cup-hot', action: 'meals', color: 'orange' },
-  { label: t('divisionManagement'), icon: 'bi-building', action: 'divisions', color: 'warning' },
-  { label: t('sectionManagement'), icon: 'bi-diagram-3', action: 'sections', color: 'purple' },
-];
-
 const DashboardStats = ({ onQuickAction }) => {
-  const [modalOpen, setModalOpen] = useState(false);
-  const { t } = useLanguage();
-  const [stats, setStats] = useState({
-    totalEmployees: 12960,
-    presentToday: 8547,
-    attendanceRate: 87.2,
-    activeUsers: 156,
-    totalUsers: 234,
-    loginRate: 66.7,
-    totalDivisions: 27,
-    totalSections: 120,
-    totalSubSections: 350,
-    avgPerDivision: 480,
-    lateArrivals: 24,
-    earlyDepartures: 12,
-    recentActivities: []
-  });
+  const [stats, setStats] = useState(null);
+  const [activities, setActivities] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [trendPeriod, setTrendPeriod] = useState('daily');
+  const [animatedStats, setAnimatedStats] = useState({});
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [activeEmployeeCount, setActiveEmployeeCount] = useState(0);
+  const [inactiveEmployeeCount, setInactiveEmployeeCount] = useState(0);
 
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const response = await fetch('/api/dashboard/stats');
-        if (response.ok) {
-          const json = await response.json();
-          const payload = json?.data || json;
-          setStats(prevStats => ({
-            ...prevStats,
-            totalEmployees: payload.hrisTotal ?? payload.totalEmployees ?? payload.totalUsers ?? prevStats.totalEmployees,
-            presentToday: payload.presentToday ?? payload.todayAttendance?.employeesPresent ?? prevStats.presentToday,
-            attendanceRate: payload.attendanceRate ?? prevStats.attendanceRate,
-            totalDivisions: payload.totalDivisions ?? prevStats.totalDivisions,
-            totalSections: payload.totalSections ?? prevStats.totalSections,
-            totalSubSections: payload.totalSubSections ?? prevStats.totalSubSections,
-            activeUsers: payload.activeUsers ?? prevStats.activeUsers,
-            totalUsers: payload.totalUsers ?? prevStats.totalUsers,
-            recentActivities: payload.recentActivities ?? []
-          }));
+  // Helper: determine if an employee object represents an active employee
+  const isEmployeeActive = (emp) => {
+    // HRIS uses ACTIVE_HRM_FLG === 1, some endpoints use STATUS/status === 'ACTIVE', local objects may have isActive boolean
+    return emp?.ACTIVE_HRM_FLG === 1 || emp?.STATUS === 'ACTIVE' || emp?.status === 'ACTIVE' || emp?.isActive === true;
+  };
+
+  // Fetch dashboard stats
+  const fetchStats = useCallback(async () => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem('token');
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      };
+
+      const [statsRes, activitiesRes, employeesRes] = await Promise.all([
+        fetch('/api/dashboard/stats', { headers }),
+        fetch('/api/dashboard/activities/recent?limit=10', { headers }),
+        fetch('/api/hris-cache/employees', { headers })
+      ]);
+
+      if (!statsRes.ok) throw new Error('Failed to fetch dashboard stats');
+      
+      const statsData = await statsRes.json();
+      const activitiesData = activitiesRes.ok ? await activitiesRes.json() : { data: [] };
+      
+      // Calculate active/inactive employee counts from cached employees
+      if (employeesRes && employeesRes.ok) {
+        try {
+          const eData = await employeesRes.json();
+          const rows = Array.isArray(eData?.data) ? eData.data : (Array.isArray(eData) ? eData : []);
+          const total = rows.length;
+          const active = rows.filter(isEmployeeActive).length;
+          setActiveEmployeeCount(active);
+          setInactiveEmployeeCount(Math.max(0, total - active));
+        } catch (e) {
+          console.warn('Failed parsing cached employees response:', e);
+          setActiveEmployeeCount(0);
+          setInactiveEmployeeCount(0);
         }
-      } catch (error) {
-        // ...existing code...
+      } else {
+        setActiveEmployeeCount(0);
+        setInactiveEmployeeCount(0);
       }
-    };
-    fetchStats();
-    const interval = setInterval(fetchStats, 5 * 60 * 1000);
-    return () => clearInterval(interval);
+      
+      setStats(statsData.data);
+      setActivities(activitiesData.data || statsData.data?.recentActivities || []);
+      setError(null);
+    } catch (err) {
+      console.error('Dashboard stats error:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
+  useEffect(() => {
+    fetchStats();
+    const interval = setInterval(fetchStats, 60000); // Refresh every minute
+    return () => clearInterval(interval);
+  }, [fetchStats]);
+
+  // Update time every second
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // Chart data
-  const attendanceData = {
-    labels: ['Present', 'Absent'],
-    datasets: [
-      {
-        data: [stats.presentToday, stats.totalEmployees - stats.presentToday],
-        backgroundColor: ['#10B981', '#EF4444'],
-        borderWidth: 0,
-        cutout: '70%',
-      },
-    ],
-  };
+  // Animate numbers counting up
+  useEffect(() => {
+    if (!stats) return;
 
-  const monthlyData = {
-    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
-    datasets: [
-      {
-        label: 'Attendance',
-        data: [85, 88, 91, 87, 89, 92],
-        backgroundColor: 'rgba(59, 130, 246, 0.8)',
-        borderColor: '#3B82F6',
-        borderRadius: 8,
-        borderSkipped: false,
-      },
-    ],
-  };
+    const targets = {
+      totalEmployees: activeEmployeeCount + inactiveEmployeeCount,
+      activeEmployees: activeEmployeeCount,
+      inactiveEmployees: inactiveEmployeeCount,
+      totalDivisions: stats.totalDivisions || 0,
+      totalSections: stats.totalSections || 0,
+      totalSubSections: stats.totalSubSections || 0
+    };
 
-  const chartOptions = {
+    const duration = 1500;
+    const steps = 60;
+    const stepDuration = duration / steps;
+
+    let step = 0;
+    const timer = setInterval(() => {
+      step++;
+      const progress = step / steps;
+      const easeOut = 1 - Math.pow(1 - progress, 3);
+
+      setAnimatedStats({
+        totalEmployees: Math.round(targets.totalEmployees * easeOut),
+        activeEmployees: Math.round(targets.activeEmployees * easeOut),
+        inactiveEmployees: Math.round(targets.inactiveEmployees * easeOut),
+        totalDivisions: Math.round(targets.totalDivisions * easeOut),
+        totalSections: Math.round(targets.totalSections * easeOut),
+        totalSubSections: Math.round(targets.totalSubSections * easeOut)
+      });
+
+      if (step >= steps) clearInterval(timer);
+    }, stepDuration);
+
+    return () => clearInterval(timer);
+  }, [stats, activeEmployeeCount, inactiveEmployeeCount]);
+
+  // Generate trend data based on period
+  const trendData = useMemo(() => {
+    if (!stats?.weeklyTrend) return null;
+
+    const labels = {
+      daily: stats.weeklyTrend.map(d => {
+        const date = new Date(d.date);
+        return date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
+      }),
+      monthly: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
+      annually: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    };
+
+    const data = {
+      daily: stats.weeklyTrend.map(d => d.employees),
+      monthly: [85, 92, 88, 95], // Simulated monthly data
+      annually: [78, 82, 85, 88, 91, 89, 92, 95, 93, 90, 87, 94] // Simulated annual data
+    };
+
+    return {
+      labels: labels[trendPeriod],
+      datasets: [
+        {
+          label: 'Attendance',
+          data: data[trendPeriod],
+          fill: true,
+          backgroundColor: (context) => {
+            const ctx = context.chart.ctx;
+            const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+            gradient.addColorStop(0, 'rgba(59, 130, 246, 0.3)');
+            gradient.addColorStop(1, 'rgba(59, 130, 246, 0.02)');
+            return gradient;
+          },
+          borderColor: '#3b82f6',
+          borderWidth: 3,
+          tension: 0.4,
+          pointBackgroundColor: '#3b82f6',
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2,
+          pointRadius: 5,
+          pointHoverRadius: 8,
+          pointHoverBackgroundColor: '#3b82f6',
+          pointHoverBorderColor: '#fff',
+          pointHoverBorderWidth: 3
+        }
+      ]
+    };
+  }, [stats, trendPeriod]);
+
+  // Attendance overview doughnut data
+  const attendanceOverviewData = useMemo(() => {
+    if (!stats) return null;
+
+    const present = stats.todayAttendance?.employeesPresent || 0;
+    const total = stats.totalEmployees || 0;
+    const absent = Math.max(0, total - present);
+
+    return {
+      labels: ['Present', 'Absent'],
+      datasets: [{
+        data: [present, absent],
+        backgroundColor: ['#10b981', '#ef4444'],
+        borderColor: ['#fff', '#fff'],
+        borderWidth: 3,
+        hoverOffset: 10,
+        cutout: '70%'
+      }]
+    };
+  }, [stats]);
+
+  // Today's progress percentage
+  const todayProgress = useMemo(() => {
+    if (!stats) return 0;
+    const present = stats.todayAttendance?.employeesPresent || 0;
+    const total = stats.totalEmployees || 1;
+    return Math.round((present / total) * 100);
+  }, [stats]);
+
+  // Chart options
+  const lineChartOptions = {
     responsive: true,
     maintainAspectRatio: false,
+    interaction: {
+      mode: 'index',
+      intersect: false
+    },
     plugins: {
       legend: {
         display: false
+      },
+      tooltip: {
+        backgroundColor: 'rgba(15, 23, 42, 0.9)',
+        titleColor: '#fff',
+        bodyColor: '#cbd5e1',
+        borderColor: 'rgba(59, 130, 246, 0.5)',
+        borderWidth: 1,
+        padding: 12,
+        cornerRadius: 8,
+        displayColors: false
       }
     },
     scales: {
-      y: {
-        beginAtZero: true,
-        grid: {
-          color: 'rgba(0, 0, 0, 0.05)'
-        },
-        ticks: {
-          color: '#64748B'
-        }
-      },
       x: {
         grid: {
           display: false
         },
         ticks: {
-          color: '#64748B'
+          color: '#64748b',
+          font: {
+            size: 11
+          }
         }
+      },
+      y: {
+        grid: {
+          color: 'rgba(148, 163, 184, 0.1)'
+        },
+        ticks: {
+          color: '#64748b',
+          font: {
+            size: 11
+          }
+        },
+        beginAtZero: true
       }
     }
   };
 
-  // ...existing code...
-  return (
-    <div className="dashboard-overview">
+  const doughnutOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        display: false
+      },
+      tooltip: {
+        backgroundColor: 'rgba(15, 23, 42, 0.9)',
+        titleColor: '#fff',
+        bodyColor: '#cbd5e1',
+        borderColor: 'rgba(59, 130, 246, 0.5)',
+        borderWidth: 1,
+        padding: 12,
+        cornerRadius: 8
+      }
+    },
+    cutout: '70%'
+  };
 
-      {/* Stats Grid */}
-      <div className="stats-grid">
-        <div className="stat-card primary" style={{transition:'transform 0.3s', boxShadow:'0 2px 8px rgba(59,130,246,0.07)'}}>
-          <div className="stat-header">
-                <div className="stat-title">
-                  <h3>{t('totalEmployees')}</h3>
-                  <p>{t('allSubsections')}</p>
-                </div>
-            <div className="stat-icon">
-              <i className="bi bi-people"></i>
-            </div>
+  // Format time ago
+  const formatTimeAgo = (dateStr, timeStr) => {
+    const date = new Date(`${dateStr}T${timeStr}`);
+    const now = new Date();
+    const diff = Math.floor((now - date) / 1000);
+
+    if (diff < 60) return 'Just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+  };
+
+  if (loading) {
+    return (
+      <div className="dashboard-stats-container">
+        <div className="stats-loading">
+          <div className="loading-spinner">
+            <div className="spinner-ring"></div>
+            <div className="spinner-ring"></div>
+            <div className="spinner-ring"></div>
           </div>
-          <div className="stat-value" style={{fontSize:'2.1rem'}}>{Number(stats.totalEmployees || 0).toLocaleString()}</div>
+          <p>Loading dashboard...</p>
         </div>
-        <div className="stat-card success" style={{transition:'transform 0.3s', boxShadow:'0 2px 8px rgba(16,185,129,0.07)'}}>
-          <div className="stat-header">
-            <div className="stat-title">
-              <h3>{t('presentToday')}</h3>
-              <p>{t('activeAttendance')}</p>
-            </div>
-            <div className="stat-icon">
-              <i className="bi bi-person-check"></i>
-            </div>
-          </div>
-          <div className="stat-value" style={{fontSize:'2.1rem'}}>{Number(stats.presentToday || 0).toLocaleString()}</div>
-          <div className="stat-trend positive">
-            <i className="bi bi-arrow-up"></i>
-            <span>{stats.attendanceRate}% attendance rate</span>
-          </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="dashboard-stats-container">
+        <div className="stats-error">
+          <i className="bi bi-exclamation-triangle"></i>
+          <h3>Failed to load dashboard</h3>
+          <p>{error}</p>
+          <button onClick={fetchStats} className="retry-btn">
+            <i className="bi bi-arrow-clockwise"></i> Retry
+          </button>
         </div>
-        <div className="stat-card warning" style={{transition:'transform 0.3s', boxShadow:'0 2px 8px rgba(234,179,8,0.07)'}}>
-          <div className="stat-header">
-            <div className="stat-title">
-              <h3>{t('activeDivisions')}</h3>
-              <p>{t('allDivisions')}</p>
-            </div>
-            <div className="stat-icon">
-              <i className="bi bi-building"></i>
-            </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="dashboard-stats-container">
+      {/* Header Section */}
+      <div className="stats-header">
+        <div className="stats-header-content">
+          <div className="header-title-section">
+            <h1 className="stats-title">
+              <span className="title-icon">
+                <i className="bi bi-speedometer2"></i>
+              </span>
+              Dashboard Overview
+            </h1>
+            <p className="stats-subtitle">
+              Real-time insights and analytics for your attendance system
+            </p>
           </div>
-          <div className="stat-value" style={{fontSize:'2.1rem'}}>{Number(stats.totalDivisions || 0).toLocaleString()}</div>
-        </div>
-        <div className="stat-card info" style={{transition:'transform 0.3s', boxShadow:'0 2px 8px rgba(59,130,246,0.07)'}}>
-          <div className="stat-header">
-            <div className="stat-title">
-              <h3>{t('totalSections')}</h3>
-              <p>{t('allDivisions') /* reuse a label for brevity */}</p>
+          <div className="header-time-section">
+            <div className="live-clock">
+              <span className="clock-time">
+                {currentTime.toLocaleTimeString('en-US', { 
+                  hour: '2-digit', 
+                  minute: '2-digit',
+                  second: '2-digit',
+                  hour12: true 
+                })}
+              </span>
+              <span className="clock-date">
+                {currentTime.toLocaleDateString('en-US', { 
+                  weekday: 'long', 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                })}
+              </span>
             </div>
-            <div className="stat-icon">
-              <i className="bi bi-diagram-3"></i>
-            </div>
+            <button className="refresh-btn" onClick={fetchStats} title="Refresh Data">
+              <i className="bi bi-arrow-clockwise"></i>
+            </button>
           </div>
-          <div className="stat-value" style={{fontSize:'2.1rem'}}>{Number(stats.totalSections || 0).toLocaleString()}</div>
-        </div>
-        <div className="stat-card info" style={{transition:'transform 0.3s', boxShadow:'0 2px 8px rgba(59,130,246,0.07)'}}>
-          <div className="stat-header">
-            <div className="stat-title">
-              <h3>{t('totalSubSections')}</h3>
-              <p>{t('allSubsections')}</p>
-            </div>
-            <div className="stat-icon">
-              <i className="bi bi-diagram-2"></i>
-            </div>
-          </div>
-          <div className="stat-value" style={{fontSize:'2.1rem'}}>{Number(stats.totalSubSections || 0).toLocaleString()}</div>
         </div>
       </div>
 
-      {/* Charts Section */}
-      <div className="charts-grid">
-        <div className="chart-card" style={{animation:'modalSlideIn 0.7s'}}>
-          <div className="card-header">
-            <div className="header-content">
-              <h3>
-                <i className="bi bi-pie-chart"></i>
-                {t('todaysAttendance')}
-              </h3>
-              <p>{t('quickInsights') /* small descriptive reuse */}</p>
+      {/* Stats Cards Grid */}
+      <div className="stats-cards-grid">
+        {/* Total Employees */}
+        <div className="stat-card stat-card-primary" style={{ '--delay': '0.1s' }}>
+          <div className="stat-card-bg">
+            <div className="stat-card-pattern"></div>
+          </div>
+          <div className="stat-card-content">
+            <div className="stat-icon">
+              <i className="bi bi-people-fill"></i>
             </div>
-            <div className="chart-stats">
-              <div className="chart-stat">
-                <span className="stat-number">{stats.presentToday}</span>
-                <span className="stat-label">{t('presentLabel')}</span>
-              </div>
-              <div className="chart-stat">
-                <span className="stat-number">{stats.totalEmployees - stats.presentToday}</span>
-                <span className="stat-label">{t('absentLabel')}</span>
-              </div>
+            <div className="stat-info">
+              <h3 className="stat-value">{animatedStats.totalEmployees || 0}</h3>
+              <p className="stat-label">Total Employees</p>
             </div>
           </div>
-          <div className="chart-container" style={{minHeight:'220px'}}>
-            <Doughnut 
-              data={attendanceData} 
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  legend: {
-                    display: false
-                  }
-                }
-              }}
-            />
+          <div className="stat-card-footer">
+            <span className="stat-trend trend-neutral">
+              <i className="bi bi-dash"></i> All registered
+            </span>
+          </div>
+          <div className="stat-card-glow"></div>
+        </div>
+
+        {/* Active Employees */}
+        <div className="stat-card stat-card-success" style={{ '--delay': '0.2s' }}>
+          <div className="stat-card-bg">
+            <div className="stat-card-pattern"></div>
+          </div>
+          <div className="stat-card-content">
+            <div className="stat-icon">
+              <i className="bi bi-person-check-fill"></i>
+            </div>
+            <div className="stat-info">
+              <h3 className="stat-value">{animatedStats.activeEmployees || 0}</h3>
+              <p className="stat-label">Active Employees</p>
+            </div>
+          </div>
+          <div className="stat-card-footer">
+            <span className="stat-trend trend-up">
+              <i className="bi bi-check-circle"></i> {activeEmployeeCount + inactiveEmployeeCount > 0 ? Math.round((activeEmployeeCount / (activeEmployeeCount + inactiveEmployeeCount)) * 100) : 0}% of total
+            </span>
+          </div>
+          <div className="stat-card-glow"></div>
+        </div>
+
+        {/* Inactive Employees */}
+        <div className="stat-card stat-card-danger" style={{ '--delay': '0.3s' }}>
+          <div className="stat-card-bg">
+            <div className="stat-card-pattern"></div>
+          </div>
+          <div className="stat-card-content">
+            <div className="stat-icon">
+              <i className="bi bi-person-dash-fill"></i>
+            </div>
+            <div className="stat-info">
+              <h3 className="stat-value">{animatedStats.inactiveEmployees || 0}</h3>
+              <p className="stat-label">Inactive Employees</p>
+            </div>
+          </div>
+          <div className="stat-card-footer">
+            <span className="stat-trend trend-down">
+              <i className="bi bi-x-circle"></i> {activeEmployeeCount + inactiveEmployeeCount > 0 ? Math.round((inactiveEmployeeCount / (activeEmployeeCount + inactiveEmployeeCount)) * 100) : 0}% of total
+            </span>
+          </div>
+          <div className="stat-card-glow"></div>
+        </div>
+
+        {/* Total Divisions */}
+        <div className="stat-card stat-card-warning" style={{ '--delay': '0.4s' }}>
+          <div className="stat-card-bg">
+            <div className="stat-card-pattern"></div>
+          </div>
+          <div className="stat-card-content">
+            <div className="stat-icon">
+              <i className="bi bi-building-fill"></i>
+            </div>
+            <div className="stat-info">
+              <h3 className="stat-value">{animatedStats.totalDivisions || 0}</h3>
+              <p className="stat-label">Total Divisions</p>
+            </div>
+          </div>
+          <div className="stat-card-footer">
+            <span className="stat-trend trend-neutral">
+              <i className="bi bi-layers"></i> Organizational units
+            </span>
+          </div>
+          <div className="stat-card-glow"></div>
+        </div>
+
+        {/* Total Sections */}
+        <div className="stat-card stat-card-info" style={{ '--delay': '0.5s' }}>
+          <div className="stat-card-bg">
+            <div className="stat-card-pattern"></div>
+          </div>
+          <div className="stat-card-content">
+            <div className="stat-icon">
+              <i className="bi bi-diagram-3-fill"></i>
+            </div>
+            <div className="stat-info">
+              <h3 className="stat-value">{animatedStats.totalSections || 0}</h3>
+              <p className="stat-label">Total Sections</p>
+            </div>
+          </div>
+          <div className="stat-card-footer">
+            <span className="stat-trend trend-neutral">
+              <i className="bi bi-grid-3x3"></i> Department sections
+            </span>
+          </div>
+          <div className="stat-card-glow"></div>
+        </div>
+
+        {/* Total Sub Sections */}
+        <div className="stat-card stat-card-purple" style={{ '--delay': '0.6s' }}>
+          <div className="stat-card-bg">
+            <div className="stat-card-pattern"></div>
+          </div>
+          <div className="stat-card-content">
+            <div className="stat-icon">
+              <i className="bi bi-diagram-2-fill"></i>
+            </div>
+            <div className="stat-info">
+              <h3 className="stat-value">{animatedStats.totalSubSections || 0}</h3>
+              <p className="stat-label">Sub Sections</p>
+            </div>
+          </div>
+          <div className="stat-card-footer">
+            <span className="stat-trend trend-neutral">
+              <i className="bi bi-collection"></i> Work units
+            </span>
+          </div>
+          <div className="stat-card-glow"></div>
+        </div>
+      </div>
+
+      {/* Charts and Progress Section */}
+      <div className="charts-section">
+        {/* Attendance Overview Chart */}
+        <div className="chart-card attendance-overview-card">
+          <div className="chart-card-header">
+            <div className="chart-title">
+              <i className="bi bi-pie-chart-fill"></i>
+              <h3>Attendance Overview</h3>
+            </div>
+            <span className="chart-badge">Today</span>
+          </div>
+          <div className="chart-card-body">
+            <div className="doughnut-chart-container">
+              {attendanceOverviewData && (
+                <Doughnut data={attendanceOverviewData} options={doughnutOptions} />
+              )}
+              <div className="doughnut-center">
+                <span className="doughnut-percentage">{todayProgress}%</span>
+                <span className="doughnut-label">Present</span>
+              </div>
+            </div>
+            <div className="chart-legend">
+              <div className="legend-item">
+                <span className="legend-color present"></span>
+                <span className="legend-text">Present</span>
+                <span className="legend-value">{stats?.todayAttendance?.employeesPresent || 0}</span>
+              </div>
+              <div className="legend-item">
+                <span className="legend-color absent"></span>
+                <span className="legend-text">Absent</span>
+                <span className="legend-value">{(stats?.totalEmployees || 0) - (stats?.todayAttendance?.employeesPresent || 0)}</span>
+              </div>
+            </div>
           </div>
         </div>
-        <div className="chart-card" style={{animation:'modalSlideIn 0.7s'}}>
-          <div className="card-header">
-            <div className="header-content">
-              <h3>
-                <i className="bi bi-graph-up"></i>
-                {t('monthlyAttendance')}
-              </h3>
-              <p>{t('monthlyAttendance') /* reuse label */}</p>
+
+        {/* Attendance Trend Chart */}
+        <div className="chart-card trend-chart-card">
+          <div className="chart-card-header">
+            <div className="chart-title">
+              <i className="bi bi-graph-up-arrow"></i>
+              <h3>Attendance Trend</h3>
             </div>
-            <div className="chart-actions">
-              <button className="btn-sm primary">
-                <i className="bi bi-download"></i>
-                {t('export')}
+            <div className="trend-period-selector">
+              <button 
+                className={`period-btn ${trendPeriod === 'daily' ? 'active' : ''}`}
+                onClick={() => setTrendPeriod('daily')}
+              >
+                Daily
+              </button>
+              <button 
+                className={`period-btn ${trendPeriod === 'monthly' ? 'active' : ''}`}
+                onClick={() => setTrendPeriod('monthly')}
+              >
+                Monthly
+              </button>
+              <button 
+                className={`period-btn ${trendPeriod === 'annually' ? 'active' : ''}`}
+                onClick={() => setTrendPeriod('annually')}
+              >
+                Annually
               </button>
             </div>
           </div>
-          <div className="chart-container" style={{minHeight:'220px'}}>
-            <Bar data={monthlyData} options={chartOptions} />
-          </div>
-        </div>
-        <div className="insights-card" style={{animation:'modalSlideIn 0.7s'}}>
-          <div className="card-header">
-            <h3>
-              <i className="bi bi-lightbulb"></i>
-              {t('quickInsights')}
-            </h3>
-          </div>
-          <div className="insights-list">
-            <div className="insight-item">
-              <div className="insight-icon success">
-                <i className="bi bi-check-circle"></i>
-              </div>
-              <div className="insight-content">
-                <h4>{t('highAttendance')}</h4>
-                <p>{stats.attendanceRate}% {t('attendanceRateLabel')}</p>
-              </div>
-            </div>
-            <div className="insight-item">
-              <div className="insight-icon warning">
-                <i className="bi bi-clock"></i>
-              </div>
-              <div className="insight-content">
-                <h4>{t('lateArrivals')}</h4>
-                <p>{stats.lateArrivals} {t('lateArrivals').toLowerCase()}</p>
-              </div>
-            </div>
-            <div className="insight-item">
-              <div className="insight-icon info">
-                <i className="bi bi-arrow-left-circle"></i>
-              </div>
-              <div className="insight-content">
-                <h4>{t('earlyDepartures')}</h4>
-                <p>{stats.earlyDepartures} {t('earlyDepartures').toLowerCase()}</p>
-              </div>
+          <div className="chart-card-body">
+            <div className="line-chart-container">
+              {trendData && <Line data={trendData} options={lineChartOptions} />}
             </div>
           </div>
         </div>
-        <div className="activity-card" style={{animation:'modalSlideIn 0.7s'}}>
-          <div className="card-header">
-            <h3>
+      </div>
+
+      {/* Today's Progress and Recent Activities */}
+      <div className="bottom-section">
+        {/* Today's Progress */}
+        <div className="progress-card">
+          <div className="progress-card-header">
+            <div className="progress-title">
+              <i className="bi bi-clock-history"></i>
+              <h3>Today's Progress</h3>
+            </div>
+            <span className="progress-time">
+              <i className="bi bi-calendar-check"></i>
+              {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </span>
+          </div>
+          <div className="progress-card-body">
+            {/* Main Progress Circle */}
+            <div className="progress-circle-container">
+              <svg className="progress-circle" viewBox="0 0 120 120">
+                <circle 
+                  className="progress-circle-bg" 
+                  cx="60" 
+                  cy="60" 
+                  r="54"
+                />
+                <circle 
+                  className="progress-circle-fill" 
+                  cx="60" 
+                  cy="60" 
+                  r="54"
+                  style={{ 
+                    strokeDasharray: `${(todayProgress / 100) * 339.292} 339.292` 
+                  }}
+                />
+              </svg>
+              <div className="progress-circle-content">
+                <span className="progress-value">{todayProgress}%</span>
+                <span className="progress-label">Complete</span>
+              </div>
+            </div>
+
+            {/* Progress Stats */}
+            <div className="progress-stats">
+              <div className="progress-stat-item">
+                <div className="progress-stat-icon check-in">
+                  <i className="bi bi-box-arrow-in-right"></i>
+                </div>
+                <div className="progress-stat-info">
+                  <span className="progress-stat-value">{stats?.todayAttendance?.inScans || 0}</span>
+                  <span className="progress-stat-label">Check-ins</span>
+                </div>
+              </div>
+              <div className="progress-stat-item">
+                <div className="progress-stat-icon check-out">
+                  <i className="bi bi-box-arrow-right"></i>
+                </div>
+                <div className="progress-stat-info">
+                  <span className="progress-stat-value">{stats?.todayAttendance?.outScans || 0}</span>
+                  <span className="progress-stat-label">Check-outs</span>
+                </div>
+              </div>
+              <div className="progress-stat-item">
+                <div className="progress-stat-icon total-scans">
+                  <i className="bi bi-upc-scan"></i>
+                </div>
+                <div className="progress-stat-info">
+                  <span className="progress-stat-value">{stats?.todayAttendance?.totalScans || 0}</span>
+                  <span className="progress-stat-label">Total Scans</span>
+                </div>
+              </div>
+              <div className="progress-stat-item">
+                <div className="progress-stat-icon attendance-rate">
+                  <i className="bi bi-percent"></i>
+                </div>
+                <div className="progress-stat-info">
+                  <span className="progress-stat-value">{stats?.attendanceRate || 0}%</span>
+                  <span className="progress-stat-label">Rate</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Recent Activities */}
+        <div className="activities-card">
+          <div className="activities-card-header">
+            <div className="activities-title">
               <i className="bi bi-activity"></i>
-              {t('recentActivity')}
-            </h3>
+              <h3>Recent Activities</h3>
+            </div>
+            <span className="activities-badge">{activities.length} activities</span>
           </div>
-          <div className="activity-list">
-            {stats.recentActivities && stats.recentActivities.length > 0 ? (
-              stats.recentActivities.slice(0, 3).map((activity, idx) => (
-                <div className="activity-item" key={idx}>
-                  <div className="activity-avatar">
-                    <i className={activity.icon || "bi bi-activity"}></i>
-                  </div>
-                  <div className="activity-content">
-                    <p><strong>{activity.title}</strong> {activity.description}</p>
-                    <span>{activity.date} {activity.time}</span>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="activity-item">
-                  <div className="activity-content">
-                    <p>{t('noRecentActivities')}</p>
-                  </div>
+          <div className="activities-card-body">
+            {activities.length === 0 ? (
+              <div className="no-activities">
+                <i className="bi bi-inbox"></i>
+                <p>No recent activities</p>
               </div>
-            )}
-            {stats.recentActivities && stats.recentActivities.length > 3 && (
-              <button className="btn-sm" style={{marginTop: '10px'}} onClick={() => setModalOpen(true)}>
-                {t('showAll')}
-              </button>
-            )}
-            {modalOpen && (
-              <div className="modal-overlay" style={{position: 'fixed', top:0, left:0, width:'100vw', height:'100vh', background:'rgba(0,0,0,0.3)', zIndex:1000}} onClick={() => setModalOpen(false)}>
-                <div className="modal-content" style={{background:'#fff', borderRadius:'8px', maxWidth:'500px', margin:'60px auto', padding:'24px', position:'relative'}} onClick={e => e.stopPropagation()}>
-                  <h3 style={{marginBottom:'16px'}}><i className="bi bi-activity"></i> {t('recentActivity')} (Past Week)</h3>
-                  <div>
-                    {stats.recentActivities.map((activity, idx) => (
-                      <div className="activity-item" key={idx} style={{borderBottom:'1px solid #eee', paddingBottom:'12px', marginBottom:'12px'}}>
-                        <div className="activity-avatar">
-                          <i className={activity.icon || "bi bi-activity"}></i>
-                        </div>
-                        <div className="activity-content">
-                          <p><strong>{activity.title}</strong> {activity.description}</p>
-                          <span>{activity.date} {activity.time}</span>
-                        </div>
+            ) : (
+              <div className="activities-list">
+                {activities.slice(0, 6).map((activity, index) => (
+                  <div 
+                    className="activity-item" 
+                    key={activity.id || index}
+                    style={{ '--delay': `${index * 0.1}s` }}
+                  >
+                    <div className={`activity-icon ${activity.severity || 'low'}`}>
+                      <i className={activity.icon || 'bi bi-activity'}></i>
+                    </div>
+                    <div className="activity-content">
+                      <h4 className="activity-title">{activity.title}</h4>
+                      <p className="activity-description">{activity.description}</p>
+                      <div className="activity-meta">
+                        {activity.user && (
+                          <span className="activity-user">
+                            <i className="bi bi-person"></i> {activity.user}
+                          </span>
+                        )}
+                        <span className="activity-time">
+                          <i className="bi bi-clock"></i>
+                          {formatTimeAgo(activity.date, activity.time)}
+                        </span>
                       </div>
-                    ))}
+                    </div>
                   </div>
-                  <button className="btn-sm" style={{marginTop:'10px'}} onClick={() => setModalOpen(false)}>{t('close')}</button>
-                </div>
+                ))}
               </div>
             )}
           </div>
@@ -373,4 +721,3 @@ const DashboardStats = ({ onQuickAction }) => {
 };
 
 export default DashboardStats;
-// ...existing code...

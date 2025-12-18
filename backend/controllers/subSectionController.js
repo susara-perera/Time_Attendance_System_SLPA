@@ -1,5 +1,6 @@
 const SubSection = require('../models/SubSection');
 const TransferToSubsection = require('../models/TransferToSubsection');
+const AuditLog = require('../models/AuditLog');
 const { getCachedSubSections, refreshSubSectionsCache } = require('../services/mongodbCacheService');
 
 // GET /api/subsections
@@ -65,6 +66,29 @@ exports.createSubSection = async (req, res, next) => {
 		const created = await SubSection.create(payload);
 		
 		console.log(`[MongoDB] ✅ Sub-section created successfully: ${created.subSection?.sub_hie_name || 'Unknown'}`);
+		
+		// Log audit trail for sub-section creation
+		if (req.user?._id) {
+			try {
+				await AuditLog.createLog({
+					user: req.user._id,
+					action: 'subsection_created',
+					entity: { type: 'SubSection', id: created._id, name: created.subSection?.sub_hie_name },
+					category: 'data_modification',
+					severity: 'medium',
+					description: `Sub-section "${created.subSection?.sub_hie_name}" created`,
+					details: `Created sub-section "${created.subSection?.sub_hie_name}" (${created.subSection?.sub_hie_code}) under section "${created.parentSection?.hie_name}"`,
+					metadata: {
+						ipAddress: req.ip,
+						userAgent: req.get('User-Agent'),
+						method: req.method,
+						endpoint: req.originalUrl
+					}
+				});
+			} catch (auditErr) {
+				console.error('[AuditLog] Failed to log sub-section creation:', auditErr);
+			}
+		}
 		
 		// Refresh cache after creation
 		const { refreshSubSectionsCache } = require('../services/mongodbCacheService');
@@ -141,6 +165,29 @@ exports.updateSubSection = async (req, res, next) => {
 		
 		console.log(`[MongoDB] ✅ Sub-section updated successfully: ${updated.subSection?.sub_hie_name || 'Unknown'}`);
 		
+		// Log audit trail for sub-section update
+		if (req.user?._id) {
+			try {
+				await AuditLog.createLog({
+					user: req.user._id,
+					action: 'subsection_updated',
+					entity: { type: 'SubSection', id: updated._id, name: updated.subSection?.sub_hie_name },
+					category: 'data_modification',
+					severity: 'low',
+					description: `Sub-section "${updated.subSection?.sub_hie_name}" updated`,
+					details: `Updated sub-section "${updated.subSection?.sub_hie_name}" (${updated.subSection?.sub_hie_code})`,
+					metadata: {
+						ipAddress: req.ip,
+						userAgent: req.get('User-Agent'),
+						method: req.method,
+						endpoint: req.originalUrl
+					}
+				});
+			} catch (auditErr) {
+				console.error('[AuditLog] Failed to log sub-section update:', auditErr);
+			}
+		}
+		
 		// Refresh cache after update
 		const { refreshSubSectionsCache } = require('../services/mongodbCacheService');
 		await refreshSubSectionsCache();
@@ -166,6 +213,29 @@ exports.deleteSubSection = async (req, res, next) => {
 		}
 		
 		console.log(`[MongoDB] ✅ Sub-section deleted successfully: ${removed.subSection?.sub_hie_name || 'Unknown'}`);
+		
+		// Log audit trail for sub-section deletion
+		if (req.user?._id) {
+			try {
+				await AuditLog.createLog({
+					user: req.user._id,
+					action: 'subsection_deleted',
+					entity: { type: 'SubSection', id: removed._id, name: removed.subSection?.sub_hie_name },
+					category: 'data_modification',
+					severity: 'high',
+					description: `Sub-section "${removed.subSection?.sub_hie_name}" deleted`,
+					details: `Deleted sub-section "${removed.subSection?.sub_hie_name}" (${removed.subSection?.sub_hie_code}) from section "${removed.parentSection?.hie_name}"`,
+					metadata: {
+						ipAddress: req.ip,
+						userAgent: req.get('User-Agent'),
+						method: req.method,
+						endpoint: req.originalUrl
+					}
+				});
+			} catch (auditErr) {
+				console.error('[AuditLog] Failed to log sub-section deletion:', auditErr);
+			}
+		}
 		
 		// Remove all employee transfers to this sub-section
 		console.log(`[MongoDB] 🔄 Removing employee transfers for sub-section ID: ${id}`);
@@ -262,6 +332,29 @@ exports.transferEmployeeToSubSection = async (req, res, next) => {
 		console.log('👤 Employee ID:', transferRecord.employeeId);
 		console.log('📍 SubSection ID:', transferRecord.sub_section_id);
 		console.log('💾 Full record:', JSON.stringify(transferRecord, null, 2));
+
+		// Log audit trail for employee transfer
+		if (req.user?._id) {
+			try {
+				await AuditLog.createLog({
+					user: req.user._id,
+					action: 'employee_transferred_to_subsection',
+					entity: { type: 'TransferToSubsection', id: transferRecord._id, name: employeeName },
+					category: 'data_modification',
+					severity: 'medium',
+					description: `Employee "${employeeName}" transferred to sub-section`,
+					details: `Transferred employee "${employeeName}" (${employeeId}) to sub-section "${finalSubHieName}"`,
+					metadata: {
+						ipAddress: req.ip,
+						userAgent: req.get('User-Agent'),
+						method: req.method,
+						endpoint: req.originalUrl
+					}
+				});
+			} catch (auditErr) {
+				console.error('[AuditLog] Failed to log employee transfer:', auditErr);
+			}
+		}
 
 		return res.status(201).json({
 			success: true,
@@ -371,6 +464,29 @@ exports.recallTransfer = async (req, res, next) => {
 		console.log('✅ Transfer recalled successfully!');
 		console.log('🗑️ Deleted record ID:', deleted._id);
 		console.log('👤 Employee:', deleted.employeeName, '(', deleted.employeeId, ')');
+
+		// Log audit trail for employee transfer recall
+		if (req.user?._id) {
+			try {
+				await AuditLog.createLog({
+					user: req.user._id,
+					action: 'employee_transfer_recalled',
+					entity: { type: 'TransferToSubsection', id: deleted._id, name: deleted.employeeName },
+					category: 'data_modification',
+					severity: 'medium',
+					description: `Employee "${deleted.employeeName}" transfer recalled`,
+					details: `Recalled transfer of employee "${deleted.employeeName}" (${deleted.employeeId}) from sub-section "${deleted.sub_hie_name}"`,
+					metadata: {
+						ipAddress: req.ip,
+						userAgent: req.get('User-Agent'),
+						method: req.method,
+						endpoint: req.originalUrl
+					}
+				});
+			} catch (auditErr) {
+				console.error('[AuditLog] Failed to log transfer recall:', auditErr);
+			}
+		}
 
 		return res.json({
 			success: true,

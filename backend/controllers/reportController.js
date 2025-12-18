@@ -1340,7 +1340,7 @@ const generateMySQLMealReport = async (req, res) => {
     } else if (section_id && section_id !== 'all') {
       console.log(`🔍 Filtering by section: "${section_id}"`);
       filteredEmployees = filteredEmployees.filter(emp => {
-        const empSectionName = (emp.currentwork?.HIE_NAME_3 || '').trim();
+        const empSectionName = (emp.currentwork?.HIE_NAME_4 || '').trim();
         const filterSectionName = String(section_id).trim();
         return empSectionName.toLowerCase() === filterSectionName.toLowerCase() ||
                empSectionName.toLowerCase().includes(filterSectionName.toLowerCase());
@@ -1349,10 +1349,15 @@ const generateMySQLMealReport = async (req, res) => {
     } else if (division_id && division_id !== 'all') {
       console.log(`🔍 Filtering by division: "${division_id}"`);
       filteredEmployees = filteredEmployees.filter(emp => {
-        const empDivisionName = (emp.currentwork?.HIE_NAME_2 || '').trim();
-        const filterDivisionName = String(division_id).trim();
-        return empDivisionName.toLowerCase() === filterDivisionName.toLowerCase() ||
-               empDivisionName.toLowerCase().includes(filterDivisionName.toLowerCase());
+        const empDivisionName = (emp.currentwork?.HIE_NAME_3 || '').trim();
+        const empDivisionCode = String(emp.currentwork?.HIE_CODE_4 || '').trim();
+        const filterDivisionName = String(division_id).trim().toLowerCase();
+
+        const divExactMatch = empDivisionName.toLowerCase() === filterDivisionName || empDivisionCode.toLowerCase() === filterDivisionName;
+        const divContainsMatch = empDivisionName.toLowerCase().includes(filterDivisionName) || empDivisionCode.toLowerCase().includes(filterDivisionName) ||
+                                filterDivisionName.includes(empDivisionName.toLowerCase()) || filterDivisionName.includes(empDivisionCode.toLowerCase());
+
+        return divExactMatch || divContainsMatch;
       });
       console.log(`✅ Found ${filteredEmployees.length} employees in division`);
     }
@@ -1364,8 +1369,8 @@ const generateMySQLMealReport = async (req, res) => {
       employeeMap.set(empId, {
         employee_ID: empId,
         employee_name: emp.FULLNAME || emp.DISPLAY_NAME || 'Unknown',
-        division_name: emp.currentwork?.HIE_NAME_2 || '',
-        section_name: emp.currentwork?.HIE_NAME_3 || ''
+        division_name: emp.currentwork?.HIE_NAME_3 || '',
+        section_name: emp.currentwork?.HIE_NAME_4 || ''
       });
     });
 
@@ -1796,44 +1801,37 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
         console.log(`   💡 Try using one of the available HRIS section names listed above`);
       }
     } else if (division_id) {
-      // Filter by division name from HRIS - but also check if it's actually a section name
+      // Filter by division name from HRIS - ONLY check division names, not sections
       console.log(`\n🔍 Filtering by DIVISION: "${division_id}"`);
       
-      // Show unique division names and section names in HRIS for debugging
-      const uniqueDivisions = [...new Set(allEmployees.map(e => e.currentwork?.HIE_NAME_2).filter(Boolean))];
-      const uniqueSections = [...new Set(allEmployees.map(e => e.currentwork?.HIE_NAME_3).filter(Boolean))];
+      // Show unique division names for debugging
+      const uniqueDivisions = [...new Set(allEmployees.map(e => e.currentwork?.HIE_NAME_3).filter(Boolean))];
       console.log(`   📋 Available HRIS division names (${uniqueDivisions.length}):`, uniqueDivisions.sort().slice(0, 10));
-      console.log(`   📋 Available HRIS section names (${uniqueSections.length}):`, uniqueSections.sort().slice(0, 20));
       
       filteredByDivisionSection = filteredByDivisionSection.filter(emp => {
-        const empDivisionName = (emp.currentwork?.HIE_NAME_2 || '').trim();
-        const empSectionName = (emp.currentwork?.HIE_NAME_3 || '').trim();
-        const filterName = String(division_id).trim();
+        const empDivisionName = (emp.currentwork?.HIE_NAME_3 || '').trim();
+        const empDivisionCode = String(emp.currentwork?.HIE_CODE_4 || '').trim();
+        const filterName = String(division_id).trim().toLowerCase();
         
-        // Check if filter matches division (HIE_NAME_2)
-        const divExactMatch = empDivisionName.toLowerCase() === filterName.toLowerCase();
-        const divContainsMatch = empDivisionName.toLowerCase().includes(filterName.toLowerCase()) ||
-                                filterName.toLowerCase().includes(empDivisionName.toLowerCase());
+        // Check if filter matches division (HIE_NAME_3 or HIE_CODE_4) - exact match or contains
+        const divExactMatch = empDivisionName.toLowerCase() === filterName || empDivisionCode.toLowerCase() === filterName;
+        const divContainsMatch = empDivisionName.toLowerCase().includes(filterName) || empDivisionCode.toLowerCase().includes(filterName) ||
+                                filterName.includes(empDivisionName.toLowerCase()) || filterName.includes(empDivisionCode.toLowerCase());
         
-        // Also check if filter matches section (HIE_NAME_3) - in case user selected a section from division dropdown
-        const secExactMatch = empSectionName.toLowerCase() === filterName.toLowerCase();
-        const secContainsMatch = empSectionName.toLowerCase().includes(filterName.toLowerCase()) ||
-                                filterName.toLowerCase().includes(empSectionName.toLowerCase());
-        
-        return divExactMatch || divContainsMatch || secExactMatch || secContainsMatch;
+        return divExactMatch || divContainsMatch;
       });
-      console.log(`   ✅ Found ${filteredByDivisionSection.length} HRIS employees matching "${division_id}"`);
+      console.log(`   ✅ Found ${filteredByDivisionSection.length} HRIS employees in division "${division_id}"`);
       
       if (filteredByDivisionSection.length > 0) {
         console.log(`   Sample employees:`, filteredByDivisionSection.slice(0, 3).map(e => ({
           id: e.EMP_NUMBER,
           name: e.FULLNAME,
-          division: e.currentwork?.HIE_NAME_2,
-          section: e.currentwork?.HIE_NAME_3
+          division: e.currentwork?.HIE_NAME_3,
+          section: e.currentwork?.HIE_NAME_4
         })));
       } else {
-        console.log(`   ⚠️  No match! Your filter "${division_id}" doesn't match any HRIS division or section names`);
-        console.log(`   💡 Try using one of the available names listed above`);
+        console.log(`   ⚠️  No match! Your filter "${division_id}" doesn't match any HRIS division names`);
+        console.log(`   💡 Try using one of the available division names listed above`);
       }
     } else {
       console.log(`   ℹ️  No division/section filter applied - using all employees`);
@@ -1912,8 +1910,8 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
       console.log('Sample matched employees:', employees.slice(0, 3).map(e => ({
         hris_id: e.EMP_NUMBER,
         name: e.FULLNAME,
-        division: e.currentwork?.HIE_NAME_2,
-        section: e.currentwork?.HIE_NAME_3
+        division: e.currentwork?.HIE_NAME_3,
+        section: e.currentwork?.HIE_NAME_4
       })));
     } else if (allEmployees.length > 0 && distinctEmployeeIds.length > 0) {
       console.log('⚠️ No employees matched! Checking filters...');
@@ -1926,16 +1924,17 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
         return distinctEmployeeIds.some(attId => String(attId) === String(empId));
       });
       
-      const uniqueSections = [...new Set(employeesWithAttendance.map(e => e.currentwork?.HIE_NAME_3 || 'No Section'))];
+      const uniqueSections = [...new Set(employeesWithAttendance.map(e => e.currentwork?.HIE_NAME_4 || 'No Section'))];
       console.log(`📊 Unique sections from ${employeesWithAttendance.length} employees with attendance:`, uniqueSections.slice(0, 20));
       
       console.log('Sample HRIS employee division/section:', allEmployees.slice(0, 3).map(e => ({
         id: e.EMP_NUMBER,
-        HIE_CODE_2: e.HIE_CODE_2,
-        division_name: e.currentwork?.HIE_NAME_2,
+        HIE_CODE_4: e.HIE_CODE_4,
+        division_name: e.currentwork?.HIE_NAME_3,
         HIE_CODE_3: e.HIE_CODE_3,
-        section_name: e.currentwork?.HIE_NAME_3
+        section_name: e.currentwork?.HIE_NAME_4
       })));
+
     }
     
     console.log(`Processing report for ${employees.length} employees (with division/section filtering applied)`);
@@ -1958,8 +1957,8 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
     employees = employees.map(emp => {
       const id = String(emp.EMP_NUMBER || emp.emp_no || emp.employee_no || emp.employee_ID || '');
       const name = emp.FULLNAME || emp.DISPLAY_NAME || emp.CALLING_NAME || emp.employee_name || 'Unknown';
-      const divisionName = emp.currentwork?.HIE_NAME_2 || emp.division_name || '';
-      const sectionName = emp.currentwork?.HIE_NAME_3 || emp.section_name || '';
+      const divisionName = emp.currentwork?.HIE_NAME_3 || emp.division_name || '';
+      const sectionName = emp.currentwork?.HIE_NAME_4 || emp.section_name || '';
       return {
         ...emp,
         employee_ID: id,
@@ -2173,7 +2172,7 @@ module.exports = {
         
         // Show available section names for debugging
         if (section_id && section_id !== 'all') {
-          const uniqueSections = [...new Set(allEmployees.map(e => e.currentwork?.HIE_NAME_3).filter(Boolean))];
+          const uniqueSections = [...new Set(allEmployees.map(e => e.currentwork?.HIE_NAME_4).filter(Boolean))];
           console.log(`📋 Available HRIS section names (${uniqueSections.length}):`, uniqueSections.sort().slice(0, 20));
         }
         
@@ -2182,7 +2181,7 @@ module.exports = {
           console.log(`🔍 Filtering by SECTION: "${section_id}"`);
           
           filteredEmployees = filteredEmployees.filter(emp => {
-            const empSectionName = (emp.currentwork?.HIE_NAME_3 || '').trim();
+            const empSectionName = (emp.currentwork?.HIE_NAME_4 || '').trim();
             const filterSectionName = String(section_id).trim();
             
             // Try exact match first, then contains match
@@ -2199,7 +2198,7 @@ module.exports = {
             console.log(`Sample employees:`, filteredEmployees.slice(0, 3).map(e => ({
               id: e.EMP_NUMBER,
               name: e.FULLNAME,
-              section: e.currentwork?.HIE_NAME_3,
+              section: e.currentwork?.HIE_NAME_4,
               designation: e.currentwork?.designation
             })));
           } else {
@@ -2210,13 +2209,14 @@ module.exports = {
           console.log(`🔍 Filtering by DIVISION: "${division_id}"`);
           
           filteredEmployees = filteredEmployees.filter(emp => {
-            const empDivisionName = (emp.currentwork?.HIE_NAME_2 || '').trim();
-            const filterDivisionName = String(division_id).trim();
+            const empDivisionName = (emp.currentwork?.HIE_NAME_3 || '').trim();
+            const empDivisionCode = String(emp.currentwork?.HIE_CODE_4 || '').trim();
+            const filterDivisionName = String(division_id).trim().toLowerCase();
             
-            // Try exact match first, then contains match
-            const exactMatch = empDivisionName.toLowerCase() === filterDivisionName.toLowerCase();
-            const containsMatch = empDivisionName.toLowerCase().includes(filterDivisionName.toLowerCase()) ||
-                                 filterDivisionName.toLowerCase().includes(empDivisionName.toLowerCase());
+            // Try exact match first, then contains match (check name and code)
+            const exactMatch = empDivisionName.toLowerCase() === filterDivisionName || empDivisionCode.toLowerCase() === filterDivisionName;
+            const containsMatch = empDivisionName.toLowerCase().includes(filterDivisionName) || empDivisionCode.toLowerCase().includes(filterDivisionName) ||
+                                 filterDivisionName.includes(empDivisionName.toLowerCase()) || filterDivisionName.includes(empDivisionCode.toLowerCase());
             
             return exactMatch || containsMatch;
           });
@@ -2227,7 +2227,7 @@ module.exports = {
             console.log(`Sample employees:`, filteredEmployees.slice(0, 3).map(e => ({
               id: e.EMP_NUMBER,
               name: e.FULLNAME,
-              division: e.currentwork?.HIE_NAME_2
+              division: e.currentwork?.HIE_NAME_3
             })));
           }
         } else {
@@ -2251,8 +2251,8 @@ module.exports = {
             employeeName: emp.FULLNAME || 'Unknown',
             designation: designation,
             issueCount: 0, // Placeholder - can be calculated from attendance data if needed
-            divisionName: emp.currentwork?.HIE_NAME_2 || '',
-            sectionName: emp.currentwork?.HIE_NAME_3 || ''
+            divisionName: emp.currentwork?.HIE_NAME_3 || '',
+            sectionName: emp.currentwork?.HIE_NAME_4 || ''
           });
         });
 
@@ -2400,8 +2400,7 @@ module.exports = {
         console.log(`🔍 Filtering by DIVISION: "${division_id}"`);
         
         filteredEmployees = filteredEmployees.filter(emp => {
-          const empDivisionName = (emp.currentwork?.HIE_NAME_2 || '').trim();
-          const filterDivisionName = String(division_id).trim();
+            const empDivisionName = (emp.currentwork?.HIE_NAME_3 || '').trim();
           
           // Try exact match first, then contains match (bidirectional)
           const exactMatch = empDivisionName.toLowerCase() === filterDivisionName.toLowerCase();
@@ -2446,8 +2445,8 @@ module.exports = {
             employeeName: emp.FULLNAME || 'Unknown',
             designation: designation,
             issueCount: empRecords.length,
-            divisionName: emp.currentwork?.HIE_NAME_2 || '',
-            sectionName: emp.currentwork?.HIE_NAME_3 || ''
+            divisionName: emp.currentwork?.HIE_NAME_3 || '',
+            sectionName: emp.currentwork?.HIE_NAME_4 || ''
           });
         });
         
@@ -2487,7 +2486,7 @@ module.exports = {
                 employeeId: empId,
                 employeeName: emp.FULLNAME || 'Unknown',
                 designation: emp.currentwork?.designation || 'Unassigned',
-                divisionName: emp.currentwork?.HIE_NAME_2 || '',
+                divisionName: emp.currentwork?.HIE_NAME_3 || '',
                 sectionName: emp.currentwork?.HIE_NAME_3 || '',
                 eventDate: record.date_,
                 eventTime: punchData[0],
@@ -2534,8 +2533,8 @@ module.exports = {
             employeeName: emp.FULLNAME || 'Unknown',
             designation: emp.currentwork?.designation || 'Unassigned',
             issueCount: empRecords.length,
-            divisionName: emp.currentwork?.HIE_NAME_2 || '',
-            sectionName: emp.currentwork?.HIE_NAME_3 || ''
+            divisionName: emp.currentwork?.HIE_NAME_3 || '',
+            sectionName: emp.currentwork?.HIE_NAME_4 || ''
           });
         });
         

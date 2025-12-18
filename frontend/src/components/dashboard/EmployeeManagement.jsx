@@ -16,6 +16,7 @@ const EmployeeManagement = () => {
   const [selectedEmployeeDivision, setSelectedEmployeeDivision] = useState('all');
   const [selectedSection, setSelectedSection] = useState('all');
   const [selectedSubSection, setSelectedSubSection] = useState('all');
+  const [selectedEmployeeStatus, setSelectedEmployeeStatus] = useState('all');
   const [availableSections, setAvailableSections] = useState([]);
   const [availableSubSections, setAvailableSubSections] = useState([]);
   // raw HRIS rows (unfiltered) -- used to lookup employees for transfers even if they don't match Colombo filter
@@ -71,6 +72,14 @@ const EmployeeManagement = () => {
     return out.sort((a, b) => a.name.localeCompare(b.name));
   };
 
+  // Helper to sanitize section display name (removes IDs/codes and counts in parentheses)
+  const formatSectionName = (name) => {
+    if (!name) return '';
+    let cleaned = String(name).replace(/\s*\([^)]*\)/g, '').trim();
+    cleaned = cleaned.replace(/\s*-\s*$/, '').trim();
+    return cleaned;
+  }; 
+
   const normalizeEmployees = (data = []) => {
     const out = [];
     const seen = new Set();
@@ -95,6 +104,7 @@ const EmployeeManagement = () => {
         sectionName: e.SECTION_NAME ?? e.section_name ?? hie4 ?? '',
         gender: e.GENDER ?? e.gender ?? '',
         status: e.STATUS ?? e.status ?? 'ACTIVE',
+        isActive: e.isActive ?? e.IS_ACTIVE ?? (e.STATUS === 'ACTIVE' || e.status === 'ACTIVE'),
         dateOfBirth: e.DATE_OF_BIRTH ?? e.date_of_birth ?? e.dob ?? '',
         dateOfJoining: e.DATE_OF_JOINING ?? e.date_of_joining ?? e.doj ?? '',
         divisionHierarchyName: hie3 ?? '',
@@ -254,25 +264,65 @@ const EmployeeManagement = () => {
       };
 
       // Log base URL and token state for easier debugging of 404s
-      console.log('Fetching HRIS data', { API_BASE_URL, tokenPresent: !!token });
+      console.log('🔄 Fetching HRIS data...', { API_BASE_URL, tokenPresent: !!token });
+      console.log('📍 Current timestamp:', new Date().toLocaleTimeString());
 
       const endpoints = [
-        { key: 'employees', url: `${API_BASE_URL}/users/hris` },
-        { key: 'sections', url: `${API_BASE_URL}/sections/hris` },
-        { key: 'divisions', url: `${API_BASE_URL}/divisions/hris` },
+        { key: 'employees', url: `${API_BASE_URL}/users/hris`, fallbackUrl: `${API_BASE_URL}/hris-cache/employees` },
+        { key: 'sections', url: `${API_BASE_URL}/sections/hris`, fallbackUrl: `${API_BASE_URL}/hris-cache/sections` },
+        { key: 'divisions', url: `${API_BASE_URL}/divisions/hris`, fallbackUrl: `${API_BASE_URL}/hris-cache/divisions` },
         // Use MySQL-backed subsections endpoint (MongoDB subsections route disabled on server)
         { key: 'subsections', url: `${API_BASE_URL}/mysql-subsections` },
       ];
 
+      // Helper function to fetch with fallback
+      const fetchWithFallback = async (ep) => {
+        try {
+          const response = await axios.get(ep.url, { headers });
+          // Check if response has data
+          if (response.data?.success && response.data?.data?.length > 0) {
+            return response;
+          }
+          // If primary returned empty data and fallback exists, try fallback
+          if (ep.fallbackUrl && (!response.data?.data || response.data.data.length === 0)) {
+            console.log(`${ep.key} primary returned empty data, trying cache fallback...`);
+            const fallbackResponse = await axios.get(ep.fallbackUrl, { headers });
+            if (fallbackResponse.data?.success && fallbackResponse.data?.data?.length > 0) {
+              console.log(`${ep.key} fallback cache successful with ${fallbackResponse.data.data.length} items`);
+              fallbackResponse.data.fromCache = true;
+              return fallbackResponse;
+            }
+          }
+          return response;
+        } catch (error) {
+          // If primary fails and fallback exists, try fallback
+          if (ep.fallbackUrl) {
+            console.log(`${ep.key} primary failed, trying cache fallback...`);
+            try {
+              const fallbackResponse = await axios.get(ep.fallbackUrl, { headers });
+              if (fallbackResponse.data?.success) {
+                console.log(`${ep.key} fallback cache successful with ${fallbackResponse.data.data?.length || 0} items`);
+                fallbackResponse.data.fromCache = true;
+                return fallbackResponse;
+              }
+            } catch (fallbackError) {
+              console.warn(`${ep.key} fallback also failed:`, fallbackError?.response?.status || fallbackError?.message);
+            }
+          }
+          throw error;
+        }
+      };
+
       // Execute requests without failing them all if a single endpoint returns an error
-      const results = await Promise.allSettled(endpoints.map(ep => axios.get(ep.url, { headers })));
+      const results = await Promise.allSettled(endpoints.map(ep => fetchWithFallback(ep)));
       const responses = {};
       const failedEndpoints = [];
       results.forEach((r, idx) => {
         const ep = endpoints[idx];
         if (r.status === 'fulfilled') {
           responses[ep.key] = r.value;
-          console.log(`${ep.key} OK:`, ep.url);
+          const fromCache = r.value?.data?.fromCache ? ' (from cache)' : '';
+          console.log(`${ep.key} OK${fromCache}:`, ep.url);
         } else {
           failedEndpoints.push({ key: ep.key, url: ep.url, reason: r.reason });
           console.warn(`${ep.key} failed:`, ep.url, r.reason?.response?.status || r.reason?.message);
@@ -356,12 +406,12 @@ const EmployeeManagement = () => {
         const allNormalized = normalizeEmployees(apiRows);
         setNormalizedAllHrisEmployees(allNormalized);
 
-        // Apply existing Colombo filter for default UI list
-        const filteredApiRows = apiRows.filter(isColomboEmployeeRaw);
-        console.log('Filtered (Colombo) HRIS employees:', filteredApiRows.length);
-        setRawEmployees(filteredApiRows);
-        const normalizedEmployees = normalizeEmployees(filteredApiRows);
-        console.log('Normalized (Colombo) employees:', normalizedEmployees.length);
+        // Don't apply Colombo filter automatically - show ALL employees
+        // Users can filter by division/section/sub-section themselves
+        console.log('Processing all employees (no Colombo filter):', apiRows.length);
+        setRawEmployees(apiRows);
+        const normalizedEmployees = normalizeEmployees(apiRows);
+        console.log('Normalized all employees:', normalizedEmployees.length);
         setAllEmployees(normalizedEmployees);
         setEmployees(normalizedEmployees);
         if (employeeResponse.data.fallback) {
@@ -529,6 +579,15 @@ const EmployeeManagement = () => {
   }, [availableSections, selectedSection]);
 
   useEffect(() => {
+    console.log('🎯 Filter effect triggered with:', {
+      allEmployees: allEmployees.length,
+      selectedDivision: selectedEmployeeDivision,
+      selectedSection: selectedSection,
+      selectedSubSection: selectedSubSection,
+      selectedStatus: selectedEmployeeStatus,
+      searchTerm: searchTerm
+    });
+    
     let filtered = allEmployees;
 
     // Special handling for sub-section selection
@@ -585,32 +644,47 @@ const EmployeeManagement = () => {
       }
     } else {
       // Normal division/section filtering (when no sub-section is selected)
+      console.log('🔍 Applying filters:', { 
+        selectedDivision: selectedEmployeeDivision, 
+        selectedSection: selectedSection,
+        totalEmployees: filtered.length 
+      });
+      
       if (selectedEmployeeDivision !== 'all') {
         const maps = buildDivisionMaps();
+        const beforeCount = filtered.length;
         filtered = filtered.filter(emp => getEmployeeDivisionKey(emp, maps) === String(selectedEmployeeDivision));
+        console.log(`📊 Division filter: ${beforeCount} → ${filtered.length} employees`);
       }
+      
       if (selectedSection !== 'all') {
         const selObj = availableSections.find(s => String(s.id) === String(selectedSection));
         const selNameKey = String(selObj?.name || '').toLowerCase().trim().replace(/\s+/g, ' ');
+        const beforeCount = filtered.length;
         filtered = filtered.filter(emp => {
           const byIdOrCode = String(emp.sectionId || emp.sectionCode) === String(selectedSection);
           if (byIdOrCode) return true;
           const empNameKey = String(emp.sectionHierarchyName || emp.sectionName || '').toLowerCase().trim().replace(/\s+/g, ' ');
           return selNameKey && empNameKey === selNameKey;
         });
+        console.log(`📊 Section filter: ${beforeCount} → ${filtered.length} employees`);
       }
     }
 
-    // If no sub-section is selected, enforce Colombo-only filter to keep the default list Colombo-focused.
-    // If a sub-section is selected, we intentionally skip the Colombo-only filter so transferred employees
-    // (which may belong to other divisions) are still shown.
-    if (selectedSubSection === 'all') {
-      filtered = filtered.filter(isColomboEmployeeNormalized);
+    // Note: Removed automatic Colombo-only filter to allow users to see employees from all divisions
+    // Users can filter by selecting specific divisions/sections from the dropdowns
+    // The Colombo filter was preventing employees from non-Colombo divisions (like Information Systems) from being displayed
+
+    // Apply employee status filter
+    if (selectedEmployeeStatus !== 'all') {
+      const isActiveFilter = selectedEmployeeStatus === 'active';
+      filtered = filtered.filter(emp => emp.isActive === isActiveFilter);
     }
 
     // Apply search filter
     if (searchTerm.trim()) {
       const search = searchTerm.toLowerCase().trim();
+      const beforeCount = filtered.length;
       filtered = filtered.filter(emp => {
         const empId = String(emp.empNumber || '').toLowerCase();
         const empName = String(emp.fullName || '').toLowerCase();
@@ -622,16 +696,19 @@ const EmployeeManagement = () => {
                empDesignation.includes(search) ||
                empNic.includes(search);
       });
+      console.log(`🔎 Search filter: ${beforeCount} → ${filtered.length} employees`);
     }
 
+    console.log(`✅ Final filtered employees: ${filtered.length}`);
     setEmployees(filtered);
-  }, [allEmployees, normalizedAllHrisEmployees, selectedEmployeeDivision, selectedSection, selectedSubSection, transferredEmployees, availableSections, searchTerm]);
+  }, [allEmployees, normalizedAllHrisEmployees, selectedEmployeeDivision, selectedSection, selectedSubSection, selectedEmployeeStatus, transferredEmployees, availableSections, searchTerm]);
 
   const refreshData = () => {
     fetchAllData();
     setSelectedEmployeeDivision('all');
     setSelectedSection('all');
     setSelectedSubSection('all');
+    setSelectedEmployeeStatus('all');
     setAvailableSections([]);
     setAvailableSubSections([]);
     setSearchTerm('');
@@ -640,17 +717,16 @@ const EmployeeManagement = () => {
   return (
     <div className="report-generation">
       <div className="report-header">
-        <div className="header-content">
+        <div className="header-content header-no-subtitle">
           <h1>
             <i className="bi bi-people"></i>
             {t('employeeManagement')}
           </h1>
-          <p className="header-subtitle">{t('employeeHeaderSubtitle')}</p>
         </div>
-      </div>
+      </div> 
 
       {/* Active Filters Display - Moved before filter section */}
-      {(selectedEmployeeDivision !== 'all' || selectedSection !== 'all' || selectedSubSection !== 'all') && (
+      {(selectedEmployeeDivision !== 'all' || selectedSection !== 'all' || selectedSubSection !== 'all' || selectedEmployeeStatus !== 'all') && (
         <div style={{
           background: 'linear-gradient(135deg, #667eea15 0%, #764ba215 100%)',
           border: '2px solid #667eea',
@@ -706,6 +782,25 @@ const EmployeeManagement = () => {
                     {availableSubSections.find(ss => String(ss._id) === String(selectedSubSection))?.subSection?.sub_hie_name || 
                      availableSubSections.find(ss => String(ss._id) === String(selectedSubSection))?.subSection?.hie_name || 
                      selectedSubSection}
+                  </span>
+                </>
+              )}
+              {selectedEmployeeStatus !== 'all' && (
+                <>
+                  <i className="bi bi-chevron-right" style={{ color: '#667eea' }}></i>
+                  <span style={{
+                    background: selectedEmployeeStatus === 'active' ? '#28a745' : '#dc3545',
+                    color: 'white',
+                    padding: '4px 12px',
+                    borderRadius: '20px',
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}>
+                    <i className={`bi bi-${selectedEmployeeStatus === 'active' ? 'check-circle-fill' : 'x-circle-fill'}`}></i>
+                    {selectedEmployeeStatus === 'active' ? (t('activeEmployeesLabel') || 'Active') : (t('inactiveEmployeesLabel') || 'Inactive')}
                   </span>
                 </>
               )}
@@ -793,7 +888,7 @@ const EmployeeManagement = () => {
                     {availableSections.length ? (
                       availableSections.map(section => (
                         <option key={section.id} value={section.id}>
-                          {section.name}
+                          {formatSectionName(section.name)}
                         </option>
                       ))
                     ) : (
@@ -845,6 +940,36 @@ const EmployeeManagement = () => {
                   </>
                 )}
               </select>
+          </div>
+
+          {/* Employee Status Filter */}
+          <div style={{ flex: '1', minWidth: '200px' }}>
+            <label htmlFor="employee-status-select" style={{ 
+              fontWeight: '600', 
+              color: '#495057',
+              fontSize: '12px',
+              display: 'block',
+              marginBottom: '4px'
+            }}>
+              Active/Inactive
+            </label>
+            <select 
+              id="employee-status-select"
+              className="form-select" 
+              value={selectedEmployeeStatus} 
+              onChange={(e) => setSelectedEmployeeStatus(e.target.value)}
+              style={{ 
+                padding: '8px 10px',
+                fontSize: '13px',
+                border: '1px solid #dee2e6',
+                borderRadius: '4px'
+              }}
+              disabled={loading}
+            >
+              <option value="all">All</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
           </div>
 
           {/* Search Bar */}
@@ -1023,6 +1148,16 @@ const EmployeeManagement = () => {
                       letterSpacing: '0.5px',
                       border: 'none',
                       whiteSpace: 'nowrap'
+                    }}>Status</th>
+                    <th style={{ 
+                      color: 'white !important', 
+                      fontWeight: '600', 
+                      padding: '14px 16px',
+                      fontSize: '13px',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                      border: 'none',
+                      whiteSpace: 'nowrap'
                     }}>NIC</th>
                   </tr>
                 </thead>
@@ -1082,6 +1217,27 @@ const EmployeeManagement = () => {
                         padding: '12px 16px',
                         fontSize: '13px',
                         color: '#6c757d',
+                        borderBottom: '1px solid #e9ecef'
+                      }}>
+                        <span style={{
+                          background: employee.isActive ? '#d4edda' : '#f8d7da',
+                          color: employee.isActive ? '#155724' : '#721c24',
+                          padding: '4px 10px',
+                          borderRadius: '12px',
+                          fontSize: '12px',
+                          fontWeight: '500',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}>
+                          <i className={`bi bi-${employee.isActive ? 'check-circle-fill' : 'x-circle-fill'}`}></i>
+                          {employee.isActive ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td style={{ 
+                        padding: '12px 16px',
+                        fontSize: '13px',
+                        color: '#6c757d',
                         fontFamily: 'monospace',
                         borderBottom: '1px solid #e9ecef'
                       }}>{employee.nic}</td>
@@ -1089,7 +1245,7 @@ const EmployeeManagement = () => {
                   ))}
                   {employees.length === 0 && (
                     <tr>
-                      <td colSpan={5} style={{
+                      <td colSpan={6} style={{
                         textAlign: 'center', 
                         padding: '60px 24px',
                         color: '#9e9e9e',

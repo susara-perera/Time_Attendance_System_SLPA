@@ -28,7 +28,7 @@ const Login = () => {
       @keyframes slideInUp {
         from {
           opacity: 0;
-          transform: translateY(20px);
+          transform: translateY(40px);
         }
         to {
           opacity: 1;
@@ -42,81 +42,103 @@ const Login = () => {
       }
 
       @keyframes float {
-        0%, 100% { transform: translateY(0px); }
-        50% { transform: translateY(-10px); }
+        0%, 100% { transform: translateY(0px) rotate(0deg); }
+        25% { transform: translateY(-8px) rotate(1deg); }
+        75% { transform: translateY(-8px) rotate(-1deg); }
+      }
+      
+      @keyframes pulseGlow {
+        0%, 100% {
+          box-shadow: 0 0 20px rgba(255, 255, 255, 0.3),
+                      0 25px 45px rgba(0, 0, 0, 0.2);
+        }
+        50% {
+          box-shadow: 0 0 40px rgba(255, 255, 255, 0.5),
+                      0 30px 50px rgba(0, 0, 0, 0.25);
+        }
       }
 
       @keyframes colorChange {
         0% { 
           color: #ffffff;
           text-shadow: 
-            0 0 30px rgba(255, 255, 255, 0.8),
-            0 4px 15px rgba(0, 0, 0, 0.6),
-            0 0 10px rgba(255, 255, 255, 0.5);
-        }
-        25% { 
-          color: #cccccc;
-          text-shadow: 
-            0 0 25px rgba(204, 204, 204, 0.7),
-            0 4px 12px rgba(0, 0, 0, 0.5),
-            0 0 8px rgba(255, 255, 255, 0.3);
-        }
-        50% { 
-          color: #000000;
-          text-shadow: 
-            0 0 20px rgba(255, 255, 255, 0.9),
-            0 4px 10px rgba(255, 255, 255, 0.7),
+            0 0 30px rgba(255, 255, 255, 0.9),
+            0 4px 20px rgba(0, 0, 0, 0.6),
             0 0 15px rgba(255, 255, 255, 0.6);
         }
-        75% { 
-          color: #333333;
+        25% { 
+          color: #e0e7ff;
           text-shadow: 
-            0 0 25px rgba(255, 255, 255, 0.8),
-            0 4px 12px rgba(255, 255, 255, 0.6),
-            0 0 12px rgba(255, 255, 255, 0.4);
+            0 0 35px rgba(99, 102, 241, 0.8),
+            0 4px 18px rgba(0, 0, 0, 0.5),
+            0 0 12px rgba(99, 102, 241, 0.5);
+        }
+        50% { 
+          color: #60a5fa;
+          text-shadow: 
+            0 0 40px rgba(96, 165, 250, 0.9),
+            0 4px 15px rgba(0, 0, 0, 0.4),
+            0 0 20px rgba(96, 165, 250, 0.7);
+        }
+        75% { 
+          color: #c7d2fe;
+          text-shadow: 
+            0 0 35px rgba(199, 210, 254, 0.8),
+            0 4px 18px rgba(0, 0, 0, 0.5),
+            0 0 12px rgba(199, 210, 254, 0.5);
         }
         100% { 
           color: #ffffff;
           text-shadow: 
-            0 0 30px rgba(255, 255, 255, 0.8),
-            0 4px 15px rgba(0, 0, 0, 0.6),
-            0 0 10px rgba(255, 255, 255, 0.5);
+            0 0 30px rgba(255, 255, 255, 0.9),
+            0 4px 20px rgba(0, 0, 0, 0.6),
+            0 0 15px rgba(255, 255, 255, 0.6);
         }
       }
 
       @keyframes underlineColorChange {
-        0% { 
-          background: linear-gradient(90deg, transparent, #ffffff 15%, #f0f0f0 30%, #ffffff 50%, #f0f0f0 70%, #ffffff 85%, transparent);
-          opacity: 0.8; 
-          transform: translateX(-50%) scaleX(0.9); 
-        }
-        25% { 
-          background: linear-gradient(90deg, transparent, #cccccc 15%, #999999 30%, #666666 50%, #999999 70%, #cccccc 85%, transparent);
+        0%, 100% { 
+          background: linear-gradient(90deg, transparent, #ffffff 15%, #e0e7ff 30%, #ffffff 50%, #e0e7ff 70%, #ffffff 85%, transparent);
           opacity: 0.9; 
-          transform: translateX(-50%) scaleX(1.0); 
+          transform: translateX(-50%) scaleX(0.95); 
         }
         50% { 
-          background: linear-gradient(90deg, transparent, #666666 15%, #333333 30%, #000000 50%, #333333 70%, #666666 85%, transparent);
-          opacity: 1.0; 
+          background: linear-gradient(90deg, transparent, #60a5fa 15%, #3b82f6 30%, #2563eb 50%, #3b82f6 70%, #60a5fa 85%, transparent);
+          opacity: 1; 
           transform: translateX(-50%) scaleX(1.1); 
-        }
-        75% { 
-          background: linear-gradient(90deg, transparent, #999999 15%, #666666 30%, #333333 50%, #666666 70%, #999999 85%, transparent);
-          opacity: 0.9; 
-          transform: translateX(-50%) scaleX(1.0); 
-        }
-        100% { 
-          background: linear-gradient(90deg, transparent, #ffffff 15%, #f0f0f0 30%, #ffffff 50%, #f0f0f0 70%, #ffffff 85%, transparent);
-          opacity: 0.8; 
-          transform: translateX(-50%) scaleX(0.9); 
         }
       }
 
-      /* Animated gradient background when video doesn't load */
       @keyframes gradientShift {
         0% { background-position: 0% 50%; }
         50% { background-position: 100% 50%; }
         100% { background-position: 0% 50%; }
+      }
+      
+      @keyframes borderGlow {
+        0%, 100% {
+          border-color: rgba(255, 255, 255, 0.3);
+          box-shadow: 0 25px 50px rgba(0, 0, 0, 0.25);
+        }
+        50% {
+          border-color: rgba(255, 255, 255, 0.6);
+          box-shadow: 0 30px 60px rgba(0, 0, 0, 0.3), 0 0 30px rgba(255, 255, 255, 0.1);
+        }
+      }
+      
+      @keyframes inputFocus {
+        0% { transform: translateY(0); box-shadow: none; }
+        100% { transform: translateY(-2px); box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2), 0 0 20px rgba(232, 244, 253, 0.3); }
+      }
+      
+      @keyframes buttonPulse {
+        0%, 100% { box-shadow: 0 8px 25px rgba(74, 144, 226, 0.4); }
+        50% { box-shadow: 0 12px 35px rgba(74, 144, 226, 0.6), 0 0 40px rgba(74, 144, 226, 0.2); }
+      }
+      
+      @keyframes logoBreath {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.03); }
       }
     `;
     document.head.appendChild(style);
@@ -379,24 +401,26 @@ const Login = () => {
 
       {/* Login Form Box */}
       <div style={{
-        background: 'rgba(255, 255, 255, 0.15)',
-        padding: '40px',
-        borderRadius: '20px',
+        background: 'rgba(255, 255, 255, 0.12)',
+        padding: '45px',
+        borderRadius: '24px',
         boxShadow: `
-          0 25px 45px rgba(0, 0, 0, 0.2),
+          0 30px 60px rgba(0, 0, 0, 0.25),
           inset 0 1px 0 rgba(255, 255, 255, 0.4),
-          inset 0 -1px 0 rgba(0, 0, 0, 0.1)
+          inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+          0 0 0 1px rgba(255, 255, 255, 0.1)
         `,
         width: '100%',
-        maxWidth: '900px',
-        backdropFilter: 'blur(15px)',
-        border: '1px solid rgba(255, 255, 255, 0.2)',
-        transition: 'all 0.3s ease',
+        maxWidth: '920px',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
+        border: '1px solid rgba(255, 255, 255, 0.25)',
+        transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
         position: 'relative',
         overflow: 'hidden',
         opacity: 1,
         transform: 'translateY(0)',
-        animation: 'slideInUp 0.8s ease-out 0.1s forwards, float 6s ease-in-out 1s infinite'
+        animation: 'slideInUp 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards, float 8s ease-in-out 1.5s infinite, borderGlow 4s ease-in-out infinite'
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.transform = 'translateY(-5px)';
@@ -444,31 +468,32 @@ const Login = () => {
                 src={logo} 
                 alt="Logo" 
                 style={{
-                  maxWidth: '150px',
+                  maxWidth: '160px',
                   height: 'auto',
                   borderRadius: '50%',
                   boxShadow: `
-                    0 15px 40px rgba(0, 0, 0, 0.4),
-                    0 0 30px rgba(255, 255, 255, 0.2)
+                    0 20px 50px rgba(0, 0, 0, 0.4),
+                    0 0 40px rgba(255, 255, 255, 0.25)
                   `,
-                  transition: 'all 0.3s ease',
-                  border: '3px solid rgba(255, 255, 255, 0.3)'
+                  transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+                  border: '4px solid rgba(255, 255, 255, 0.35)',
+                  animation: 'logoBreath 4s ease-in-out infinite'
                 }}
                 onMouseEnter={(e) => {
-                  e.target.style.transform = 'scale(1.15)';
+                  e.target.style.transform = 'scale(1.18) rotate(5deg)';
                   e.target.style.boxShadow = `
-                    0 20px 50px rgba(0, 0, 0, 0.5),
-                    0 0 40px rgba(255, 255, 255, 0.4)
+                    0 25px 60px rgba(0, 0, 0, 0.5),
+                    0 0 60px rgba(255, 255, 255, 0.5)
                   `;
-                  e.target.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+                  e.target.style.borderColor = 'rgba(255, 255, 255, 0.6)';
                 }}
                 onMouseLeave={(e) => {
-                  e.target.style.transform = 'scale(1)';
+                  e.target.style.transform = 'scale(1) rotate(0deg)';
                   e.target.style.boxShadow = `
-                    0 15px 40px rgba(0, 0, 0, 0.4),
-                    0 0 30px rgba(255, 255, 255, 0.2)
+                    0 20px 50px rgba(0, 0, 0, 0.4),
+                    0 0 40px rgba(255, 255, 255, 0.25)
                   `;
-                  e.target.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                  e.target.style.borderColor = 'rgba(255, 255, 255, 0.35)';
                 }}
               />
             </div>
@@ -829,42 +854,43 @@ const Login = () => {
                     fontWeight: '800',
                     color: isBlocked ? '#999' : '#ffffff',
                     border: 'none',
-                    borderRadius: '12px',
+                    borderRadius: '14px',
                     background: isBlocked 
                       ? 'linear-gradient(135deg, #666 0%, #555 50%, #444 100%)'
                       : loading 
                         ? 'linear-gradient(135deg, #888 0%, #666 50%, #555 100%)'
-                        : 'linear-gradient(135deg, #4a90e2 0%, #357abd 50%, #2c5aa0 100%)',
+                        : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 50%, #1e40af 100%)',
                     cursor: loading || isBlocked ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.3s ease',
+                    transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
                     textTransform: 'uppercase',
                     letterSpacing: '2px',
                     boxShadow: loading || isBlocked 
                       ? 'none' 
                       : `
-                        0 8px 25px rgba(74, 144, 226, 0.4),
-                        inset 0 1px 0 rgba(255, 255, 255, 0.2)
+                        0 8px 30px rgba(59, 130, 246, 0.45),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.25)
                       `,
                     textShadow: '0 2px 4px rgba(0, 0, 0, 0.3)',
-                    opacity: isBlocked ? 0.6 : 1
+                    opacity: isBlocked ? 0.6 : 1,
+                    animation: loading || isBlocked ? 'none' : 'buttonPulse 3s ease-in-out infinite'
                   }}
                   onMouseEnter={(e) => {
                     if (!loading && !isBlocked) {
-                      e.target.style.background = 'linear-gradient(135deg, #357abd 0%, #2c5aa0 50%, #1e3f73 100%)';
-                      e.target.style.transform = 'translateY(-4px)';
+                      e.target.style.background = 'linear-gradient(135deg, #60a5fa 0%, #3b82f6 50%, #2563eb 100%)';
+                      e.target.style.transform = 'translateY(-5px) scale(1.02)';
                       e.target.style.boxShadow = `
-                        0 15px 35px rgba(74, 144, 226, 0.6),
-                        inset 0 1px 0 rgba(255, 255, 255, 0.3)
+                        0 18px 45px rgba(59, 130, 246, 0.55),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.35)
                       `;
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (!loading && !isBlocked) {
-                      e.target.style.background = 'linear-gradient(135deg, #4a90e2 0%, #357abd 50%, #2c5aa0 100%)';
-                      e.target.style.transform = 'translateY(0)';
+                      e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 50%, #1e40af 100%)';
+                      e.target.style.transform = 'translateY(0) scale(1)';
                       e.target.style.boxShadow = `
-                        0 8px 25px rgba(74, 144, 226, 0.4),
-                        inset 0 1px 0 rgba(255, 255, 255, 0.2)
+                        0 8px 30px rgba(59, 130, 246, 0.45),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.25)
                       `;
                     }
                   }}
@@ -894,16 +920,19 @@ const Login = () => {
               {/* Security Information */}
               <div style={{
                 marginTop: '20px',
-                padding: '12px',
-                background: 'rgba(32, 201, 151, 0.1)',
-                border: '1px solid rgba(32, 201, 151, 0.3)',
-                borderRadius: '8px',
+                padding: '14px',
+                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(5, 150, 105, 0.08) 100%)',
+                border: '1px solid rgba(16, 185, 129, 0.35)',
+                borderRadius: '12px',
                 textAlign: 'center',
                 fontSize: '12px',
-                color: '#20c997',
-                fontWeight: '500'
+                color: '#10b981',
+                fontWeight: '600',
+                backdropFilter: 'blur(8px)',
+                transition: 'all 0.3s ease',
+                animation: 'slideInUp 0.5s ease-out 0.6s backwards'
               }}>
-                <i className="bi bi-shield-check" style={{ marginRight: '6px' }}></i>
+                <i className="bi bi-shield-check" style={{ marginRight: '8px', fontSize: '14px' }}></i>
                 Your login is secured with advanced encryption
               </div>
             </form>

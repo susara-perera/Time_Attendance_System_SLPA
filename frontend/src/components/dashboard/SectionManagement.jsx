@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import usePermission from '../../hooks/usePermission';
 
+import './SectionManagement.css';
+
 const SectionManagement = () => {
   const [sections, setSections] = useState([]);
   const [divisions, setDivisions] = useState([]);
@@ -8,6 +10,7 @@ const SectionManagement = () => {
   // HRIS source flag removed (was unused) - keep rawSections/rawDivisions for snapshots
   const [selectedDivision, setSelectedDivision] = useState(''); // division _id or 'all'
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortOption, setSortOption] = useState('name_asc'); // name_asc, name_desc, id_asc, id_desc
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [currentSection, setCurrentSection] = useState(null);
@@ -69,6 +72,9 @@ const SectionManagement = () => {
   const [bulkRecallSubmitting, setBulkRecallSubmitting] = useState(false);
   const [transferredEmployeesList, setTransferredEmployeesList] = useState([]);
   const [transferredLoading, setTransferredLoading] = useState(false);
+  // Employee counts
+  const [activeEmployeeCount, setActiveEmployeeCount] = useState(0);
+  const [inactiveEmployeeCount, setInactiveEmployeeCount] = useState(0);
   // Search state for employee modals
   const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
   const [transferredSearchQuery, setTransferredSearchQuery] = useState('');
@@ -197,7 +203,16 @@ const SectionManagement = () => {
 
   // Sub-section edit/delete
   const handleEditSubSection = (sectionId, item) => {
-    setEditingSubSection({ sectionId, subSection: item });
+    // Get parent division and section names from currentSectionForSubSections
+    const divisionName = getDivisionName(currentSectionForSubSections?.division);
+    const sectionName = currentSectionForSubSections?.name || 'N/A';
+    
+    setEditingSubSection({ 
+      sectionId, 
+      subSection: item,
+      parentDivision: divisionName,
+      parentSection: sectionName
+    });
     setEditSubForm({
       name: item?.subSection?.sub_hie_name || item?.subSection?.hie_name || item?.subSection?.name || '',
       code: item?.subSection?.sub_hie_code || item?.subSection?.hie_code || item?.subSection?.code || ''
@@ -429,14 +444,14 @@ const SectionManagement = () => {
       // Filter employees by matching division and section
       const filteredEmployees = allEmployees.filter(emp => {
         // Get employee's division info from various possible fields
-        const empDivCode = emp?.HIE_CODE_3 || emp?.hie_code_3 || emp?.DIVISION_CODE || emp?.division_code || 
-                          emp?.currentwork?.HIE_CODE_3 || emp?.currentwork?.DIVISION_CODE || '';
+        const empDivCode = emp?.HIE_CODE_4 || emp?.hie_code_4 || emp?.DIVISION_CODE || emp?.division_code || 
+                          emp?.currentwork?.HIE_CODE_4 || emp?.currentwork?.DIVISION_CODE || '';
         const empDivName = emp?.HIE_NAME_3 || emp?.hie_name_3 || emp?.DIVISION_NAME || emp?.division_name || 
                           emp?.currentwork?.HIE_NAME_3 || emp?.currentwork?.DIVISION_NAME || '';
         
         // Get employee's section info from various possible fields
-        const empSecCode = emp?.HIE_CODE_4 || emp?.hie_code_4 || emp?.SECTION_CODE || emp?.section_code || 
-                          emp?.currentwork?.HIE_CODE_4 || emp?.currentwork?.SECTION_CODE || '';
+        const empSecCode = emp?.HIE_CODE_3 || emp?.hie_code_3 || emp?.SECTION_CODE || emp?.section_code || 
+                          emp?.currentwork?.HIE_CODE_3 || emp?.currentwork?.SECTION_CODE || '';
         const empSecName = emp?.HIE_NAME_4 || emp?.hie_name_4 || emp?.SECTION_NAME || emp?.section_name || 
                           emp?.currentwork?.HIE_NAME_4 || emp?.currentwork?.SECTION_NAME || '';
 
@@ -475,7 +490,11 @@ const SectionManagement = () => {
       console.log('✅ Not transferred employees (after filtering):', notTransferredEmployees.length);
       console.log('🔍 Already transferred count:', filteredEmployees.length - notTransferredEmployees.length);
 
-      setEmployeeList(notTransferredEmployees);
+      // Keep only active employees
+      const activeNotTransferred = notTransferredEmployees.filter(isEmployeeActive);
+      console.log('🎯 Active not-transferred employees:', activeNotTransferred.length, '(filtered out:', notTransferredEmployees.length - activeNotTransferred.length, ')');
+
+      setEmployeeList(activeNotTransferred);
       setEmployeeLoading(false);
 
     } catch (error) {
@@ -999,7 +1018,10 @@ const SectionManagement = () => {
         }
       });
       
-      setTransferredEmployeesList(employeeDataList);
+      // Keep only active employees in the transferred list
+      const activeEmployeeDataList = employeeDataList.filter(isEmployeeActive);
+      console.log('🎯 Active transferred employees:', activeEmployeeDataList.length, '(filtered out:', employeeDataList.length - activeEmployeeDataList.length, ')');
+      setTransferredEmployeesList(activeEmployeeDataList);
       setTransferredLoading(false);
 
     } catch (error) {
@@ -1037,6 +1059,12 @@ const SectionManagement = () => {
     return 'all';
   };
 
+  // Helper: determine if an employee object represents an active employee
+  const isEmployeeActive = (emp) => {
+    // HRIS uses ACTIVE_HRM_FLG === 1, some endpoints use STATUS/status === 'ACTIVE', local objects may have isActive boolean
+    return emp?.ACTIVE_HRM_FLG === 1 || emp?.STATUS === 'ACTIVE' || emp?.status === 'ACTIVE' || emp?.isActive === true;
+  };
+
   // Fetch sections and divisions from HRIS APIs (read-only)
   const fetchData = useCallback(async () => {
     try {
@@ -1048,8 +1076,8 @@ const SectionManagement = () => {
         return;
       }
 
-      // Fetch both in parallel from HRIS
-      const [sectionsResponse, divisionsResponse] = await Promise.all([
+      // Fetch sections, divisions and cached employees in parallel from HRIS
+      const [sectionsResponse, divisionsResponse, employeesResponse] = await Promise.all([
         fetch(`${API_BASE_URL}/sections/hris`, {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -1058,6 +1086,14 @@ const SectionManagement = () => {
           credentials: 'include'
         }),
         fetch(`${API_BASE_URL}/divisions/hris`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          credentials: 'include'
+        })
+        ,
+        fetch(`${API_BASE_URL}/hris-cache/employees`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
@@ -1109,6 +1145,26 @@ const SectionManagement = () => {
       } else {
         console.error('Failed to fetch HRIS divisions:', divisionsResponse.status, divisionsResponse.statusText);
         setDivisions([]);
+      }
+
+      // Employees (from cache) - compute active/inactive counts
+      if (employeesResponse && employeesResponse.ok) {
+        try {
+          const eData = await employeesResponse.json();
+          const rows = Array.isArray(eData?.data) ? eData.data : (Array.isArray(eData) ? eData : []);
+          const total = rows.length;
+          const active = rows.filter(isEmployeeActive).length;
+          setActiveEmployeeCount(active);
+          setInactiveEmployeeCount(Math.max(0, total - active));
+        } catch (e) {
+          console.warn('Failed parsing cached employees response:', e);
+          setActiveEmployeeCount(0);
+          setInactiveEmployeeCount(0);
+        }
+      } else {
+        if (employeesResponse) console.error('Failed to fetch cached employees:', employeesResponse.status, employeesResponse.statusText);
+        setActiveEmployeeCount(0);
+        setInactiveEmployeeCount(0);
       }
 
       setLoading(false);
@@ -1377,13 +1433,20 @@ const SectionManagement = () => {
       });
 
       if (resp.ok) {
-        // consume response body if present but do not keep unused reference
-        await resp.json().catch(() => {});
+        // Try to read created item from response for optimistic update
+        const createdResp = await resp.json().catch(() => null);
         closeSubModal();
         showToast({ type: 'success', title: 'Success', message: 'Sub-section created successfully.' });
-        // Refresh the parent section's sub-sections
+        // Refresh / optimistically update the parent section's sub-sections
         const parentId = subParentSection?._id;
         if (parentId) {
+          const key = String(parentId);
+          // derive created item from common response shapes
+          const createdItem = createdResp?.data ?? createdResp?.created ?? createdResp?.subSection ?? createdResp ?? null;
+          if (createdItem) {
+            setSubSectionsBySection(prev => ({ ...prev, [key]: [...(prev[key] || []), createdItem] }));
+          }
+          // ensure authoritative refresh (handles server-side transforms)
           await fetchSubSections(parentId, { force: true });
         }
       } else {
@@ -1463,12 +1526,37 @@ const SectionManagement = () => {
   // Apply search by section id or section name
   const searchedSections = (() => {
     const q = normalizeTextKey(searchQuery);
-    if (!q) return displayedSections;
-    return displayedSections.filter(s => {
-      const idStr = String(s._id || '');
+    const filtered = !q ? displayedSections : displayedSections.filter(s => {
+      const idStr = String(s._id || s.code || s.sectionId || '');
       const nameKey = normalizeTextKey(s.name || '');
       return idStr.includes(q) || nameKey.includes(q);
     });
+
+    // Apply sorting
+    const sorted = filtered.slice().sort((a, b) => {
+      const getName = (x) => String(x?.name || '').toLowerCase();
+      const getIdNum = (x) => {
+        const v = x?.code ?? x?.sectionId ?? x?._id ?? '';
+        const n = Number(String(v).replace(/[^0-9.-]/g, ''));
+        return Number.isFinite(n) ? n : String(v);
+      };
+
+      if (sortOption === 'name_asc') return getName(a).localeCompare(getName(b));
+      if (sortOption === 'name_desc') return getName(b).localeCompare(getName(a));
+      if (sortOption === 'id_asc') {
+        const ai = getIdNum(a); const bi = getIdNum(b);
+        if (typeof ai === 'number' && typeof bi === 'number') return ai - bi;
+        return String(ai).localeCompare(String(bi));
+      }
+      if (sortOption === 'id_desc') {
+        const ai = getIdNum(a); const bi = getIdNum(b);
+        if (typeof ai === 'number' && typeof bi === 'number') return bi - ai;
+        return String(bi).localeCompare(String(ai));
+      }
+      return 0;
+    });
+
+    return sorted;
   })();
 
   const handleDivisionSelect = (e) => setSelectedDivision(e.target.value);
@@ -1673,8 +1761,6 @@ const SectionManagement = () => {
         <h2><i className="bi bi-diagram-3"></i> Section Management</h2>
       </div>
 
-
-
       {/* Unified Filter & Search Section */}
       <div style={{
         display: 'flex',
@@ -1738,6 +1824,29 @@ const SectionManagement = () => {
           <label htmlFor="sectionSearch" className="form-label m-0" style={{ fontWeight: 600, color: '#374151', fontSize: '16px' }}>
             Search:
           </label>
+          <select
+            id="sectionSort"
+            value={sortOption}
+            onChange={(e) => setSortOption(e.target.value)}
+            style={{
+              fontSize: '14px',
+              borderRadius: '8px',
+              border: '2px solid #e0e7ff',
+              background: '#fff',
+              color: '#374151',
+              fontWeight: 600,
+              boxShadow: '0 1px 4px rgba(102,126,234,0.04)',
+              padding: '8px 12px',
+              outline: 'none',
+              marginRight: '8px'
+            }}
+          >
+            <option value="name_asc">Name A → Z</option>
+            <option value="name_desc">Name Z → A</option>
+            <option value="id_asc">ID Small → High</option>
+            <option value="id_desc">ID High → Small</option>
+          </select>
+
           <input
             id="sectionSearch"
             type="text"
@@ -1770,30 +1879,30 @@ const SectionManagement = () => {
               <tr>
                 <th>Section Name</th>
                 <th>Division</th>
-                <th>Status</th>
-                <th>Created Date</th>
                 <th>Sub Section</th>
               </tr>
             </thead>
             <tbody>
               {searchedSections.map(section => (
-                <tr key={section._id}>
-                  <td><strong>{section.name}</strong></td>
-                  <td>
-                    <span className="role-badge role-admin">
+                <tr key={section._id} className="section-row section-card">
+  
+                  <td data-label="Section Name" style={{ minWidth: 320 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>{section.name}</div>
+                      <div style={{ color: '#6b7280', fontSize: '13px' }}>{String(section.code || '').toUpperCase()}</div>
+                    </div>
+                  </td>
+
+                  <td data-label="Division" style={{ width: 260 }}>
+                    <span className="role-badge">
                       {getDivisionName(section.division)}
                     </span>
                   </td>
-                  <td>
-                    <span className={`status-badge ${(section.status === 'active' || section.isActive) ? 'status-active' : 'status-inactive'}`}>
-                      {(section.status === 'active' || section.isActive) ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td>
-                    {section.createdAt ? (parseHrisDate(section.createdAt) || 'N/A') : 'N/A'}
-                  </td>
-                  <td>
-                      <div style={{ display: 'flex', gap: 8 }}>
+
+                  <td data-label="Sub Section">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                      <div className="sub-count">{(subSectionsBySection[section._id]?.length ?? 0)} sub-section{( (subSectionsBySection[section._id]?.length ?? 0) !== 1 ? 's' : '' )}</div>
+                      <div className="sub-actions">
                         <button 
                           className="btn-professional btn-success"
                           onClick={canCreateSubsection ? () => handleCreateSubSection(section) : undefined}
@@ -1814,6 +1923,7 @@ const SectionManagement = () => {
                           </button>
                         ) : null}
                       </div>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -2033,129 +2143,42 @@ const SectionManagement = () => {
               overflowY: 'auto',
               minHeight: 0
             }}>
-              {/* Parent Info Section */}
-              <div style={{ 
-                backgroundColor: '#f8f9ff', 
-                borderRadius: '12px', 
-                padding: '20px', 
+              {/* Active Filters Display */}
+              <div style={{
+                background: 'linear-gradient(135deg, #667eea15 0%, #764ba215 100%)',
+                border: '2px solid #667eea',
+                borderRadius: '8px',
+                padding: '16px 20px',
                 marginBottom: '20px',
-                border: '1px solid #e1e5f2'
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px'
               }}>
-                <div style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '10px', 
-                  marginBottom: '18px' 
-                }}>
-                  <i className="bi bi-info-circle-fill" style={{ color: '#667eea', fontSize: '16px' }}></i>
-                  <h4 style={{ 
-                    margin: 0, 
-                    fontSize: '15px', 
-                    fontWeight: '600', 
-                    color: '#374151' 
-                  }}>
-                    Parent Structure Information
-                  </h4>
-                </div>
-                
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                  {/* Division Info */}
-                  <div style={{ 
-                    backgroundColor: 'white',
-                    borderRadius: '8px',
-                    padding: '16px',
-                    border: '1px solid #e5e7eb',
-                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-                  }}>
-                    <div style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: '8px',
-                      marginBottom: '12px'
+                <i className="bi bi-funnel-fill" style={{ color: '#667eea', fontSize: '20px' }}></i>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: '600', color: '#495057', marginBottom: '4px' }}>Parent Structure:</div>
+                  <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                    <span style={{
+                      background: '#667eea',
+                      color: 'white',
+                      padding: '4px 12px',
+                      borderRadius: '20px',
+                      fontSize: '13px',
+                      fontWeight: '500'
                     }}>
-                      <i className="bi bi-building" style={{ color: '#667eea', fontSize: '14px' }}></i>
-                      <span style={{ 
-                        fontSize: '13px', 
-                        fontWeight: '700', 
-                        color: '#6b7280', 
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px'
-                      }}>
-                        Division
-                      </span>
-                    </div>
-                    <div>
-                      <div style={{ 
-                        fontSize: '15px', 
-                        fontWeight: '600', 
-                        color: '#1f2937',
-                        marginBottom: '6px'
-                      }}>
-                        {divisions.find(d => String(d._id) === String((typeof subParentSection.division === 'object' && subParentSection.division?._id) ? subParentSection.division._id : String(subParentSection.division || '')))?.name || (typeof subParentSection.division === 'object' ? subParentSection.division?.name : '') || 'N/A'}
-                      </div>
-                      <div style={{ 
-                        fontSize: '12px', 
-                        color: '#6b7280',
-                        fontFamily: 'monospace',
-                        backgroundColor: '#f3f4f6',
-                        padding: '3px 6px',
-                        borderRadius: '4px',
-                        display: 'inline-block'
-                      }}>
-                        ID: {(() => { 
-                          const d = divisions.find(d => String(d._id) === String((typeof subParentSection.division === 'object' && subParentSection.division?._id) ? subParentSection.division._id : String(subParentSection.division || '')));
-                          return d?.code || d?._id || 'N/A';
-                        })()}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Section Info */}
-                  <div style={{ 
-                    backgroundColor: 'white',
-                    borderRadius: '8px',
-                    padding: '16px',
-                    border: '1px solid #e5e7eb',
-                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-                  }}>
-                    <div style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: '8px',
-                      marginBottom: '12px'
+                      {divisions.find(d => String(d._id) === String((typeof subParentSection.division === 'object' && subParentSection.division?._id) ? subParentSection.division._id : String(subParentSection.division || '')))?.name || (typeof subParentSection.division === 'object' ? subParentSection.division?.name : '') || 'N/A'}
+                    </span>
+                    <i className="bi bi-chevron-right" style={{ color: '#667eea' }}></i>
+                    <span style={{
+                      background: '#764ba2',
+                      color: 'white',
+                      padding: '4px 12px',
+                      borderRadius: '20px',
+                      fontSize: '13px',
+                      fontWeight: '500'
                     }}>
-                      <i className="bi bi-diagram-3" style={{ color: '#667eea', fontSize: '14px' }}></i>
-                      <span style={{ 
-                        fontSize: '13px', 
-                        fontWeight: '700', 
-                        color: '#6b7280', 
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px'
-                      }}>
-                        Section
-                      </span>
-                    </div>
-                    <div>
-                      <div style={{ 
-                        fontSize: '15px', 
-                        fontWeight: '600', 
-                        color: '#1f2937',
-                        marginBottom: '6px'
-                      }}>
-                        {subParentSection.name || 'N/A'}
-                      </div>
-                      <div style={{ 
-                        fontSize: '12px', 
-                        color: '#6b7280',
-                        fontFamily: 'monospace',
-                        backgroundColor: '#f3f4f6',
-                        padding: '3px 6px',
-                        borderRadius: '4px',
-                        display: 'inline-block'
-                      }}>
-                        ID: {subParentSection.code || subParentSection._id || 'N/A'}
-                      </div>
-                    </div>
+                      {subParentSection.name || 'N/A'}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -2395,13 +2418,12 @@ const SectionManagement = () => {
             left: 0, 
             width: '100%', 
             height: '100%', 
-            backgroundColor: 'rgba(0, 0, 0, 0.65)', 
+            backgroundColor: 'rgba(0, 0, 0, 0.6)', 
             display: 'flex', 
             alignItems: 'center', 
             justifyContent: 'center', 
             zIndex: 11500,
-            backdropFilter: 'blur(8px)',
-            WebkitBackdropFilter: 'blur(8px)',
+            backdropFilter: 'blur(2px)',
             padding: '20px',
             boxSizing: 'border-box'
           }}
@@ -2411,10 +2433,10 @@ const SectionManagement = () => {
             onClick={(e) => e.stopPropagation()}
             style={{
               backgroundColor: '#fff',
-              borderRadius: '20px',
-              boxShadow: '0 25px 80px rgba(0, 0, 0, 0.25)',
+              borderRadius: '16px',
+              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.15)',
               width: '100%',
-              maxWidth: '850px',
+              maxWidth: '950px',
               maxHeight: 'calc(100vh - 40px)',
               position: 'relative',
               border: 'none',
@@ -2423,64 +2445,49 @@ const SectionManagement = () => {
               flexDirection: 'column'
             }}
           >
-            {/* Header */}
+            {/* Enhanced Header */}
             <div 
               style={{ 
-                background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #60a5fa 100%)',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                 color: 'white',
-                padding: '32px 40px',
-                borderRadius: '20px 20px 0 0',
+                padding: '24px 32px 20px',
+                borderRadius: '16px 16px 0 0',
                 position: 'relative',
                 overflow: 'hidden',
                 flexShrink: 0
               }}
             >
-              {/* Decorative background elements */}
-              <div style={{
-                position: 'absolute',
-                top: '-20%',
-                right: '-5%',
-                width: '250px',
-                height: '250px',
-                background: 'radial-gradient(circle, rgba(255,255,255,0.15) 0%, transparent 70%)',
-                borderRadius: '50%',
-                pointerEvents: 'none'
-              }}></div>
-              <div style={{
-                position: 'absolute',
-                bottom: '-30%',
-                left: '-8%',
-                width: '200px',
-                height: '200px',
-                background: 'radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%)',
-                borderRadius: '50%',
-                pointerEvents: 'none'
-              }}></div>
-
               <div style={{ position: 'relative', zIndex: 2 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                     <div 
                       style={{ 
-                        backgroundColor: 'rgba(255, 255, 255, 0.25)', 
-                        borderRadius: '16px', 
-                        padding: '16px',
-                        backdropFilter: 'blur(10px)',
-                        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)'
+                        backgroundColor: 'rgba(255, 255, 255, 0.2)', 
+                        borderRadius: '12px', 
+                        padding: '12px',
+                        backdropFilter: 'blur(10px)'
                       }}
                     >
-                      <i className="bi bi-pencil-square" style={{ fontSize: '32px', color: 'white' }}></i>
+                      <i className="bi bi-pencil-square" style={{ fontSize: '24px', color: 'white' }}></i>
                     </div>
                     <div>
                       <h3 style={{ 
                         margin: 0, 
-                        fontSize: '28px', 
-                        fontWeight: '800', 
-                        letterSpacing: '-0.8px',
-                        textShadow: '0 2px 8px rgba(0, 0, 0, 0.2)'
+                        fontSize: '22px', 
+                        fontWeight: '700', 
+                        letterSpacing: '-0.5px',
+                        textShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
                       }}>
                         Edit Sub-Section
                       </h3>
+                      <p style={{ 
+                        margin: '4px 0 0', 
+                        fontSize: '14px', 
+                        opacity: 0.9,
+                        fontWeight: '400'
+                      }}>
+                        Modify the sub-section details
+                      </p>
                     </div>
                   </div>
                   <button 
@@ -2488,221 +2495,248 @@ const SectionManagement = () => {
                     disabled={editSubSubmitting}
                     style={{ 
                       background: 'rgba(255, 255, 255, 0.2)',
-                      border: '2px solid rgba(255, 255, 255, 0.3)',
+                      border: 'none',
                       borderRadius: '8px',
                       color: 'white',
                       cursor: editSubSubmitting ? 'not-allowed' : 'pointer',
                       padding: '8px',
-                      fontSize: '18px',
-                      width: '36px',
-                      height: '36px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
+                      fontSize: '20px',
                       transition: 'all 0.2s ease',
                       backdropFilter: 'blur(10px)',
                       opacity: editSubSubmitting ? 0.5 : 1
                     }}
                     onMouseOver={(e) => {
-                      if (!editSubSubmitting) {
-                        e.target.style.background = 'rgba(255, 255, 255, 0.3)';
-                        e.target.style.transform = 'scale(1.05)';
-                      }
+                      if (!editSubSubmitting) e.target.style.background = 'rgba(255, 255, 255, 0.3)';
                     }}
                     onMouseOut={(e) => {
-                      if (!editSubSubmitting) {
-                        e.target.style.background = 'rgba(255, 255, 255, 0.2)';
-                        e.target.style.transform = 'scale(1)';
-                      }
+                      if (!editSubSubmitting) e.target.style.background = 'rgba(255, 255, 255, 0.2)';
                     }}
                   >
                     <i className="bi bi-x-lg"></i>
                   </button>
                 </div>
               </div>
+              <div 
+                style={{
+                  position: 'absolute',
+                  top: '-50%',
+                  right: '-10%',
+                  width: '200px',
+                  height: '200px',
+                  background: 'radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%)',
+                  borderRadius: '50%'
+                }}
+              ></div>
             </div>
 
-            {/* Body */}
+            {/* Enhanced Body */}
             <div style={{ 
-              padding: '40px 40px 32px', 
+              padding: '24px 32px', 
               flex: 1,
               overflowY: 'auto',
-              minHeight: 0,
-              background: 'linear-gradient(to bottom, #ffffff 0%, #f9fafb 100%)'
+              minHeight: 0
             }}>
-              <div style={{ display: 'grid', gap: '28px' }}>
-                {/* Name Field */}
-                <div>
-                  <label style={{ 
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
+              {/* Active Filters Display */}
+              <div style={{
+                background: 'linear-gradient(135deg, #667eea15 0%, #764ba215 100%)',
+                border: '2px solid #667eea',
+                borderRadius: '8px',
+                padding: '16px 20px',
+                marginBottom: '20px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px'
+              }}>
+                <i className="bi bi-funnel-fill" style={{ color: '#667eea', fontSize: '20px' }}></i>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: '600', color: '#495057', marginBottom: '4px' }}>Parent Structure:</div>
+                  <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                    <span style={{
+                      background: '#667eea',
+                      color: 'white',
+                      padding: '4px 12px',
+                      borderRadius: '20px',
+                      fontSize: '13px',
+                      fontWeight: '500'
+                    }}>
+                      {editingSubSection?.parentDivision || 'N/A'}
+                    </span>
+                    <i className="bi bi-chevron-right" style={{ color: '#667eea' }}></i>
+                    <span style={{
+                      background: '#764ba2',
+                      color: 'white',
+                      padding: '4px 12px',
+                      borderRadius: '20px',
+                      fontSize: '13px',
+                      fontWeight: '500'
+                    }}>
+                      {editingSubSection?.parentSection || 'N/A'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Edit Sub-Section Details */}
+              <div style={{ 
+                backgroundColor: 'white',
+                borderRadius: '10px',
+                border: '2px solid #e1e5f2',
+                padding: '20px'
+              }}>
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '10px', 
+                  marginBottom: '18px' 
+                }}>
+                  <i className="bi bi-pencil-fill" style={{ color: '#667eea', fontSize: '16px' }}></i>
+                  <h4 style={{ 
+                    margin: 0, 
                     fontSize: '15px', 
-                    fontWeight: '700', 
-                    color: '#1f2937', 
-                    marginBottom: '12px',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px'
+                    fontWeight: '600', 
+                    color: '#374151' 
                   }}>
-                    <div style={{
-                      background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                      borderRadius: '6px',
-                      padding: '6px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}>
-                      <i className="bi bi-type" style={{ color: 'white', fontSize: '14px' }}></i>
-                    </div>
-                    Sub-Section Name
-                    <span style={{ color: '#ef4444', fontSize: '16px', marginLeft: '2px' }}>*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={editSubForm.name}
-                    onChange={(e) => {
-                      setEditSubForm({ ...editSubForm, name: e.target.value });
-                      if (editSubErrors.name) setEditSubErrors({ ...editSubErrors, name: '' });
-                    }}
-                    placeholder="Enter sub-section name"
-                    disabled={editSubSubmitting}
-                    style={{
-                      width: '100%',
-                      padding: '16px 18px',
-                      border: editSubErrors.name ? '2px solid #ef4444' : '2px solid #d1d5db',
-                      borderRadius: '10px',
-                      fontSize: '15px',
-                      transition: 'all 0.2s ease',
-                      backgroundColor: editSubSubmitting ? '#f3f4f6' : '#fff',
-                      fontFamily: 'inherit',
-                      outline: 'none',
-                      boxSizing: 'border-box',
-                      fontWeight: '500',
-                      color: '#1f2937'
-                    }}
-                    onFocus={(e) => {
-                      if (!editSubErrors.name && !editSubSubmitting) {
-                        e.target.style.borderColor = '#3b82f6';
-                        e.target.style.boxShadow = '0 0 0 4px rgba(59, 130, 246, 0.15)';
-                      }
-                    }}
-                    onBlur={(e) => {
-                      if (!editSubErrors.name) e.target.style.borderColor = '#d1d5db';
-                      e.target.style.boxShadow = 'none';
-                    }}
-                  />
-                  {editSubErrors.name && (
-                    <div style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: '8px', 
-                      color: '#dc2626', 
-                      fontSize: '14px', 
-                      marginTop: '10px',
-                      fontWeight: '600',
-                      padding: '10px 12px',
-                      background: '#fee2e2',
-                      borderRadius: '8px',
-                      border: '1px solid #fecaca'
-                    }}>
-                      <i className="bi bi-exclamation-circle-fill"></i>
-                      {editSubErrors.name}
-                    </div>
-                  )}
+                    Edit Sub-Section Details
+                  </h4>
                 </div>
 
-                {/* Code Field */}
-                <div>
-                  <label style={{ 
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontSize: '15px', 
-                    fontWeight: '700', 
-                    color: '#1f2937', 
-                    marginBottom: '12px',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px'
-                  }}>
-                    <div style={{
-                      background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                      borderRadius: '6px',
-                      padding: '6px',
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
+                  <div>
+                    <label style={{ 
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center'
-                    }}>
-                      <i className="bi bi-hash" style={{ color: 'white', fontSize: '14px' }}></i>
-                    </div>
-                    Sub-Section Code/ID
-                    <span style={{ color: '#ef4444', fontSize: '16px', marginLeft: '2px' }}>*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={editSubForm.code}
-                    onChange={(e) => {
-                      setEditSubForm({ ...editSubForm, code: e.target.value });
-                      if (editSubErrors.code) setEditSubErrors({ ...editSubErrors, code: '' });
-                    }}
-                    placeholder="Enter unique code (e.g., SS-001)"
-                    disabled={editSubSubmitting}
-                    style={{
-                      width: '100%',
-                      padding: '16px 18px',
-                      border: editSubErrors.code ? '2px solid #ef4444' : '2px solid #d1d5db',
-                      borderRadius: '10px',
-                      fontSize: '15px',
-                      transition: 'all 0.2s ease',
-                      backgroundColor: editSubSubmitting ? '#f3f4f6' : '#fff',
-                      fontFamily: 'monospace',
-                      outline: 'none',
-                      boxSizing: 'border-box',
-                      fontWeight: '600',
-                      color: '#1f2937',
-                      letterSpacing: '0.5px'
-                    }}
-                    onFocus={(e) => {
-                      if (!editSubErrors.code && !editSubSubmitting) {
-                        e.target.style.borderColor = '#3b82f6';
-                        e.target.style.boxShadow = '0 0 0 4px rgba(59, 130, 246, 0.15)';
-                      }
-                    }}
-                    onBlur={(e) => {
-                      if (!editSubErrors.code) e.target.style.borderColor = '#d1d5db';
-                      e.target.style.boxShadow = 'none';
-                    }}
-                  />
-                  {editSubErrors.code && (
-                    <div style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: '8px', 
-                      color: '#dc2626', 
+                      gap: '6px',
                       fontSize: '14px', 
-                      marginTop: '10px',
-                      fontWeight: '600',
-                      padding: '10px 12px',
-                      background: '#fee2e2',
-                      borderRadius: '8px',
-                      border: '1px solid #fecaca'
+                      fontWeight: '600', 
+                      color: '#374151', 
+                      marginBottom: '10px'
                     }}>
-                      <i className="bi bi-exclamation-circle-fill"></i>
-                      {editSubErrors.code}
-                    </div>
-                  )}
+                      <i className="bi bi-type" style={{ color: '#667eea' }}></i>
+                      Sub-Section Name
+                      <span style={{ color: '#ef4444', fontSize: '14px' }}>*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={editSubForm.name}
+                      onChange={(e) => {
+                        setEditSubForm({ ...editSubForm, name: e.target.value });
+                        if (editSubErrors.name) setEditSubErrors({ ...editSubErrors, name: '' });
+                      }}
+                      placeholder="Enter a descriptive name for the sub-section"
+                      disabled={editSubSubmitting}
+                      style={{
+                        width: '100%',
+                        padding: '14px',
+                        border: editSubErrors.name ? '2px solid #ef4444' : '2px solid #e5e7eb',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        transition: 'all 0.2s ease',
+                        backgroundColor: editSubSubmitting ? '#f3f4f6' : '#fff',
+                        fontFamily: 'inherit',
+                        outline: 'none',
+                        boxSizing: 'border-box'
+                      }}
+                      onFocus={(e) => {
+                        if (!editSubErrors.name && !editSubSubmitting) {
+                          e.target.style.borderColor = '#667eea';
+                          e.target.style.boxShadow = '0 0 0 3px rgba(102, 126, 234, 0.1)';
+                        }
+                      }}
+                      onBlur={(e) => {
+                        if (!editSubErrors.name) e.target.style.borderColor = '#e5e7eb';
+                        e.target.style.boxShadow = 'none';
+                      }}
+                    />
+                    {editSubErrors.name && (
+                      <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '6px', 
+                        color: '#ef4444', 
+                        fontSize: '13px', 
+                        marginTop: '8px',
+                        fontWeight: '500'
+                      }}>
+                        <i className="bi bi-exclamation-circle-fill"></i>
+                        {editSubErrors.name}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label style={{ 
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontSize: '14px', 
+                      fontWeight: '600', 
+                      color: '#374151', 
+                      marginBottom: '10px'
+                    }}>
+                      <i className="bi bi-hash" style={{ color: '#667eea' }}></i>
+                      Sub-Section Code/ID
+                      <span style={{ color: '#ef4444', fontSize: '14px' }}>*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={editSubForm.code}
+                      onChange={(e) => {
+                        setEditSubForm({ ...editSubForm, code: e.target.value });
+                        if (editSubErrors.code) setEditSubErrors({ ...editSubErrors, code: '' });
+                      }}
+                      placeholder="e.g., SS-001"
+                      disabled={editSubSubmitting}
+                      style={{
+                        width: '100%',
+                        padding: '14px',
+                        border: editSubErrors.code ? '2px solid #ef4444' : '2px solid #e5e7eb',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        transition: 'all 0.2s ease',
+                        backgroundColor: editSubSubmitting ? '#f3f4f6' : '#fff',
+                        fontFamily: 'inherit',
+                        outline: 'none',
+                        boxSizing: 'border-box'
+                      }}
+                      onFocus={(e) => {
+                        if (!editSubErrors.code && !editSubSubmitting) {
+                          e.target.style.borderColor = '#667eea';
+                          e.target.style.boxShadow = '0 0 0 3px rgba(102, 126, 234, 0.1)';
+                        }
+                      }}
+                      onBlur={(e) => {
+                        if (!editSubErrors.code) e.target.style.borderColor = '#e5e7eb';
+                        e.target.style.boxShadow = 'none';
+                      }}
+                    />
+                    {editSubErrors.code && (
+                      <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '6px', 
+                        color: '#ef4444', 
+                        fontSize: '13px', 
+                        marginTop: '8px',
+                        fontWeight: '500'
+                      }}>
+                        <i className="bi bi-exclamation-circle-fill"></i>
+                        {editSubErrors.code}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Footer */}
             <div style={{ 
-              padding: '18px 40px 20px',
-              borderTop: '2px solid #e5e7eb',
+              padding: '16px 32px',
+              borderTop: '1px solid #e5e7eb',
               backgroundColor: '#f9fafb',
               display: 'flex', 
               gap: '10px', 
               justifyContent: 'flex-end',
-              borderRadius: '0 0 20px 20px',
+              borderRadius: '0 0 16px 16px',
               flexShrink: 0
             }}>
               <button 
@@ -2710,7 +2744,7 @@ const SectionManagement = () => {
                 disabled={editSubSubmitting}
                 style={{
                   padding: '10px 20px',
-                  border: '2px solid #d1d5db',
+                  border: '2px solid #e5e7eb',
                   borderRadius: '8px',
                   backgroundColor: 'white',
                   color: '#6b7280',
@@ -2906,110 +2940,58 @@ const SectionManagement = () => {
               </div>
             </div>
 
-            {/* Parent Section & Division Info - Highlighted */}
+            {/* Parent Section & Division Info - Active Filters Style */}
             <div style={{
-              padding: '24px 32px',
-              background: 'linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)',
-              borderBottom: '3px solid #667eea',
-              boxShadow: '0 4px 12px rgba(102, 126, 234, 0.1)',
+              background: 'linear-gradient(135deg, #667eea15 0%, #764ba215 100%)',
+              border: '2px solid #667eea',
+              borderRadius: '8px',
+              padding: '16px 20px',
+              margin: '16px 32px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
               flexShrink: 0
             }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                <div>
-                  <div style={{ 
-                    fontSize: '12px', 
-                    fontWeight: '700', 
-                    color: '#667eea', 
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.8px',
-                    marginBottom: '10px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}>
-                    <i className="bi bi-building"></i>
-                    Division
-                  </div>
-                  <div style={{
-                    padding: '14px 18px',
-                    background: 'white',
-                    border: '2px solid #a5b4fc',
-                    borderRadius: '10px',
-                    fontSize: '16px',
-                    fontWeight: '700',
-                    color: '#1f2937',
-                    boxShadow: '0 2px 6px rgba(102, 126, 234, 0.1)'
+              <i className="bi bi-funnel-fill" style={{ color: '#667eea', fontSize: '20px' }}></i>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: '600', color: '#495057', marginBottom: '4px' }}>Active Filters:</div>
+                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <span style={{
+                    background: '#667eea',
+                    color: 'white',
+                    padding: '4px 12px',
+                    borderRadius: '20px',
+                    fontSize: '13px',
+                    fontWeight: '500'
                   }}>
                     {getDivisionName(currentSectionForSubSections.division)}
-                  </div>
-                  {currentSectionForSubSections.divisionCode && (
-                    <div style={{ 
-                      marginTop: '8px', 
-                      fontSize: '13px', 
-                      color: '#4338ca',
-                      fontFamily: 'monospace',
-                      fontWeight: '600',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      background: 'white',
-                      padding: '6px 12px',
-                      borderRadius: '6px',
-                      width: 'fit-content'
-                    }}>
-                      <i className="bi bi-hash"></i>
-                      Division ID: {currentSectionForSubSections.divisionCode}
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <div style={{ 
-                    fontSize: '12px', 
-                    fontWeight: '700', 
-                    color: '#667eea', 
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.8px',
-                    marginBottom: '10px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}>
-                    <i className="bi bi-diagram-3"></i>
-                    Section
-                  </div>
-                  <div style={{
-                    padding: '14px 18px',
-                    background: 'white',
-                    border: '2px solid #a5b4fc',
-                    borderRadius: '10px',
-                    fontSize: '16px',
-                    fontWeight: '700',
-                    color: '#1f2937',
-                    boxShadow: '0 2px 6px rgba(102, 126, 234, 0.1)'
+                  </span>
+                  <i className="bi bi-chevron-right" style={{ color: '#667eea' }}></i>
+                  <span style={{
+                    background: '#764ba2',
+                    color: 'white',
+                    padding: '4px 12px',
+                    borderRadius: '20px',
+                    fontSize: '13px',
+                    fontWeight: '500'
                   }}>
                     {currentSectionForSubSections.name}
-                  </div>
-                  {currentSectionForSubSections.code && (
-                    <div style={{ 
-                      marginTop: '8px', 
-                      fontSize: '13px', 
-                      color: '#4338ca',
-                      fontFamily: 'monospace',
-                      fontWeight: '600',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      background: 'white',
-                      padding: '6px 12px',
-                      borderRadius: '6px',
-                      width: 'fit-content'
-                    }}>
-                      <i className="bi bi-hash"></i>
-                      Section ID: {currentSectionForSubSections.code}
-                    </div>
-                  )}
+                  </span>
                 </div>
               </div>
+              {(Array.isArray(subSectionsBySection[currentSectionForSubSections._id]) && subSectionsBySection[currentSectionForSubSections._id].length > 0) && (
+                <div style={{
+                  background: 'white',
+                  padding: '8px 16px',
+                  borderRadius: '20px',
+                  fontWeight: '600',
+                  color: '#667eea',
+                  fontSize: '14px',
+                  border: '2px solid #667eea'
+                }}>
+                  {subSectionsBySection[currentSectionForSubSections._id].length} {subSectionsBySection[currentSectionForSubSections._id].length === 1 ? 'sub-section' : 'sub-sections'}
+                </div>
+              )}
             </div>
 
             {/* Sub-Sections List */}
@@ -3470,30 +3452,53 @@ const SectionManagement = () => {
               </button>
             </div>
 
-            {/* Sub-section Info */}
+            {/* Active Filters Display - Employee Management Style */}
             <div style={{
-              padding: '20px 32px',
-              borderBottom: '1px solid #e5e7eb',
-              background: '#f9fafb'
+              background: 'linear-gradient(135deg, #667eea15 0%, #764ba215 100%)',
+              border: '2px solid #667eea',
+              borderRadius: '8px',
+              padding: '16px 20px',
+              margin: '16px 32px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px'
             }}>
-              <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
-                <div>
-                  <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Division</div>
-                  <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '600' }}>
+              <i className="bi bi-funnel-fill" style={{ color: '#667eea', fontSize: '20px' }}></i>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: '600', color: '#495057', marginBottom: '4px' }}>Active Filters:</div>
+                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <span style={{
+                    background: '#667eea',
+                    color: 'white',
+                    padding: '4px 12px',
+                    borderRadius: '20px',
+                    fontSize: '13px',
+                    fontWeight: '500'
+                  }}>
                     {selectedSubSection?.parentDivision?.division_name || 'N/A'}
-                    <span style={{ marginLeft: '8px', color: '#667eea', fontSize: '12px' }}>
-                      ({selectedSubSection?.parentDivision?.division_code || 'N/A'})
-                    </span>
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Section</div>
-                  <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '600' }}>
+                  </span>
+                  <i className="bi bi-chevron-right" style={{ color: '#667eea' }}></i>
+                  <span style={{
+                    background: '#764ba2',
+                    color: 'white',
+                    padding: '4px 12px',
+                    borderRadius: '20px',
+                    fontSize: '13px',
+                    fontWeight: '500'
+                  }}>
                     {selectedSubSection?.parentSection?.hie_name || 'N/A'}
-                    <span style={{ marginLeft: '8px', color: '#667eea', fontSize: '12px' }}>
-                      ({selectedSubSection?.parentSection?.hie_code || 'N/A'})
-                    </span>
-                  </div>
+                  </span>
+                  <i className="bi bi-chevron-right" style={{ color: '#667eea' }}></i>
+                  <span style={{
+                    background: '#f093fb',
+                    color: 'white',
+                    padding: '4px 12px',
+                    borderRadius: '20px',
+                    fontSize: '13px',
+                    fontWeight: '500'
+                  }}>
+                    {selectedSubSection?.subSection?.sub_hie_name || selectedSubSection?.subSection?.hie_name || 'Sub-Section'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -3536,6 +3541,7 @@ const SectionManagement = () => {
                     e.target.style.boxShadow = 'none';
                   }}
                 />
+                <div style={{ marginTop: '8px', color: '#6b7280', fontSize: '13px' }}>Showing <strong>active</strong> employees only</div>
               </div>
             </div>
 
@@ -3634,6 +3640,9 @@ const SectionManagement = () => {
                           NAME
                         </th>
                         <th style={{ padding: '14px 16px', textAlign: 'center', color: 'white', fontWeight: '600', fontSize: '13px' }}>
+                          STATUS
+                        </th>
+                        <th style={{ padding: '14px 16px', textAlign: 'center', color: 'white', fontWeight: '600', fontSize: '13px' }}>
                           ACTION
                         </th>
                       </tr>
@@ -3665,6 +3674,24 @@ const SectionManagement = () => {
                             </td>
                             <td style={{ padding: '12px 16px', fontSize: '14px', color: '#1f2937' }}>
                               {emp?.FULLNAME || emp?.fullName || emp?.CALLING_NAME || emp?.calling_name || emp?.name || 'N/A'}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                              {(() => {
+                                const isActive = emp?.ACTIVE_HRM_FLG === 1 || emp?.STATUS === 'ACTIVE' || emp?.status === 'ACTIVE' || emp?.isActive === true;
+                                return (
+                                  <span style={{
+                                    padding: '4px 12px',
+                                    borderRadius: '12px',
+                                    fontSize: '12px',
+                                    fontWeight: '600',
+                                    background: isActive ? '#dcfce7' : '#fee2e2',
+                                    color: isActive ? '#16a34a' : '#dc2626',
+                                    display: 'inline-block'
+                                  }}>
+                                    {isActive ? 'Active' : 'Inactive'}
+                                  </span>
+                                );
+                              })()}
                             </td>
                             <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                               <button
@@ -4009,30 +4036,53 @@ const SectionManagement = () => {
               </button>
             </div>
 
-            {/* Sub-section Info */}
+            {/* Active Filters Display */}
             <div style={{
-              padding: '20px 32px',
-              borderBottom: '1px solid #e5e7eb',
-              background: '#fef3c7'
+              background: 'linear-gradient(135deg, #667eea15 0%, #764ba215 100%)',
+              border: '2px solid #667eea',
+              borderRadius: '8px',
+              padding: '16px 20px',
+              margin: '16px 32px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px'
             }}>
-              <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
-                <div>
-                  <div style={{ fontSize: '12px', color: '#92400e', marginBottom: '4px' }}>Division</div>
-                  <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '600' }}>
+              <i className="bi bi-funnel-fill" style={{ color: '#667eea', fontSize: '20px' }}></i>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: '600', color: '#495057', marginBottom: '4px' }}>Active Filters:</div>
+                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <span style={{
+                    background: '#667eea',
+                    color: 'white',
+                    padding: '4px 12px',
+                    borderRadius: '20px',
+                    fontSize: '13px',
+                    fontWeight: '500'
+                  }}>
                     {selectedSubSection?.parentDivision?.division_name || 'N/A'}
-                    <span style={{ marginLeft: '8px', color: '#d97706', fontSize: '12px' }}>
-                      ({selectedSubSection?.parentDivision?.division_code || 'N/A'})
-                    </span>
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: '12px', color: '#92400e', marginBottom: '4px' }}>Section</div>
-                  <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '600' }}>
+                  </span>
+                  <i className="bi bi-chevron-right" style={{ color: '#667eea' }}></i>
+                  <span style={{
+                    background: '#764ba2',
+                    color: 'white',
+                    padding: '4px 12px',
+                    borderRadius: '20px',
+                    fontSize: '13px',
+                    fontWeight: '500'
+                  }}>
                     {selectedSubSection?.parentSection?.hie_name || 'N/A'}
-                    <span style={{ marginLeft: '8px', color: '#d97706', fontSize: '12px' }}>
-                      ({selectedSubSection?.parentSection?.hie_code || 'N/A'})
-                    </span>
-                  </div>
+                  </span>
+                  <i className="bi bi-chevron-right" style={{ color: '#667eea' }}></i>
+                  <span style={{
+                    background: '#f093fb',
+                    color: 'white',
+                    padding: '4px 12px',
+                    borderRadius: '20px',
+                    fontSize: '13px',
+                    fontWeight: '500'
+                  }}>
+                    {selectedSubSection?.subSection?.sub_hie_name || selectedSubSection?.subSection?.hie_name || 'Sub-Section'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -4076,6 +4126,7 @@ const SectionManagement = () => {
                     e.target.style.boxShadow = 'none';
                   }}
                 />
+                <div style={{ marginTop: '8px', color: '#6b7280', fontSize: '13px' }}>Showing <strong>active</strong> transferred employees only</div>
               </div>
             </div>
 
@@ -4178,6 +4229,9 @@ const SectionManagement = () => {
                           NAME
                         </th>
                         <th style={{ padding: '14px 16px', textAlign: 'center', color: 'white', fontWeight: '600', fontSize: '13px' }}>
+                          STATUS
+                        </th>
+                        <th style={{ padding: '14px 16px', textAlign: 'center', color: 'white', fontWeight: '600', fontSize: '13px' }}>
                           ACTION
                         </th>
                       </tr>
@@ -4217,6 +4271,24 @@ const SectionManagement = () => {
                             </td>
                             <td style={{ padding: '12px 16px', fontSize: '14px', color: '#1f2937' }}>
                               {emp?.FULLNAME || emp?.fullName || emp?.CALLING_NAME || emp?.calling_name || emp?.name || 'N/A'}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                              {(() => {
+                                const isActive = emp?.ACTIVE_HRM_FLG === 1 || emp?.STATUS === 'ACTIVE' || emp?.status === 'ACTIVE' || emp?.isActive === true;
+                                return (
+                                  <span style={{
+                                    padding: '4px 12px',
+                                    borderRadius: '12px',
+                                    fontSize: '12px',
+                                    fontWeight: '600',
+                                    background: isActive ? '#dcfce7' : '#fee2e2',
+                                    color: isActive ? '#16a34a' : '#dc2626',
+                                    display: 'inline-block'
+                                  }}>
+                                    {isActive ? 'Active' : 'Inactive'}
+                                  </span>
+                                );
+                              })()}
                             </td>
                             <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                               <button

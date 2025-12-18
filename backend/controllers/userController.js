@@ -158,6 +158,9 @@ const getUser = async (req, res) => {
 // @access  Private (admin, super_admin)
 const createUser = async (req, res) => {
   try {
+    console.log('=== CREATE USER REQUEST ===');
+    console.log('Request body:', { ...req.body, password: '***', confirmPassword: '***' });
+    
     const {
       firstName,
       lastName,
@@ -177,6 +180,7 @@ const createUser = async (req, res) => {
 
     // Validate required fields
     if (!firstName || !lastName || !email || !employeeId || !password || !role) {
+      console.warn('Missing required fields');
       return res.status(400).json({
         success: false,
         message: 'Please provide all required fields'
@@ -191,14 +195,40 @@ const createUser = async (req, res) => {
       });
     }
 
-    // Validate role against stored roles
-    const Role = require('../models/Role');
-    const roleExists = await Role.findOne({ value: role });
-    if (!roleExists) {
+    // Validate role against allowed values
+    const allowedRoles = ['super_admin', 'admin', 'clerk', 'administrative_clerk', 'employee'];
+    if (!allowedRoles.includes(role)) {
+      console.warn('Invalid role specified:', role);
       return res.status(400).json({
         success: false,
-        message: 'Invalid role specified'
+        message: `Invalid role specified: ${role}. Must be one of: ${allowedRoles.join(', ')}`
       });
+    }
+
+    // Check if role exists in database (optional check - creates role if missing)
+    const Role = require('../models/Role');
+    try {
+      let roleDoc = await Role.findOne({ value: role });
+      if (!roleDoc) {
+        console.warn(`Role '${role}' not found in database. Creating it now...`);
+        const roleLabels = {
+          'super_admin': 'Super Admin',
+          'admin': 'Administrator',
+          'clerk': 'Clerk',
+          'administrative_clerk': 'Administrative Clerk',
+          'employee': 'Employee'
+        };
+        roleDoc = await Role.create({
+          value: role,
+          label: roleLabels[role] || role,
+          name: roleLabels[role] || role,
+          description: `${roleLabels[role] || role} role`
+        });
+        console.log(`Role '${role}' created successfully`);
+      }
+    } catch (roleError) {
+      console.error('Error checking/creating role:', roleError);
+      // Continue anyway - the role value itself is validated
     }
 
     // Division is required for all roles except super_admin
@@ -221,32 +251,388 @@ const createUser = async (req, res) => {
       });
     }
 
-    // Validate division exists
+    // Validate division exists (now primarily by NAME from HRIS HIE_NAME_3)
+    let resolvedDivision = null;
     if (division) {
-      const divisionExists = await Division.findById(division);
-      if (!divisionExists) {
-        return res.status(400).json({
-          success: false,
-          message: 'Division not found'
-        });
+      console.log('Looking up division by name:', division);
+      
+      // Try name FIRST (since frontend now sends division name)
+      resolvedDivision = await Division.findOne({ name: String(division) });
+      if (resolvedDivision) {
+        console.log('Division found by name:', resolvedDivision.name);
+      }
+      
+      // Fallback: Try _id (if it looks like a valid ObjectId)
+      if (!resolvedDivision && mongoose.Types.ObjectId.isValid(division)) {
+        resolvedDivision = await Division.findById(division);
+        if (resolvedDivision) {
+          console.log('Division found by ID:', resolvedDivision.name);
+        }
+      }
+      
+      // Fallback: Try code (case-insensitive)
+      if (!resolvedDivision) {
+        resolvedDivision = await Division.findOne({ code: String(division).toUpperCase() });
+        if (resolvedDivision) {
+          console.log('Division found by code:', resolvedDivision.name);
+        }
+      }
+
+      if (!resolvedDivision) {
+        console.log('Division not found locally, checking HRIS cache for:', division);
+
+        // Try HRIS cache to find a matching division (prioritize NAME matching since frontend sends names)
+        try {
+          const hrisDivisions = getCachedDivisions && getCachedDivisions();
+          if (hrisDivisions && hrisDivisions.length) {
+            // Match by name first (HIE_NAME_3), then by code/id
+            const match = hrisDivisions.find(d =>
+              String(d.name || d.HIE_NAME_3 || d.hie_name) === String(division) ||
+              String(d.HIE_NAME_3) === String(division) ||
+              String(d.hie_name) === String(division) ||
+              String(d._id) === String(division) ||
+              String(d.code) === String(division) ||
+              String(d.HIE_CODE) === String(division) ||
+              String(d.hie_code) === String(division)
+            );
+
+            if (match) {
+              const divisionName = match.name || match.HIE_NAME_3 || match.hie_name || `Division ${match._id}`;
+              // Generate a code from the HRIS code or create one from name
+              const codeCandidate = String(match.code || match.hie_code || match.HIE_CODE || match._id || divisionName.substring(0, 10).replace(/\s+/g, '_')).toUpperCase();
+              
+              // Check if division already exists by name
+              resolvedDivision = await Division.findOne({ name: divisionName });
+              
+              if (!resolvedDivision) {
+                // Try by code
+                resolvedDivision = await Division.findOne({ code: codeCandidate });
+              }
+
+              if (!resolvedDivision) {
+                console.log('Creating local Division from HRIS match:', divisionName, codeCandidate);
+                const newDivision = new Division({
+                  name: divisionName,
+                  code: codeCandidate,
+                  description: match.description || match.hie_name || ''
+                });
+
+                await newDivision.save();
+                resolvedDivision = newDivision;
+                console.log('Created local division from HRIS:', resolvedDivision.name);
+              } else {
+                console.log('Matched HRIS division to existing local division:', resolvedDivision.name);
+              }
+            }
+          }
+        } catch (hrisErr) {
+          console.error('HRIS lookup error while resolving division:', hrisErr.message || hrisErr);
+        }
+
+        // If still not resolved, query HRIS hierarchy directly as a fallback
+        if (!resolvedDivision) {
+          try {
+            const hierarchy = await getCachedOrFetch('company_hierarchy', {});
+            // Match by name first (HIE_NAME_3), then by code/id
+            const divMatch = (hierarchy || []).find(item => (item.DEF_LEVEL === 3 || item.DEF_LEVEL === '3') && (
+              String(item.HIE_NAME_3 || item.hie_name_3) === String(division) ||
+              String(item.HIE_NAME || item.hie_name) === String(division) ||
+              String(item.name) === String(division) ||
+              String(item.HIE_CODE || item.hie_code) === String(division) ||
+              String(item.HIE_CODE_3 || item.hie_code_3) === String(division) ||
+              String(item.code) === String(division) ||
+              String(item._id) === String(division)
+            ));
+
+            if (divMatch) {
+              const divisionName = divMatch.HIE_NAME_3 || divMatch.HIE_NAME || divMatch.name || `Division ${divMatch._id}`;
+              const codeCandidate = String(divMatch.code || divMatch.hie_code || divMatch.HIE_CODE || divMatch._id || divisionName.substring(0, 10).replace(/\s+/g, '_')).toUpperCase();
+              
+              let createdDiv = await Division.findOne({ name: divisionName });
+              if (!createdDiv) {
+                createdDiv = await Division.findOne({ code: codeCandidate });
+              }
+              if (!createdDiv) {
+                createdDiv = new Division({ 
+                  name: divisionName, 
+                  code: codeCandidate, 
+                  description: divMatch.description || '' 
+                });
+                await createdDiv.save();
+                console.log('Created local division from HRIS hierarchy:', createdDiv.name);
+              }
+              resolvedDivision = createdDiv;
+            }
+          } catch (hierErr) {
+            console.error('HRIS hierarchy fallback error while resolving division:', hierErr.message || hierErr);
+          }
+        }
+
+        if (!resolvedDivision) {
+          // List available divisions to help debugging
+          const availableDivisions = await Division.find({}).select('name code _id').limit(20);
+          console.log('Available divisions in system:', availableDivisions.map(d => `${d.name} (${d.code}) - ID: ${d._id}`));
+
+          return res.status(404).json({
+            success: false,
+            message: `Division not found in system: ${division}. Please select a valid division from the list.`,
+            availableDivisions: availableDivisions.map(d => ({
+              id: d._id,
+              name: d.name,
+              code: d.code
+            }))
+          });
+        }
       }
     }
 
-    // Validate section exists and belongs to division
+    // Validate section exists and belongs to resolved division (now primarily by NAME from HRIS HIE_NAME_4)
+    let resolvedSection = null;
     if (section) {
-      const sectionExists = await Section.findById(section);
-      if (!sectionExists) {
-        return res.status(400).json({
-          success: false,
-          message: 'Section not found'
-        });
+      console.log('Looking up section by name:', section);
+      
+      // Try name FIRST (since frontend now sends section name)
+      resolvedSection = await Section.findOne({ name: String(section) });
+      if (resolvedSection) {
+        console.log('Section found by name:', resolvedSection.name);
       }
       
-      if (division && sectionExists.division.toString() !== division) {
-        return res.status(400).json({
-          success: false,
-          message: 'Section does not belong to the specified division'
-        });
+      // Fallback: Try _id (if it looks like a valid ObjectId)
+      if (!resolvedSection && mongoose.Types.ObjectId.isValid(section)) {
+        resolvedSection = await Section.findById(section);
+        if (resolvedSection) {
+          console.log('Section found by ID:', resolvedSection.name);
+        }
+      }
+      
+      // Fallback: Try code
+      if (!resolvedSection) {
+        resolvedSection = await Section.findOne({ code: String(section) });
+        if (resolvedSection) {
+          console.log('Section found by code:', resolvedSection.name);
+        }
+      }
+
+      if (!resolvedSection) {
+        console.log('Section not found locally, checking HRIS cache for:', section);
+
+        // Try HRIS cache to find matching section (prioritize NAME matching since frontend sends names)
+        try {
+          const hrisSections = getCachedSections && getCachedSections();
+          if (hrisSections && hrisSections.length) {
+            // Match by name first (HIE_NAME_4), then by code/id
+            const match = hrisSections.find(s =>
+              String(s.HIE_NAME_4 || s.hie_name_4) === String(section) ||
+              String(s.HIE_NAME || s.hie_name) === String(section) ||
+              String(s.name) === String(section) ||
+              String(s.HIE_CODE) === String(section) ||
+              String(s.HIE_CODE_3) === String(section) ||
+              String(s.code) === String(section) ||
+              String(s.SECTION_ID) === String(section)
+            );
+
+            if (match) {
+              const sectionName = match.HIE_NAME_4 || match.hie_name_4 || match.HIE_NAME || match.hie_name || match.name || `Section ${match._id}`;
+              // Generate a code from the HRIS code or create one from name
+              const codeCandidate = String(match.HIE_CODE_3 || match.HIE_CODE || match.code || match.SECTION_ID || match.id || sectionName.substring(0, 10).replace(/\s+/g, '_')).toUpperCase();
+              
+              // Check if section already exists by name
+              let localSection = await Section.findOne({ name: sectionName });
+              
+              if (!localSection) {
+                // Try by code
+                localSection = await Section.findOne({ code: codeCandidate });
+              }
+
+              if (!localSection) {
+                // Ensure we have a local division to attach to
+                let sectionDivisionId = null;
+                if (resolvedDivision) {
+                  sectionDivisionId = resolvedDivision._id;
+                } else if (match.HIE_RELATIONSHIP) {
+                  // HIE_RELATIONSHIP is the division name for sections
+                  const possibleDiv = await Division.findOne({ name: match.HIE_RELATIONSHIP });
+                  if (possibleDiv) sectionDivisionId = possibleDiv._id;
+                }
+
+                // Use a system user as createdBy when req.user is not present
+                let createdByUserId = req.user ? req.user._id : null;
+                if (!createdByUserId) {
+                  const systemAdmin = await User.findOne({ role: 'super_admin' }).select('_id');
+                  createdByUserId = systemAdmin ? systemAdmin._id : null;
+                }
+
+                // Create local section if we have a division and a createdBy
+                if (sectionDivisionId && createdByUserId) {
+                  localSection = new Section({
+                    name: sectionName,
+                    code: codeCandidate || `SEC${String(Math.floor(Math.random() * 9000) + 1000)}`,
+                    division: sectionDivisionId,
+                    description: match.description || sectionName,
+                    createdBy: createdByUserId
+                  });
+                  await localSection.save();
+                  console.log('Created local section from HRIS:', localSection.name);
+                }
+
+                // If cannot create local section, fallback to pseudo object
+                if (!localSection) {
+                  console.log('Could not create local section - falling back to HRIS values');
+                  resolvedSection = {
+                    _id: null,
+                    name: sectionName,
+                    code: codeCandidate
+                  };
+                } else {
+                  resolvedSection = localSection;
+                }
+              } else {
+                resolvedSection = localSection;
+              }
+            }
+          }
+        } catch (hrisErr) {
+          console.error('HRIS lookup error while resolving section:', hrisErr.message || hrisErr);
+        }
+
+        // Fallback: query HRIS hierarchy directly for section (DEF_LEVEL 4)
+        if (!resolvedSection) {
+          try {
+            let hierarchy = [];
+            // Try cached hierarchy first
+            try {
+              hierarchy = await getCachedOrFetch('company_hierarchy', {});
+            } catch (e) {
+              console.warn('Could not get cached hierarchy, attempting fresh HRIS read');
+            }
+
+            // If cached failed or empty, try fetching directly
+            if (!hierarchy || !hierarchy.length) {
+              try {
+                hierarchy = await readData('company_hierarchy', {});
+              } catch (e) {
+                console.error('Failed to read HRIS hierarchy directly:', e.message || e);
+              }
+            }
+
+            const secMatch = (hierarchy || []).find(item => (item.DEF_LEVEL === 4 || item.DEF_LEVEL === '4') && (
+              String(item.HIE_CODE || item.hie_code) === String(section) ||
+              String(item.HIE_CODE_3 || item.hie_code_3) === String(section) ||
+              String(item.code) === String(section) ||
+              String(item.SECTION_ID || item.section_id) === String(section) ||
+              String(item.HIE_NAME_4 || item.hie_name_4) === String(section) ||
+              String(item.HIE_NAME || item.hie_name) === String(section) ||
+              String(item.name) === String(section)
+            ));
+
+            if (secMatch) {
+              console.log('Found HRIS section match in hierarchy for:', section, secMatch.HIE_NAME_4 || secMatch.HIE_NAME || secMatch.name);
+
+              // Ensure we have/created a local division for this section
+              let sectionDivisionId = null;
+              if (resolvedDivision) {
+                sectionDivisionId = resolvedDivision._id;
+              } else if (secMatch.hie_relationship || secMatch.HIE_RELATIONSHIP) {
+                const relName = secMatch.hie_relationship || secMatch.HIE_RELATIONSHIP;
+                const divMatch = (hierarchy || []).find(d => (d.DEF_LEVEL === 3 || d.DEF_LEVEL === '3') && (
+                  String(d.HIE_NAME_3 || d.hie_name_3) === String(relName) ||
+                  String(d.HIE_NAME || d.hie_name) === String(relName) ||
+                  String(d.name) === String(relName) ||
+                  String(d._id) === String(relName) ||
+                  String(d.code) === String(relName)
+                ));
+                if (divMatch) {
+                  const codeCandidateDiv = String(divMatch.code || divMatch.hie_code || divMatch._id).toUpperCase();
+                  let createdDiv = await Division.findOne({ $or: [{ code: codeCandidateDiv }, { name: divMatch.HIE_NAME_3 || divMatch.HIE_NAME || divMatch.name }] });
+                  if (!createdDiv) {
+                    createdDiv = new Division({ name: divMatch.HIE_NAME_3 || divMatch.HIE_NAME || divMatch.name, code: codeCandidateDiv, description: divMatch.description || '' });
+                    await createdDiv.save();
+                  }
+                  sectionDivisionId = createdDiv._id;
+                  if (!resolvedDivision) resolvedDivision = createdDiv;
+                }
+              }
+
+              const codeCandidate = String(secMatch.HIE_CODE_3 || secMatch.hie_code_3 || secMatch.HIE_CODE || secMatch.hie_code || secMatch.code || secMatch.SECTION_ID || secMatch.id || secMatch.section_code || secMatch.section_id || '').toUpperCase();
+              let localSection = await Section.findOne({ $or: [{ code: codeCandidate }, { name: secMatch.HIE_NAME_4 || secMatch.hie_name_4 || secMatch.HIE_NAME || secMatch.hie_name || secMatch.name }] });
+
+              if (!localSection) {
+                // Use a system user as createdBy when req.user is not present
+                let createdByUserId = req.user ? req.user._id : null;
+                if (!createdByUserId) {
+                  const systemAdmin = await User.findOne({ role: 'super_admin' }).select('_id');
+                  createdByUserId = systemAdmin ? systemAdmin._id : null;
+                }
+
+                if (sectionDivisionId && createdByUserId) {
+                  localSection = new Section({
+                    name: secMatch.HIE_NAME_4 || secMatch.hie_name_4 || secMatch.HIE_NAME || secMatch.hie_name || secMatch.name,
+                    code: codeCandidate || `SEC${String(Math.floor(Math.random() * 9000) + 1000)}`,
+                    division: sectionDivisionId,
+                    description: secMatch.description || secMatch.HIE_NAME_4 || secMatch.hie_name_4 || '' ,
+                    createdBy: createdByUserId
+                  });
+                  await localSection.save();
+                  console.log('Created local section from HRIS hierarchy fallback:', localSection.name);
+                } else {
+                  // Fall back to pseudo section object with names/codes
+                  resolvedSection = {
+                    _id: null,
+                    name: secMatch.HIE_NAME_4 || secMatch.hie_name_4 || secMatch.HIE_NAME || secMatch.hie_name || secMatch.name,
+                    code: secMatch.HIE_CODE_3 || secMatch.hie_code_3 || secMatch.HIE_CODE || secMatch.hie_code || secMatch.code
+                  };
+                }
+
+                if (localSection) resolvedSection = localSection;
+              } else {
+                resolvedSection = localSection;
+              }
+            }
+          } catch (hierErr) {
+            console.error('HRIS hierarchy fallback error while resolving section:', hierErr.message || hierErr);
+          }
+        }
+
+        if (!resolvedSection) {
+          // List available sections to help debugging
+          const availableSections = await Section.find({}).select('name code _id divisionId').limit(20);
+          console.log('Available sections in system:', availableSections.map(s => `${s.name} (${s.code}) - ID: ${s._id}`));
+
+          return res.status(404).json({
+            success: false,
+            message: `Section not found in system: ${section}. Please select a valid section from the list.`,
+            availableSections: availableSections.map(s => ({
+              id: s._id,
+              name: s.name,
+              code: s.code,
+              divisionId: s.divisionId
+            })),
+            hint: resolvedDivision ? `Try selecting a section that belongs to division: ${resolvedDivision.name}` : null
+          });
+        }
+      }
+
+      // If section was just created or has a valid division, we trust the HRIS data
+      // Only warn (don't block) if there's a mismatch for existing sections
+      if (resolvedDivision && resolvedSection && resolvedSection._id && resolvedSection.division) {
+        const sectionDivisionId = String(resolvedSection.division || '');
+        const divisionId = String(resolvedDivision._id);
+        if (sectionDivisionId && divisionId && sectionDivisionId !== divisionId) {
+          console.warn('Section-Division mismatch (allowing since HRIS data is trusted):', {
+            section: resolvedSection.name,
+            sectionDivision: sectionDivisionId,
+            expectedDivision: divisionId
+          });
+          // Update section to belong to the correct division
+          try {
+            await Section.findByIdAndUpdate(resolvedSection._id, { division: resolvedDivision._id });
+            console.log('Updated section division to match:', resolvedDivision.name);
+          } catch (updateErr) {
+            console.warn('Could not update section division:', updateErr.message);
+          }
+        } else {
+          console.log('Section belongs to the correct division');
+        }
       }
     }
 
@@ -311,24 +697,60 @@ const createUser = async (req, res) => {
       };
     }
 
-    // Create user
-    const user = new User({
+    // Final validation: ensure division is set for non-super_admin roles
+    const finalDivisionId = resolvedDivision ? resolvedDivision._id : division;
+    if (role !== 'super_admin' && !finalDivisionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Division is required for this role'
+      });
+    }
+
+    // Create user (use resolved Division/Section ids when available)
+    const userData = {
       firstName,
       lastName,
       email,
       employeeId,
       password,
       role,
-      division,
-      section,
       phone,
       address,
       designation,
       salary,
       permissions: userPermissions
+    };
+
+    // Only add division if it exists (required for non-super_admin)
+    if (finalDivisionId) {
+      userData.division = finalDivisionId;
+      // Add division name and code if we resolved the division
+      if (resolvedDivision) {
+        userData.divisionName = resolvedDivision.name;
+        userData.divisionCode = resolvedDivision.code;
+      }
+    }
+
+    // Only add section if it exists (optional)
+    if (resolvedSection) {
+      userData.section = resolvedSection._id;
+      // Add section name and code
+      userData.sectionName = resolvedSection.name;
+      userData.sectionCode = resolvedSection.code;
+    } else if (section) {
+      userData.section = section;
+    }
+
+    console.log('Creating user with data:', {
+      ...userData,
+      password: '***hidden***'
     });
+    console.log('Password received for new user:', password ? `Yes (length: ${password.length})` : 'No');
+
+    const user = new User(userData);
 
     await user.save();
+    console.log('User saved successfully. Password should be hashed now.');
 
     // Log user creation (only if user is authenticated)
     if (req.user) {
@@ -372,17 +794,37 @@ const createUser = async (req, res) => {
 
   } catch (error) {
     console.error('Create user error:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      code: error.code,
+      stack: error.stack
+    });
     
+    // Handle duplicate key error
     if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern || {})[0];
       return res.status(400).json({
         success: false,
-        message: 'User with this email or employee ID already exists'
+        message: `User with this ${field} already exists`
       });
     }
 
+    // Handle validation errors
+    if (error.name === 'ValidationError') {
+      const errors = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors
+      });
+    }
+
+    // Generic server error
     res.status(500).json({
       success: false,
-      message: 'Server error creating user'
+      message: 'Server error creating user',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -430,7 +872,7 @@ const updateUser = async (req, res) => {
       permissions
     } = req.body;
 
-    // Update fields
+    // Update basic fields (always allowed)
     if (firstName !== undefined) user.firstName = firstName;
     if (lastName !== undefined) user.lastName = lastName;
     if (email !== undefined) user.email = email;
@@ -440,18 +882,172 @@ const updateUser = async (req, res) => {
     if (designation !== undefined) user.designation = designation;
     if (salary !== undefined) user.salary = salary;
 
-    // Only super_admin and admin can change these fields (skip if no user auth)
-    if (req.user && ['super_admin', 'admin'].includes(req.user.role)) {
+    // Resolve division/section FIRST (before role checks) to prevent string assignment to ObjectId fields
+    let resolvedDivision = null;
+    let resolvedSection = null;
+
+    // Resolve division when provided as name (HIE_NAME_3) or id/code
+    if (division !== undefined) {
+      console.log('Update: resolving division:', division, 'Type:', typeof division);
+      if (division && division !== '' && division !== 'N/A') {
+        console.log('Update: resolving division:', division, 'Type:', typeof division);
+        // Try by name
+        resolvedDivision = await Division.findOne({ name: String(division) });
+          if (!resolvedDivision && mongoose.Types.ObjectId.isValid(division)) {
+            resolvedDivision = await Division.findById(division);
+          }
+          if (!resolvedDivision) {
+            resolvedDivision = await Division.findOne({ code: String(division).toUpperCase() });
+          }
+
+          if (!resolvedDivision) {
+            // Try HRIS cache and create local division if found
+            try {
+              const hrisDivisions = getCachedDivisions && getCachedDivisions();
+              const match = hrisDivisions && hrisDivisions.find(d =>
+                String(d.name || d.HIE_NAME_3 || d.hie_name) === String(division) ||
+                String(d.HIE_NAME_3) === String(division) ||
+                String(d.hie_name) === String(division) ||
+                String(d._id) === String(division) ||
+                String(d.code) === String(division) ||
+                String(d.HIE_CODE) === String(division) ||
+                String(d.hie_code) === String(division)
+              );
+
+              if (match) {
+                const divisionName = match.name || match.HIE_NAME_3 || match.hie_name || `Division ${match._id}`;
+                const codeCandidate = String(match.code || match.hie_code || match.HIE_CODE || match._id || divisionName.substring(0, 10).replace(/\s+/g, '_')).toUpperCase();
+                resolvedDivision = await Division.findOne({ name: divisionName }) || await Division.findOne({ code: codeCandidate });
+                if (!resolvedDivision) {
+                  const newDivision = new Division({ name: divisionName, code: codeCandidate, description: match.description || match.hie_name || '' });
+                  await newDivision.save();
+                  resolvedDivision = newDivision;
+                  console.log('Update: created local division from HRIS:', resolvedDivision.name);
+                }
+              }
+            } catch (err) {
+              console.error('Update division HRIS lookup error:', err.message || err);
+            }
+          }
+
+        if (!resolvedDivision && division && division !== '' && division !== 'N/A') {
+          // If still unresolved and a value was provided, return helpful error
+          console.error('Division could not be resolved:', division);
+          return res.status(404).json({ success: false, message: `Division not found: ${division}` });
+        }
+      } else if (division === '' || division === null) {
+        // Explicit clear request
+        console.log('Division clear requested');
+      }
+    }
+
+    // Resolve section when provided (similar to creation flow)
+    if (section !== undefined) {
+      console.log('Update: resolving section:', section, 'Type:', typeof section);
+      if (section && section !== '' && section !== 'N/A') {
+          resolvedSection = await Section.findOne({ name: String(section) });
+          if (!resolvedSection && mongoose.Types.ObjectId.isValid(section)) {
+            resolvedSection = await Section.findById(section);
+          }
+          if (!resolvedSection) {
+            resolvedSection = await Section.findOne({ code: String(section) });
+          }
+
+          if (!resolvedSection) {
+            try {
+              const hrisSections = getCachedSections && getCachedSections();
+              const match = hrisSections && hrisSections.find(s =>
+                String(s.HIE_NAME_4 || s.hie_name_4) === String(section) ||
+                String(s.HIE_NAME || s.hie_name) === String(section) ||
+                String(s.name) === String(section) ||
+                String(s.HIE_CODE) === String(section) ||
+                String(s.HIE_CODE_3) === String(section) ||
+                String(s.code) === String(section) ||
+                String(s.SECTION_ID) === String(section)
+              );
+
+              if (match) {
+                const sectionName = match.HIE_NAME_4 || match.hie_name_4 || match.HIE_NAME || match.hie_name || match.name || `Section ${match._id}`;
+                const codeCandidate = String(match.HIE_CODE_3 || match.HIE_CODE || match.code || match.SECTION_ID || match.id || sectionName.substring(0, 10).replace(/\s+/g, '_')).toUpperCase();
+                let localSection = await Section.findOne({ name: sectionName }) || await Section.findOne({ code: codeCandidate });
+
+                if (!localSection) {
+                  // Resolve division for section if possible
+                  let sectionDivisionId = null;
+                  if (user.division) sectionDivisionId = user.division;
+                  else if (match.HIE_RELATIONSHIP) {
+                    const possibleDiv = await Division.findOne({ name: match.HIE_RELATIONSHIP });
+                    if (possibleDiv) sectionDivisionId = possibleDiv._id;
+                  }
+
+                  // Try to create local section if division is available
+                  let createdByUserId = req.user ? req.user._id : null;
+                  if (!createdByUserId) {
+                    const systemAdmin = await User.findOne({ role: 'super_admin' }).select('_id');
+                    createdByUserId = systemAdmin ? systemAdmin._id : null;
+                  }
+
+                  if (sectionDivisionId && createdByUserId) {
+                    localSection = new Section({ name: sectionName, code: codeCandidate || `SEC${String(Math.floor(Math.random() * 9000) + 1000)}`, division: sectionDivisionId, description: match.description || sectionName, createdBy: createdByUserId });
+                    await localSection.save();
+                    resolvedSection = localSection;
+                    console.log('Update: created local section from HRIS:', resolvedSection.name);
+                  }
+                } else {
+                  resolvedSection = localSection;
+                }
+              }
+            } catch (err) {
+              console.error('Update section HRIS lookup error:', err.message || err);
+            }
+          }
+
+        if (!resolvedSection && section && section !== '' && section !== 'N/A') {
+          console.error('Section could not be resolved:', section);
+          return res.status(404).json({ success: false, message: `Section not found: ${section}` });
+        }
+      } else if (section === '' || section === null) {
+        // Explicit clear request
+        console.log('Section clear requested');
+      }
+    }
+
+    // Now apply the resolved division/section (only if user has permission or no auth)
+    const canUpdateRole = !req.user || (req.user && ['super_admin', 'admin'].includes(req.user.role));
+    
+    if (canUpdateRole) {
       if (role !== undefined) user.role = role;
-      if (division !== undefined) user.division = division;
-      if (section !== undefined) user.section = section;
-      if (isActive !== undefined) user.isActive = isActive;
-      if (permissions !== undefined) user.permissions = permissions;
-    } else if (!req.user) {
-      // Allow all updates when no authentication (testing mode)
-      if (role !== undefined) user.role = role;
-      if (division !== undefined) user.division = division;
-      if (section !== undefined) user.section = section;
+
+      // Apply resolved division
+      if (division !== undefined) {
+        if (resolvedDivision) {
+          user.division = resolvedDivision._id;
+          user.divisionName = resolvedDivision.name;
+          user.divisionCode = resolvedDivision.code;
+          console.log('Division applied:', resolvedDivision.name);
+        } else if (division === '' || division === null) {
+          user.division = undefined;
+          user.divisionName = undefined;
+          user.divisionCode = undefined;
+          console.log('Division cleared');
+        }
+      }
+
+      // Apply resolved section
+      if (section !== undefined) {
+        if (resolvedSection) {
+          user.section = resolvedSection._id;
+          user.sectionName = resolvedSection.name;
+          user.sectionCode = resolvedSection.code;
+          console.log('Section applied:', resolvedSection.name);
+        } else if (section === '' || section === null) {
+          user.section = undefined;
+          user.sectionName = undefined;
+          user.sectionCode = undefined;
+          console.log('Section cleared');
+        }
+      }
+
       if (isActive !== undefined) user.isActive = isActive;
       if (permissions !== undefined) user.permissions = permissions;
     }
@@ -503,7 +1099,8 @@ const updateUser = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: 'Server error updating user'
+      message: 'Server error updating user',
+      error: process.env.NODE_ENV === 'development' ? (error.message || String(error)) : undefined
     });
   }
 };
@@ -898,12 +1495,12 @@ const getHrisEmployees = async (req, res) => {
     const sectionMap = {};
     
     divisions.forEach(div => {
-      divisionMap[div.HIE_CODE] = div.HIE_NAME;
+      divisionMap[div.HIE_CODE] = div.HIE_NAME_3 || div.HIE_NAME;
     });
     
     sections.forEach(sec => {
       sectionMap[sec.HIE_CODE] = {
-        name: sec.HIE_NAME,
+        name: sec.HIE_NAME_4 || sec.HIE_NAME,
         division_code: sec.HIE_RELATIONSHIP
       };
     });
@@ -919,18 +1516,18 @@ const getHrisEmployees = async (req, res) => {
     
     // Transform employees data to include division and section info
     const transformedEmployees = employees.map((employee, index) => {
-      // Employee division and section codes come from HIE_CODE_2 and HIE_CODE_3
-      const divisionCode = employee.HIE_CODE_2;
+      // Employee division and section codes come from HIE_CODE_4 (division) and HIE_CODE_3 (section)
+      const divisionCode = employee.HIE_CODE_4;
       const sectionCode = employee.HIE_CODE_3;
       
       // Get division and section names from hierarchy mapping
       const divisionName = divisionMap[divisionCode] || 
-        employee.currentwork?.HIE_NAME_2 || 
+        employee.currentwork?.HIE_NAME_3 || 
         `Division ${divisionCode}`;
       
       const sectionInfo = sectionMap[sectionCode] || {};
       const sectionName = sectionInfo.name || 
-        employee.currentwork?.HIE_NAME_3 || 
+        employee.currentwork?.HIE_NAME_4 || 
         `Section ${sectionCode}`;
       
       return {

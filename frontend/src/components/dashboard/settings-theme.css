@@ -1,47 +1,78 @@
 :root {
-  /* Light theme (default) */
+  /* Light theme (default) - Modern Blue Theme */
   --bg: #FFFFFF;
-  --surface: #F9F9F9;
-  --text-primary: #000000;
-  --text-secondary: #666666;
-  --text-disabled: #999999;
-  --divider: #DDDDDD;
-  --border: #CCCCCC;
-  --primary: #007BFF;
-  --secondary: #6C757D;
-  --success: #28A745;
-  --warning: #FFC107;
-  --error: #FF0000;
-  --info: #17A2B8;
-  --link: #0056B3;
-  --highlight: #FFF3CD;
-  --btn-red-bg: #FF0000;
-  --btn-red-hover: #FF6666;
-  --btn-red-active: #CC0000;
+  --surface: #F8FAFC;
+  --surface-elevated: #FFFFFF;
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-disabled: #94A3B8;
+  --divider: #E2E8F0;
+  --border: #CBD5E1;
+  --primary: #2563EB;
+  --primary-hover: #1D4ED8;
+  --primary-light: #DBEAFE;
+  --secondary: #64748B;
+  --success: #10B981;
+  --success-light: #D1FAE5;
+  --warning: #F59E0B;
+  --warning-light: #FEF3C7;
+  --error: #EF4444;
+  --error-light: #FEE2E2;
+  --info: #0EA5E9;
+  --info-light: #E0F2FE;
+  --link: #2563EB;
+  --highlight: #FEF3C7;
+  --btn-red-bg: #EF4444;
+  --btn-red-hover: #F87171;
+  --btn-red-active: #DC2626;
   --btn-red-text: #FFFFFF;
+  
+  /* Animation & Transition */
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* Shadows */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.12);
+  --shadow-primary: 0 8px 24px rgba(37, 99, 235, 0.2);
 }
 
 [data-theme="dark"] {
-  /* Dark theme values based on your palette */
-  --bg: #121212;
-  --surface: #1E1E1E;
-  --text-primary: #E0E0E0;
-  --text-secondary: #AAAAAA;
-  --text-disabled: #555555;
-  --divider: #333333;
-  --border: #444444;
-  --primary: #3399FF;
-  --secondary: #A0A4A8;
-  --success: #4CAF50;
-  --warning: #FFB74D;
-  --error: #FF4D4D;
-  --info: #4DD0E1;
-  --link: #66B2FF;
-  --highlight: #333333;
-  --btn-red-bg: #FF4D4D;
-  --btn-red-hover: #FF6666;
-  --btn-red-active: #CC0000;
+  /* Dark theme values - Modern Blue Dark Theme */
+  --bg: #0F172A;
+  --surface: #1E293B;
+  --surface-elevated: #334155;
+  --text-primary: #F1F5F9;
+  --text-secondary: #94A3B8;
+  --text-disabled: #475569;
+  --divider: #334155;
+  --border: #475569;
+  --primary: #3B82F6;
+  --primary-hover: #60A5FA;
+  --primary-light: #1E3A5F;
+  --secondary: #94A3B8;
+  --success: #34D399;
+  --success-light: #064E3B;
+  --warning: #FBBF24;
+  --warning-light: #78350F;
+  --error: #F87171;
+  --error-light: #7F1D1D;
+  --info: #38BDF8;
+  --info-light: #0C4A6E;
+  --link: #60A5FA;
+  --highlight: #422006;
+  --btn-red-bg: #EF4444;
+  --btn-red-hover: #F87171;
+  --btn-red-active: #DC2626;
   --btn-red-text: #FFFFFF;
+  
+  /* Shadows for dark mode */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.5);
+  --shadow-primary: 0 8px 24px rgba(59, 130, 246, 0.3);
 }
 
 /* Apply theme variables to common elements used in the Settings UI */
@@ -58,20 +89,32 @@ body {
   background: var(--surface) !important;
   color: var(--text-primary) !important;
   border-color: var(--border) !important;
+  transition: var(--transition-normal);
 }
 
 .card {
-  box-shadow: 0 6px 18px rgba(0,0,0,0.04);
+  box-shadow: var(--shadow-md);
+  border-radius: 16px;
+}
+
+.card:hover {
+  box-shadow: var(--shadow-lg);
 }
 
 .list-group .list-group-item {
   border-bottom: 1px solid var(--divider) !important;
+  transition: var(--transition-fast);
+}
+
+.list-group .list-group-item:hover {
+  background: var(--primary-light) !important;
 }
 
 .list-group .active {
-  background: var(--primary) !important;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%) !important;
   color: #fff !important;
   border-color: var(--primary) !important;
+  box-shadow: var(--shadow-primary);
 }
 
 .form-label {

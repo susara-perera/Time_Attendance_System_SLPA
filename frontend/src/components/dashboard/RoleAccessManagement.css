@@ -4,11 +4,23 @@
   max-width: 1300px;
   margin: 24px auto;
   background: #ffffff;
-  border-radius: 20px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+  border-radius: 24px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.1), 0 4px 12px rgba(37, 99, 235, 0.08);
   padding: 0;
   overflow: hidden;
-  border: 1px solid rgba(0,0,0,0.08);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  animation: fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Header Styles */
@@ -34,10 +46,20 @@
 
 .icon-wrapper-large {
   font-size: 2.8rem;
-  color: #007bff;
+  color: #2563eb;
   margin-bottom: 12px;
-  text-shadow: 0 2px 4px rgba(0,123,255,0.3);
-  filter: drop-shadow(0 0 8px rgba(0,123,255,0.4));
+  text-shadow: 0 2px 4px rgba(37, 99, 235, 0.3);
+  filter: drop-shadow(0 0 12px rgba(37, 99, 235, 0.4));
+  animation: iconFloat 3s ease-in-out infinite;
+}
+
+@keyframes iconFloat {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
 }
 
 /* Role Management Title Styling */
@@ -84,12 +106,30 @@ div.role-access-wrapper div.main-card div.card-header-custom div.header-text h1[
 /* Professional Table Styles */
 .professional-card {
   background: white;
-  border-radius: 16px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.08), 0 4px 16px rgba(37, 99, 235, 0.06);
   overflow: hidden;
   margin-top: 32px;
-  border: 1px solid rgba(0,0,0,0.06);
+  border: 1px solid rgba(226, 232, 240, 0.8);
   position: relative;
+  animation: cardSlideUp 0.5s ease-out backwards;
+  animation-delay: 0.2s;
+  transition: all 0.3s ease;
+}
+
+.professional-card:hover {
+  box-shadow: 0 16px 48px rgba(0,0,0,0.12), 0 8px 24px rgba(37, 99, 235, 0.1);
+}
+
+@keyframes cardSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .professional-card::before {
@@ -98,8 +138,19 @@ div.role-access-wrapper div.main-card div.card-header-custom div.header-text h1[
   top: 0;
   left: 0;
   right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, #007bff, transparent);
+  height: 3px;
+  background: linear-gradient(90deg, #1e40af, #2563eb, #3b82f6, #2563eb, #1e40af);
+  background-size: 200% 100%;
+  animation: gradientMove 3s ease-in-out infinite;
+}
+
+@keyframes gradientMove {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
 }
 
 .table-responsive {
@@ -111,26 +162,27 @@ div.role-access-wrapper div.main-card div.card-header-custom div.header-text h1[
   border-collapse: collapse;
   margin: 0;
   background: white;
-  border-radius: 12px;
+  border-radius: 16px;
   overflow: hidden;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.06);
 }
 
 .professional-table thead {
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  border-bottom: 3px solid #007bff;
+  background: linear-gradient(135deg, #f0f7ff 0%, #e0edff 100%);
+  border-bottom: 3px solid #2563eb;
 }
 
 .professional-table th {
   padding: 20px 24px;
   font-weight: 700;
   font-size: 14px;
-  color: #2c3e50;
+  color: #1e293b;
   text-transform: uppercase;
   letter-spacing: 0.8px;
-  border-bottom: 2px solid #dee2e6;
+  border-bottom: 2px solid #e2e8f0;
   text-align: left;
   position: relative;
+  transition: all 0.3s ease;
 }
 
 .professional-table th::after {
@@ -140,7 +192,7 @@ div.role-access-wrapper div.main-card div.card-header-custom div.header-text h1[
   left: 0;
   width: 0;
   height: 3px;
-  background: #007bff;
+  background: linear-gradient(90deg, #1e40af, #3b82f6);
   transition: width 0.3s ease;
 }
 
@@ -150,23 +202,27 @@ div.role-access-wrapper div.main-card div.card-header-custom div.header-text h1[
 
 .professional-table td {
   padding: 18px 24px;
-  border-bottom: 1px solid #f1f3f4;
+  border-bottom: 1px solid #f1f5f9;
   vertical-align: middle;
   font-size: 15px;
-  color: #2c3e50;
-  transition: all 0.2s ease;
+  color: #334155;
+  transition: all 0.25s ease;
 }
 
 .professional-table tbody tr {
-  transition: all 0.3s ease;
-  border-left: 3px solid transparent;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-left: 4px solid transparent;
 }
 
 .professional-table tbody tr:hover {
-  background: linear-gradient(90deg, #f8f9fa 0%, #ffffff 100%);
-  border-left: 3px solid #007bff;
-  transform: translateX(2px);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.04) 0%, rgba(59, 130, 246, 0.08) 100%);
+  border-left: 4px solid #2563eb;
+  transform: translateX(4px);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.08);
+}
+
+.professional-table tbody tr:hover td {
+  color: #1e293b;
 }
 
 .professional-table tbody tr:last-child td {
@@ -176,7 +232,7 @@ div.role-access-wrapper div.main-card div.card-header-custom div.header-text h1[
 /* Button Styles */
 .btn-professional {
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   font-weight: 600;
   font-size: 14px;
   padding: 10px 20px;
@@ -199,8 +255,8 @@ div.role-access-wrapper div.main-card div.card-header-custom div.header-text h1[
   left: -100%;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-  transition: left 0.5s;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
+  transition: left 0.5s ease;
 }
 
 .btn-professional:hover::before {
@@ -208,51 +264,52 @@ div.role-access-wrapper div.main-card div.card-header-custom div.header-text h1[
 }
 
 .btn-professional.btn-primary {
-  background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+  background: linear-gradient(135deg, #1e40af 0%, #2563eb 50%, #3b82f6 100%);
+  background-size: 200% 200%;
   color: white;
-  box-shadow: 0 4px 12px rgba(0,123,255,0.3);
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.3);
 }
 
 .btn-professional.btn-primary:hover {
-  background: linear-gradient(135deg, #0056b3 0%, #004085 100%);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0,123,255,0.4);
+  background-position: 100% 0;
+  transform: translateY(-3px);
+  box-shadow: 0 10px 28px rgba(37, 99, 235, 0.4);
 }
 
 .btn-professional.btn-secondary {
-  background: linear-gradient(135deg, #6c757d 0%, #545b62 100%);
+  background: linear-gradient(135deg, #475569 0%, #64748b 100%);
   color: white;
-  box-shadow: 0 4px 12px rgba(108,117,125,0.3);
+  box-shadow: 0 4px 12px rgba(71, 85, 105, 0.3);
 }
 
 .btn-professional.btn-secondary:hover {
-  background: linear-gradient(135deg, #545b62 0%, #383d41 100%);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(108,117,125,0.4);
+  background: linear-gradient(135deg, #334155 0%, #475569 100%);
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(71, 85, 105, 0.4);
 }
 
 .btn-professional.btn-danger {
-  background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+  background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
   color: white;
-  box-shadow: 0 4px 12px rgba(220,53,69,0.3);
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
 }
 
 .btn-professional.btn-danger:hover {
-  background: linear-gradient(135deg, #c82333 0%, #a71e2a 100%);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(220,53,69,0.4);
+  background: linear-gradient(135deg, #b91c1c 0%, #dc2626 100%);
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(220, 38, 38, 0.4);
 }
 
 .btn-professional.btn-success {
-  background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
   color: white;
-  box-shadow: 0 4px 12px rgba(40,167,69,0.3);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
 }
 
 .btn-professional.btn-success:hover {
-  background: linear-gradient(135deg, #1e7e34 0%, #155724 100%);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(40,167,69,0.4);
+  background: linear-gradient(135deg, #047857 0%, #059669 100%);
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
 }
 
 /* Toast and Alert Styles */
@@ -827,38 +884,62 @@ div.role-access-wrapper div.main-card div.card-header-custom div.header-text h1[
 .modal-overlay {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(44,62,80,0.18);
+  background: rgba(15, 23, 42, 0.5);
   z-index: 9999;
   display: flex;
   align-items: center;
   justify-content: center;
+  animation: overlayFadeIn 0.3s ease-out;
+  backdrop-filter: blur(4px);
 }
+
+@keyframes overlayFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* Emphasize confirm modal overlay when used */
 .modal-overlay.confirm-overlay {
-  background: rgba(9, 12, 16, 0.55);
-  backdrop-filter: blur(6px) saturate(1.1);
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(8px) saturate(1.2);
 }
 .modal-content {
   background: #fff;
-  border-radius: 16px;
-  box-shadow: 0 8px 30px rgba(44,62,80,0.18);
+  border-radius: 20px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.2), 0 0 0 1px rgba(255,255,255,0.1);
   padding: 32px 28px;
   min-width: 320px;
   max-width: 420px;
+  animation: modalSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modalSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 .modal-header {
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid #e2e8f0;
   padding-bottom: 12px;
   margin-bottom: 16px;
 }
 .modal-header h4 {
   font-size: 1.3rem;
   font-weight: 700;
-  color: #2575fc;
+  color: #2563eb;
   margin: 0;
 }
 .modal-footer {
-  border-top: 1px solid #e0e0e0;
+  border-top: 1px solid #e2e8f0;
   padding-top: 12px;
   margin-top: 12px;
   display: flex;
@@ -866,11 +947,11 @@ div.role-access-wrapper div.main-card div.card-header-custom div.header-text h1[
   justify-content: flex-end;
 }
 .success-modal-content {
-  border: 3px solid #2575fc;
-  background: linear-gradient(135deg, #f8f9fa, #e9ecef);
-  box-shadow: 0 10px 30px rgba(37,117,252,0.15);
-  border-radius: 15px;
-  animation: fadeInUp 0.3s ease-out;
+  border: 3px solid #2563eb;
+  background: linear-gradient(135deg, #f0f7ff, #e0edff);
+  box-shadow: 0 16px 48px rgba(37, 99, 235, 0.2);
+  border-radius: 20px;
+  animation: modalSlideUp 0.4s ease-out;
 }
 
 .ml-2 {
@@ -978,38 +1059,63 @@ div.role-access-wrapper div.main-card div.card-header-custom div.header-text h1[
 
 .permission-card {
   background: #fff;
-  border: 2px solid #f1f3f4;
-  border-radius: 16px;
+  border: 2px solid #e2e8f0;
+  border-radius: 20px;
   overflow: hidden;
-  transition: all 0.3s ease;
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
+  animation: cardFadeIn 0.4s ease-out backwards;
+}
+
+.permission-card:nth-child(1) { animation-delay: 0.1s; }
+.permission-card:nth-child(2) { animation-delay: 0.15s; }
+.permission-card:nth-child(3) { animation-delay: 0.2s; }
+.permission-card:nth-child(4) { animation-delay: 0.25s; }
+.permission-card:nth-child(5) { animation-delay: 0.3s; }
+.permission-card:nth-child(6) { animation-delay: 0.35s; }
+
+@keyframes cardFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(15px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .permission-card:hover {
-  border-color: #2575fc;
-  box-shadow: 0 8px 25px rgba(37,117,252,0.15);
-  transform: translateY(-4px);
+  border-color: #2563eb;
+  box-shadow: 0 12px 36px rgba(37, 99, 235, 0.18);
+  transform: translateY(-6px);
 }
 
 .permission-card-header {
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  background: linear-gradient(135deg, #f0f7ff 0%, #e0edff 100%);
   padding: 20px;
   display: flex;
   align-items: center;
   gap: 16px;
-  border-bottom: 1px solid #e9ecef;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .permission-icon {
-  width: 48px;
-  height: 48px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 12px;
+  width: 52px;
+  height: 52px;
+  background: linear-gradient(135deg, #1e40af 0%, #2563eb 50%, #3b82f6 100%);
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
-  font-size: 1.4rem;
+  font-size: 1.5rem;
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.3);
+  transition: all 0.3s ease;
+}
+
+.permission-card:hover .permission-icon {
+  transform: scale(1.1) rotate(-5deg);
 }
 
 .permission-card-title {

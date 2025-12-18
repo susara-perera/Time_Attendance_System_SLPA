@@ -1,0 +1,173 @@
+/* Section Management Enhancements */
+.section-id-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #1e40af;
+  font-weight: 600;
+  padding: 6px 12px;
+  min-width: 48px;
+  height: auto;
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  transition: all 0.3s ease;
+}
+
+.section-id-badge:hover {
+  background: linear-gradient(135deg, #bfdbfe 0%, #93c5fd 100%);
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+}
+
+.professional-table td, .professional-table th { 
+  vertical-align: middle;
+  transition: all 0.25s ease;
+}
+
+/* Make table rows contiguous look like screenshot */
+.professional-table tbody tr { 
+  border-bottom: 1px solid #f1f5f9;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.professional-table tbody tr:last-child { border-bottom: none; }
+
+.professional-table tbody tr:hover {
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.03) 0%, rgba(59, 130, 246, 0.06) 100%);
+}
+
+/* Section Card Animations */
+.section-card {
+  animation: sectionCardFadeIn 0.4s ease-out backwards;
+}
+
+.section-card:nth-child(1) { animation-delay: 0.05s; }
+.section-card:nth-child(2) { animation-delay: 0.1s; }
+.section-card:nth-child(3) { animation-delay: 0.15s; }
+.section-card:nth-child(4) { animation-delay: 0.2s; }
+.section-card:nth-child(5) { animation-delay: 0.25s; }
+
+@keyframes sectionCardFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(15px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Section Header Enhancement */
+.section-header {
+  animation: headerSlideIn 0.5s ease-out;
+}
+
+@keyframes headerSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Professional card and cleaner table styles */
+.professional-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 10px 30px rgba(15,23,42,0.06);
+  overflow: hidden;
+}
+
+.professional-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: transparent;
+}
+
+.professional-table thead th {
+  background: linear-gradient(90deg, #f8fafc 0%, #f1f5f9 100%);
+  color: #0f172a;
+  font-weight: 700;
+  padding: 14px 18px;
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid #eef2ff;
+}
+
+.professional-table td {
+  padding: 14px 18px;
+  vertical-align: middle;
+  border-bottom: 1px solid #f1f5f9;
+  background: #fff;
+}
+
+/* Row accent + lift on hover to create 'card' feeling */
+.professional-table tbody tr.section-row {
+  transition: transform 220ms cubic-bezier(.4,0,.2,1), box-shadow 220ms ease, border-left 220ms ease;
+}
+
+.professional-table tbody tr.section-row:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 14px 34px rgba(2,6,23,0.06);
+  border-left: 4px solid #2563eb;
+}
+
+/* Small badges */
+.role-badge {
+  background: #eef2ff;
+  color: #1e40af;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-weight: 700;
+  font-size: 13px;
+  display: inline-block;
+}
+
+.sub-count {
+  background: #f3f4f6;
+  color: #374151;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.sub-actions { display: flex; gap: 8px; align-items: center; }
+
+/* Compact professional buttons */
+.btn-professional {
+  border: none;
+  border-radius: 10px;
+  padding: 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.btn-professional.btn-success { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; }
+.btn-professional.btn-light { background: #ffffff; border: 1px solid #eef2ff; color: #0f172a; }
+
+.btn-professional:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
+
+/* reduce last-row border */
+.professional-table tbody tr:last-child td { border-bottom: none; }
+
+/* responsive fix: make table cells wrap nicely */
+@media (max-width: 780px) {
+  .professional-table thead { display: none; }
+  .professional-table, .professional-table tbody, .professional-table tr, .professional-table td { display: block; width: 100%; }
+  .professional-table td { padding: 12px 16px; }
+  .professional-table td::before { content: attr(data-label); display: block; font-weight: 700; color: #374151; margin-bottom: 6px; }
+}
+

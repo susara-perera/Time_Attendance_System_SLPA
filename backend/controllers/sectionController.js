@@ -173,6 +173,27 @@ const createSection = async (req, res) => {
 
     await section.populate('division', 'name code');
 
+    // Log section creation
+    try {
+      await AuditLog.createLog({
+        user: req.user._id,
+        action: 'section_created',
+        entity: { type: 'Section', id: section._id, name: section.name },
+        category: 'data_modification',
+        severity: 'medium',
+        description: `Section "${section.name}" created`,
+        details: `Created section "${section.name}" (${section.code}) under division "${section.division?.name || division}"`,
+        metadata: {
+          ipAddress: req.ip,
+          userAgent: req.get('User-Agent'),
+          method: req.method,
+          endpoint: req.originalUrl
+        }
+      });
+    } catch (auditErr) {
+      console.error('[AuditLog] Failed to log section creation:', auditErr);
+    }
+
     res.status(201).json({
       success: true,
       data: section,
@@ -273,6 +294,28 @@ const updateSection = async (req, res) => {
       { new: true, runValidators: true }
     ).populate('division', 'name code');
 
+    // Log section update
+    try {
+      await AuditLog.createLog({
+        user: req.user._id,
+        action: 'section_updated',
+        entity: { type: 'Section', id: updatedSection._id, name: updatedSection.name },
+        category: 'data_modification',
+        severity: 'medium',
+        description: `Section "${updatedSection.name}" updated`,
+        details: `Updated section "${updatedSection.name}" (${updatedSection.code})`,
+        changes: { before: { name: section.name, code: section.code, status: section.status }, after: updateData },
+        metadata: {
+          ipAddress: req.ip,
+          userAgent: req.get('User-Agent'),
+          method: req.method,
+          endpoint: req.originalUrl
+        }
+      });
+    } catch (auditErr) {
+      console.error('[AuditLog] Failed to log section update:', auditErr);
+    }
+
     res.json({
       success: true,
       data: updatedSection,
@@ -314,6 +357,27 @@ const deleteSection = async (req, res) => {
       isActive: false,
       updatedBy: req.user.id
     });
+
+    // Log section deletion
+    try {
+      await AuditLog.createLog({
+        user: req.user._id,
+        action: 'section_deleted',
+        entity: { type: 'Section', id: section._id, name: section.name },
+        category: 'data_modification',
+        severity: 'high',
+        description: `Section "${section.name}" deleted`,
+        details: `Deleted section "${section.name}" (${section.code})`,
+        metadata: {
+          ipAddress: req.ip,
+          userAgent: req.get('User-Agent'),
+          method: req.method,
+          endpoint: req.originalUrl
+        }
+      });
+    } catch (auditErr) {
+      console.error('[AuditLog] Failed to log section deletion:', auditErr);
+    }
 
     res.json({
       success: true,
@@ -457,6 +521,28 @@ const toggleSectionStatus = async (req, res) => {
       { new: true }
     ).populate('division', 'name code');
 
+    // Log section status toggle
+    try {
+      await AuditLog.createLog({
+        user: req.user._id,
+        action: newStatus === 'active' ? 'section_activated' : 'section_deactivated',
+        entity: { type: 'Section', id: updatedSection._id, name: updatedSection.name },
+        category: 'data_modification',
+        severity: 'medium',
+        description: `Section "${updatedSection.name}" ${newStatus === 'active' ? 'activated' : 'deactivated'}`,
+        details: `Changed section status from "${section.status}" to "${newStatus}"`,
+        changes: { before: { status: section.status }, after: { status: newStatus } },
+        metadata: {
+          ipAddress: req.ip,
+          userAgent: req.get('User-Agent'),
+          method: req.method,
+          endpoint: req.originalUrl
+        }
+      });
+    } catch (auditErr) {
+      console.error('[AuditLog] Failed to log section status toggle:', auditErr);
+    }
+
     res.json({
       success: true,
       data: updatedSection,
@@ -517,6 +603,29 @@ const assignEmployeeToSection = async (req, res) => {
     // Update employee's section
     await User.findByIdAndUpdate(employeeId, { section: sectionId });
 
+    // Log employee assignment
+    try {
+      await AuditLog.createLog({
+        user: req.user._id,
+        action: 'employee_assigned_to_section',
+        entity: { type: 'Section', id: section._id, name: section.name },
+        category: 'data_modification',
+        severity: 'medium',
+        description: `Employee "${employee.firstName} ${employee.lastName}" assigned to section "${section.name}"`,
+        details: `Assigned employee ${employee.employeeId} to section ${section.name} (${section.code})`,
+        metadata: {
+          employeeId: employee._id,
+          employeeName: `${employee.firstName} ${employee.lastName}`,
+          ipAddress: req.ip,
+          userAgent: req.get('User-Agent'),
+          method: req.method,
+          endpoint: req.originalUrl
+        }
+      });
+    } catch (auditErr) {
+      console.error('[AuditLog] Failed to log employee assignment:', auditErr);
+    }
+
     res.json({
       success: true,
       message: 'Employee assigned to section successfully'
@@ -568,6 +677,29 @@ const removeEmployeeFromSection = async (req, res) => {
     // Remove section from employee
     await User.findByIdAndUpdate(employeeId, { $unset: { section: 1 } });
 
+    // Log employee removal
+    try {
+      await AuditLog.createLog({
+        user: req.user._id,
+        action: 'employee_removed_from_section',
+        entity: { type: 'Section', id: section._id, name: section.name },
+        category: 'data_modification',
+        severity: 'medium',
+        description: `Employee "${employee.firstName} ${employee.lastName}" removed from section "${section.name}"`,
+        details: `Removed employee ${employee.employeeId} from section ${section.name} (${section.code})`,
+        metadata: {
+          employeeId: employee._id,
+          employeeName: `${employee.firstName} ${employee.lastName}`,
+          ipAddress: req.ip,
+          userAgent: req.get('User-Agent'),
+          method: req.method,
+          endpoint: req.originalUrl
+        }
+      });
+    } catch (auditErr) {
+      console.error('[AuditLog] Failed to log employee removal:', auditErr);
+    }
+
     res.json({
       success: true,
       message: 'Employee removed from section successfully'
@@ -609,7 +741,7 @@ const getHrisSections = async (req, res) => {
     const divisions = allHierarchy.filter(item => item.DEF_LEVEL === 3 || item.DEF_LEVEL === '3');
     const divisionMap = {};
     divisions.forEach(div => {
-      divisionMap[div.HIE_CODE] = div.HIE_NAME;
+      divisionMap[div.HIE_CODE] = div.HIE_NAME_3 || div.HIE_NAME;
     });
     
     // Transform HRIS data to match frontend expectations
@@ -617,17 +749,17 @@ const getHrisSections = async (req, res) => {
       const divisionName = divisionMap[section.HIE_RELATIONSHIP] || `Division ${section.HIE_RELATIONSHIP}`;
       
       return {
-        _id: section.HIE_CODE || `hris_section_${index}`,
-        code: section.HIE_CODE || 'N/A',
-        name: section.HIE_NAME || 'Unknown Section',
+        _id: section.HIE_CODE_3 || section.HIE_CODE || `hris_section_${index}`,
+        code: section.HIE_CODE_3 || section.HIE_CODE || 'N/A',
+        name: section.HIE_NAME_4 || section.HIE_NAME || 'Unknown Section',
         description: section.HIE_NAME_SINHALA || '',
         isActive: true, // Assume all HRIS sections are active
         employeeCount: 0, // Will need separate call to get this
         createdAt: new Date().toISOString(),
         status: 'ACTIVE',
         // Additional HRIS specific fields
-        hie_code: section.HIE_CODE,
-        hie_name: section.HIE_NAME,
+        hie_code: section.HIE_CODE_3 || section.HIE_CODE,
+        hie_name: section.HIE_NAME_4 || section.HIE_NAME,
         hie_relationship: divisionName, // Use division name instead of code
         def_level: section.DEF_LEVEL,
         division_code: section.HIE_RELATIONSHIP, // Keep original code for reference

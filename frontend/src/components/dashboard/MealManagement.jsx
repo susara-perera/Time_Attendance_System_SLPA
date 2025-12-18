@@ -20,6 +20,14 @@ const MealManagement = () => {
   const [todaysBookings, setTodaysBookings] = useState(0);
   const { t } = useLanguage();
   const [userInfo, setUserInfo] = useState(null);
+
+  // Helper to sanitize section display name (removes IDs/codes and counts in parentheses)
+  const formatSectionName = (name) => {
+    if (!name) return '';
+    let cleaned = String(name).replace(/\s*\([^)]*\)/g, '').trim();
+    cleaned = cleaned.replace(/\s*-\s*$/, '').trim();
+    return cleaned;
+  };
   const [generatingReport, setGeneratingReport] = useState(false);
   const [showBookingsReport, setShowBookingsReport] = useState(false);
   const [showCountReport, setShowCountReport] = useState(false);
@@ -994,7 +1002,7 @@ const MealManagement = () => {
                       <option value="">{t('selectSection')}</option>
                       {sections.map((section) => (
                         <option key={section.section_id} value={section.section_id}>
-                          {section.section_name}
+                          {formatSectionName(section.section_name)}
                         </option>
                       ))}
                     </select>

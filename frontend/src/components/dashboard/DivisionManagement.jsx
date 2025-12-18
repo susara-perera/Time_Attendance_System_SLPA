@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import usePermission from '../../hooks/usePermission';
 import { useLanguage } from '../../context/LanguageContext';
+import './DivisionManagement.css';
 
 const DivisionManagement = () => {
   const [divisions, setDivisions] = useState([]);
@@ -10,6 +11,7 @@ const DivisionManagement = () => {
   const [currentDivision, setCurrentDivision] = useState(null);
   const [isHrisSource, setIsHrisSource] = useState(true); // Read-only when loading from HRIS API
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortOption, setSortOption] = useState('name_asc'); // name_asc, name_desc, id_asc, id_desc
   const [formData, setFormData] = useState({
     name: '',
     code: ''
@@ -318,10 +320,33 @@ const DivisionManagement = () => {
         gap: '32px',
         flexWrap: 'wrap',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 320 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 320 }}>
           <label htmlFor="divisionSearch" className="form-label m-0" style={{ fontWeight: 600, color: '#374151', fontSize: '16px' }}>
             {t('divisionSearchLabel')}
           </label>
+            <select
+              id="divisionSort"
+              value={sortOption}
+              onChange={(e) => setSortOption(e.target.value)}
+              style={{
+                fontSize: '14px',
+                borderRadius: '8px',
+                border: '2px solid #e0e7ff',
+                background: '#fff',
+                color: '#374151',
+                fontWeight: 600,
+                boxShadow: '0 1px 4px rgba(102,126,234,0.04)',
+                padding: '8px 12px',
+                outline: 'none',
+                marginRight: '8px'
+              }}
+            >
+              <option value="name_asc">Name A → Z</option>
+              <option value="name_desc">Name Z → A</option>
+              <option value="id_asc">ID Small → High</option>
+              <option value="id_desc">ID High → Small</option>
+            </select>
+
           <input
             id="divisionSearch"
             type="text"
@@ -352,98 +377,115 @@ const DivisionManagement = () => {
           <table className="professional-table">
             <thead>
               <tr>
-                <th>{t('divisionCodeHeader')}</th>
-                <th>{t('divisionNameHeader')}</th>
-                <th>{t('divisionStatusHeader')}</th>
-                <th>{t('divisionCreatedDateHeader')}</th>
-                <th>{t('actionsHeader')}</th>
+                <th>Division ID</th>
+                <th>Division</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
-              {(divisions.filter(d => {
+              {(() => {
                 const q = normalizeTextKey(searchQuery);
-                if (!q) return true;
-                const codeKey = normalizeTextKey(d.code || '');
-                const nameKey = normalizeTextKey(d.name || '');
-                return codeKey.includes(q) || nameKey.includes(q);
-              })).map(division => (
+                const filtered = !q ? divisions : divisions.filter(d => {
+                  const codeKey = normalizeTextKey(d.code || '');
+                  const nameKey = normalizeTextKey(d.name || '');
+                  return codeKey.includes(q) || nameKey.includes(q);
+                });
+
+                const getName = (x) => String(x?.name || '').toLowerCase();
+                const getIdNum = (x) => {
+                  const v = x?.code ?? x?._id ?? '';
+                  const n = Number(String(v).replace(/[^0-9.-]/g, ''));
+                  return Number.isFinite(n) ? n : String(v);
+                };
+
+                const sorted = filtered.slice().sort((a, b) => {
+                  if (sortOption === 'name_asc') return getName(a).localeCompare(getName(b));
+                  if (sortOption === 'name_desc') return getName(b).localeCompare(getName(a));
+                  if (sortOption === 'id_asc') {
+                    const ai = getIdNum(a); const bi = getIdNum(b);
+                    if (typeof ai === 'number' && typeof bi === 'number') return ai - bi;
+                    return String(ai).localeCompare(String(bi));
+                  }
+                  if (sortOption === 'id_desc') {
+                    const ai = getIdNum(a); const bi = getIdNum(b);
+                    if (typeof ai === 'number' && typeof bi === 'number') return bi - ai;
+                    return String(bi).localeCompare(String(ai));
+                  }
+                  return 0;
+                });
+
+                return sorted.map(division => (
                 <tr key={division._id || division.code || division.name}>
-                  <td>
-                    <span className="role-badge role-admin">
-                      {division.code}
-                    </span>
-                  </td>
-                  <td><strong>{division.name}</strong></td>
-                  <td>
-                    <span className={`status-badge ${division.isActive ? 'status-active' : 'status-inactive'}`}>
-                      {division.isActive ? t('activeLabel') : t('inactiveLabel')}
-                    </span>
-                  </td>
-                  <td>{division.createdAt ? (parseHrisDate(division.createdAt) || t('naLabel')) : t('naLabel')}</td>
+                  <td><span className="division-code">{division.code}</span></td>
+                  <td className="division-name">{division.name}</td>
                   <td>
                     <button
                       className="btn-professional btn-info"
                       onClick={() => setCurrentDivision(division)}
                       title={t('viewDivisionDetails')}
-                      style={{ padding: '8px 14px', fontSize: '13px', fontWeight: 600, color: '#2563eb', background: '#e0e7ff', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                      style={{ padding: '8px 12px', fontSize: '13px', fontWeight: 600, color: '#2563eb', background: '#e0e7ff', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                     >
                       <i className="bi bi-eye"></i> {t('viewLabel')}
                     </button>
                   </td>
-                </tr>
-              ))}
+                  </tr>
+                ));
+              })()}
             </tbody>
           </table>
-        </div>
 
-        {divisions.length === 0 && (
-          <div className="no-data">
-            <p>{t('noDivisionsFoundMsg')}</p>
-          </div>
-        )}
+          {divisions.length === 0 && (
+            <div className="no-data">
+              <p>{t('noDivisionsFoundMsg')}</p>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* View Division Modal */}
       {currentDivision && (
-        <div className="modal-overlay" onClick={() => setCurrentDivision(null)}>
-          <div className="modal-content professional-form" onClick={e => e.stopPropagation()}>
-            <div className="modal-header" style={{ borderBottom: '2px solid var(--gray-200)', paddingBottom: '20px', marginBottom: '24px' }}>
-              <h3 style={{ fontSize: '24px', fontWeight: '700', color: 'var(--gray-900)', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <i className="bi bi-eye"></i>
-                {t('divisionDetailsTitle')}
-              </h3>
-              <button
-                className="modal-close btn-professional btn-danger"
-                onClick={() => setCurrentDivision(null)}
-                aria-label={t('close')}
-                style={{ padding: '8px 12px', fontSize: '16px' }}
-              >
+        <div className="dm-modal-overlay" onClick={() => setCurrentDivision(null)}>
+          <div className="dm-modal-card" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={t('divisionDetailsTitle')}>
+            <div className="dm-modal-header">
+              <div className="dm-modal-title">
+                <i className="bi bi-eye dm-modal-icon" aria-hidden="true"></i>
+                <h3>{t('divisionDetailsTitle') || 'Division Details'}</h3>
+              </div>
+              <button className="dm-modal-close" onClick={() => setCurrentDivision(null)} aria-label={t('close')}>
                 <i className="bi bi-x"></i>
               </button>
             </div>
-            <div className="modal-body" style={{ fontSize: '16px', color: '#222', padding: '8px 0 0 0' }}>
-              {Object.entries(currentDivision).map(([key, value]) => {
-                // Format key to readable label
-                const label = key
-                  .replace(/([A-Z])/g, ' $1')
-                  .replace(/^./, str => str.toUpperCase())
-                  .replace(/_/g, ' ');
-                let displayValue = value;
-                if (key.toLowerCase().includes('date') && value) {
-                  displayValue = parseHrisDate(value) || value;
-                }
-                if (typeof value === 'boolean') {
-                  displayValue = value ? 'Yes' : 'No';
-                }
-                if (typeof value === 'object' && value !== null) {
-                  displayValue = <pre style={{ background: '#f3f4f6', padding: '8px', borderRadius: '6px', fontSize: '14px', overflowX: 'auto' }}>{JSON.stringify(value, null, 2)}</pre>;
-                }
-                return (
-                  <div key={key} style={{ marginBottom: '18px' }}>
-                    <strong>{label}:</strong> {displayValue}
-                  </div>
-                );
-              })}
+
+            <div className="dm-modal-body">
+              <div className="dm-field">
+                <strong className="dm-label">id:</strong>
+                <div className="dm-value">{currentDivision._id ?? (currentDivision.id || t('naLabel'))}</div>
+              </div>
+
+              <div className="dm-field">
+                <strong className="dm-label">Code:</strong>
+                <div className="dm-value">{currentDivision.code ?? t('naLabel')}</div>
+              </div>
+
+              <div className="dm-field">
+                <strong className="dm-label">Name:</strong>
+                <div className="dm-value">{currentDivision.name ?? t('naLabel')}</div>
+              </div>
+
+              <div className="dm-field">
+                <strong className="dm-label">Is Active:</strong>
+                <div className="dm-value">{typeof currentDivision.isActive === 'boolean' ? (currentDivision.isActive ? t('yesLabel') || 'Yes' : t('noLabel') || 'No') : t('naLabel')}</div>
+              </div>
+
+              <div className="dm-field">
+                <strong className="dm-label">Employee Count:</strong>
+                <div className="dm-value">{currentDivision.employeeCount ?? 0}</div>
+              </div>
+
+              <div className="dm-field">
+                <strong className="dm-label">Created At:</strong>
+                <div className="dm-value">{currentDivision.createdAt ? (parseHrisDate(currentDivision.createdAt) || String(currentDivision.createdAt)) : t('naLabel')}</div>
+              </div>
             </div>
           </div>
         </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import usePermission from '../../hooks/usePermission';
 import { useLanguage } from '../../context/LanguageContext';
+import './UserManagement.css';
 
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
@@ -20,6 +21,7 @@ const UserManagement = () => {
   });
   const [divisions, setDivisions] = useState([]);
   const [sections, setSections] = useState([]);
+  const [availableSections, setAvailableSections] = useState([]);
   const canViewUsers = usePermission('users', 'read');
   const canCreateUser = usePermission('users', 'create');
   const canUpdateUser = usePermission('users', 'update');
@@ -48,15 +50,26 @@ const UserManagement = () => {
     return section ? (section.name || 'Unknown Section') : 'N/A';
   };
 
+  // Helper to sanitize section display name (removes IDs/codes and counts in parentheses)
+  const formatSectionName = (name) => {
+    if (!name) return '';
+    // Remove any parenthetical groups e.g. "(IS)" or "(333)"
+    let cleaned = String(name).replace(/\s*\([^)]*\)/g, '').trim();
+    // Remove trailing hyphen if left behind e.g. "Administration -"
+    cleaned = cleaned.replace(/\s*-\s*$/, '').trim();
+    return cleaned;
+  };
+
   useEffect(() => {
     // Fetch users and divisions from API
     const fetchData = async () => {
       try {
         const token = localStorage.getItem('token');
+        const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
         
         // Fetch users from database
         try {
-          const usersResponse = await fetch('http://localhost:5000/api/users', {
+          const usersResponse = await fetch(`${API_BASE_URL}/users`, {
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
@@ -83,8 +96,11 @@ const UserManagement = () => {
                 status: user.isActive !== false ? 'active' : 'inactive',
                 division: user.division?._id || user.division || '',
                 section: user.section?._id || user.section || '',
-                divisionName: user.division?.name || 'N/A',
-                sectionName: user.section?.name || 'N/A'
+                divisionName: user.division?.name || '',
+                sectionName: user.section?.name || '',
+                // Keep display values separate
+                divisionDisplay: user.division?.name || 'N/A',
+                sectionDisplay: user.section?.name || 'N/A'
               };
             });
             
@@ -101,23 +117,47 @@ const UserManagement = () => {
           setUsers([]);
         }
         
-        // Fetch divisions from database
+        // Fetch divisions from HRIS (same as EmployeeManagement)
         try {
-          const divisionsResponse = await fetch('http://localhost:5000/api/divisions?limit=1000', {
+          // Try primary HRIS endpoint first
+          let divisionsResponse = await fetch(`${API_BASE_URL}/divisions/hris`, {
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
             }
           });
           
+          // If primary fails, try cache fallback
+          if (!divisionsResponse.ok) {
+            console.log('Primary divisions endpoint failed, trying cache...');
+            divisionsResponse = await fetch(`${API_BASE_URL}/hris-cache/divisions`, {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              }
+            });
+          }
+          
           if (divisionsResponse.ok) {
             const divisionsData = await divisionsResponse.json();
-            console.log('Divisions API Response:', divisionsData); // Debug log
+            console.log('Divisions HRIS API Response:', divisionsData); // Debug log
             
-            // Handle different response structures
-            const divisions = divisionsData.data || divisionsData || [];
-            console.log('Divisions array:', divisions); // Debug log
-            setDivisions(divisions);
+            // Handle different response structures and normalize
+            const rawDivisions = divisionsData.data || divisionsData || [];
+            console.log('Raw divisions:', rawDivisions.length); // Debug log
+            
+            // Normalize divisions to consistent format
+            const normalizedDivisions = rawDivisions.map(d => ({
+              _id: d._id || d.id || d.DIVISION_ID || d.code,
+              id: d._id || d.id || d.DIVISION_ID || d.code,
+              code: d.code || d.DIVISION_CODE || d.hie_code || d._id || d.id,
+              name: d.name || d.DIVISION_NAME || d.hie_name || d.hie_relationship || 'Unknown Division',
+              hie_relationship: d.hie_relationship,
+              isActive: d.isActive !== false
+            })).sort((a, b) => a.name.localeCompare(b.name));
+            
+            console.log('Normalized divisions:', normalizedDivisions); // Debug log
+            setDivisions(normalizedDivisions);
           } else {
             console.error('Failed to fetch divisions, status:', divisionsResponse.status);
             const errorText = await divisionsResponse.text();
@@ -129,23 +169,53 @@ const UserManagement = () => {
           setDivisions([]);
         }
 
-        // Fetch sections from database
+        // Fetch sections from HRIS (same as EmployeeManagement)
         try {
-          const sectionsResponse = await fetch('http://localhost:5000/api/sections?limit=1000', {
+          // Try primary HRIS endpoint first
+          let sectionsResponse = await fetch(`${API_BASE_URL}/sections/hris`, {
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
             }
           });
           
+          // If primary fails, try cache fallback
+          if (!sectionsResponse.ok) {
+            console.log('Primary sections endpoint failed, trying cache...');
+            sectionsResponse = await fetch(`${API_BASE_URL}/hris-cache/sections`, {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              }
+            });
+          }
+          
           if (sectionsResponse.ok) {
             const sectionsData = await sectionsResponse.json();
-            console.log('Sections API Response:', sectionsData); // Debug log
+            console.log('Sections HRIS API Response:', sectionsData); // Debug log
             
-            // Handle different response structures
-            const sections = sectionsData.data || sectionsData || [];
-            console.log('Sections array:', sections); // Debug log
-            setSections(sections);
+            // Handle different response structures and normalize
+            const rawSections = sectionsData.data || sectionsData || [];
+            console.log('Raw sections:', rawSections.length); // Debug log
+            
+            // Normalize sections to consistent format
+            // hie_relationship contains the division NAME (HIE_NAME_3)
+            // name contains the section NAME (HIE_NAME_4)
+            const normalizedSections = rawSections.map(s => ({
+              _id: s._id || s.id || s.SECTION_ID || s.code,
+              id: s._id || s.id || s.SECTION_ID || s.code,
+              code: s.code || s.SECTION_CODE || s.hie_code || s.section_code || s._id || s.id,
+              name: s.name || s.hie_name || s.section_name || s.SECTION_NAME || s.HIE_NAME_4 || `Section ${s.code}`,
+              divisionId: s.division_id || s.DIVISION_ID || s.division_code || s.DIVISION_CODE || '',
+              divisionCode: s.division_code || s.DIVISION_CODE || '',
+              // hie_relationship is the division NAME from HRIS (HIE_NAME_3)
+              divisionName: s.division_name || s.hie_relationship || s.DIVISION_NAME || '',
+              hie_relationship: s.hie_relationship || s.division_name || '',
+              isActive: s.isActive !== false
+            })).sort((a, b) => a.name.localeCompare(b.name));
+            
+            console.log('Normalized sections:', normalizedSections); // Debug log
+            setSections(normalizedSections);
           } else {
             console.error('Failed to fetch sections, status:', sectionsResponse.status);
             const errorText = await sectionsResponse.text();
@@ -168,6 +238,46 @@ const UserManagement = () => {
     fetchData();
   }, []);
 
+  // Filter sections based on selected division (same logic as EmployeeManagement)
+  useEffect(() => {
+    if (!formData.division) {
+      setAvailableSections([]);
+      return;
+    }
+
+    // Filter sections that belong to the selected division (by name)
+    const filteredSections = sections.filter(section => {
+      const selectedDivisionName = String(formData.division || '');
+      const sectionDivisionName = String(section.divisionName || section.hie_relationship || '');
+      const sectionDivisionId = String(section.divisionId || section.divisionCode || '');
+      
+      // Match by division name (primary) or ID/code (fallback)
+      return sectionDivisionName === selectedDivisionName || 
+             sectionDivisionId === selectedDivisionName ||
+             String(section.divisionCode) === selectedDivisionName;
+    });
+
+    console.log('Selected Division:', formData.division);
+    console.log('Filtered Sections:', filteredSections);
+    setAvailableSections(filteredSections);
+  }, [formData.division, sections]);
+
+  // Update available sections when editing a user
+  useEffect(() => {
+    if (showAddModal && editingUser && formData.division) {
+      // Trigger section filtering when modal opens with existing division (by name)
+      const filteredSections = sections.filter(section => {
+        const selectedDivisionName = String(formData.division || '');
+        const sectionDivisionName = String(section.divisionName || section.hie_relationship || '');
+        const sectionDivisionId = String(section.divisionId || section.divisionCode || '');
+        return sectionDivisionName === selectedDivisionName || 
+               sectionDivisionId === selectedDivisionName ||
+               String(section.divisionCode) === selectedDivisionName;
+      });
+      setAvailableSections(filteredSections);
+    }
+  }, [showAddModal, editingUser, formData.division, sections]);
+
   const handleAddUser = () => {
     setFormData({
       firstName: '',
@@ -185,6 +295,14 @@ const UserManagement = () => {
   };
 
   const handleEditUser = (user) => {
+    // Only use divisionName/sectionName if they're actual names (not empty)
+    const divisionValue = user.divisionName && user.divisionName !== 'N/A' ? user.divisionName : '';
+    const sectionValue = user.sectionName && user.sectionName !== 'N/A' ? user.sectionName : '';
+    
+    console.log('Editing user:', user);
+    console.log('Division value for form:', divisionValue);
+    console.log('Section value for form:', sectionValue);
+    
     setFormData({
       firstName: user.firstName,
       lastName: user.lastName,
@@ -193,8 +311,8 @@ const UserManagement = () => {
       role: user.role,
       password: '',
       confirmPassword: '',
-      division: user.division || '',
-      section: user.section || ''
+      division: divisionValue,
+      section: sectionValue
     });
     setEditingUser(user);
     setShowAddModal(true);
@@ -342,10 +460,20 @@ const UserManagement = () => {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    setFormData(prev => {
+      // If division changes, reset section to ensure consistency
+      if (name === 'division') {
+        return {
+          ...prev,
+          [name]: value,
+          section: '' // Reset section when division changes
+        };
+      }
+      return {
+        ...prev,
+        [name]: value
+      };
+    });
   };
 
   if (loading) {
@@ -418,8 +546,8 @@ const UserManagement = () => {
                       {user.role.replace('_', ' ').toUpperCase()}
                     </span>
                   </td>
-                  <td>{user.divisionName || (user.division?.name) || getDivisionName(user.division) || 'N/A'}</td>
-                  <td>{user.sectionName || (user.section?.name) || getSectionName(user.section) || 'N/A'}</td>
+                  <td>{user.divisionDisplay || user.divisionName || (user.division?.name) || getDivisionName(user.division) || 'N/A'}</td>
+                  <td>{user.sectionDisplay || user.sectionName || (user.section?.name) || getSectionName(user.section) || 'N/A'}</td>
                   <td>
                     <span className={`status-badge status-${user.status}`}>
                       {user.status.toUpperCase()}
@@ -462,174 +590,291 @@ const UserManagement = () => {
 
       {/* Professional Add/Edit User Modal */}
       {showAddModal && (
-        <div className="modal-overlay" onClick={() => setShowAddModal(false)}>
-          <div className="modal-content professional-form" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header" style={{ borderBottom: '2px solid var(--gray-200)', paddingBottom: '20px', marginBottom: '24px' }}>
-              <h3 style={{ fontSize: '24px', fontWeight: '700', color: 'var(--gray-900)', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <i className="bi bi-person-plus" style={{ color: 'var(--primary)' }}></i>
-                {editingUser ? t('editUser') : t('addNewUser')}
-              </h3>
+        <div className="user-modal-overlay" onClick={() => setShowAddModal(false)}>
+          <div className="user-modal-content" onClick={(e) => e.stopPropagation()}>
+            {/* Decorative Elements */}
+            <div className="user-modal-decoration top-right"></div>
+            
+            {/* Premium Modal Header */}
+            <div className="user-modal-header">
+              <div className="user-modal-header-content">
+                <div className="user-modal-icon-wrapper">
+                  <i className={`bi ${editingUser ? 'bi-person-gear' : 'bi-person-plus-fill'}`}></i>
+                </div>
+                <div className="user-modal-title-group">
+                  <h3 className="user-modal-title">
+                    {editingUser ? t('editUser') : t('addNewUser')}
+                  </h3>
+                  <span className="user-modal-subtitle">
+                    {editingUser ? 'Update user information and permissions' : 'Create a new user account'}
+                  </span>
+                </div>
+              </div>
               <button 
-                className="modal-close btn-professional btn-danger"
+                className="user-modal-close-btn"
                 onClick={() => setShowAddModal(false)}
-                style={{ padding: '8px 12px', fontSize: '16px' }}
+                type="button"
               >
-                <i className="bi bi-x"></i>
+                <i className="bi bi-x-lg"></i>
               </button>
             </div>
             
-            <form onSubmit={handleSubmit} className="modal-body">
-              <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                <div className="form-group">
-                  <label className="form-label">{t('firstName')} *</label>
-                  <input
-                    type="text"
-                    name="firstName"
-                    className="form-input"
-                    value={formData.firstName}
-                    onChange={handleInputChange}
-                    required
-                  />
+            {/* Modal Body with Form */}
+            <form onSubmit={handleSubmit}>
+              <div className="user-modal-body">
+                
+                {/* Personal Information Section */}
+                <div className="user-form-section">
+                  <div className="user-form-section-header">
+                    <div className="user-form-section-icon">
+                      <i className="bi bi-person"></i>
+                    </div>
+                    <span className="user-form-section-title">Personal Information</span>
+                  </div>
+                  
+                  <div className="user-form-grid">
+                    <div className="user-form-group">
+                      <label className="user-form-label">
+                        <i className="bi bi-person-badge"></i>
+                        {t('firstName')} <span className="required">*</span>
+                      </label>
+                      <div className="user-input-wrapper">
+                        <i className="bi bi-person user-input-icon"></i>
+                        <input
+                          type="text"
+                          name="firstName"
+                          className="user-form-input"
+                          value={formData.firstName}
+                          onChange={handleInputChange}
+                          placeholder="Enter first name"
+                          required
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="user-form-group">
+                      <label className="user-form-label">
+                        <i className="bi bi-person-badge"></i>
+                        {t('lastName')} <span className="required">*</span>
+                      </label>
+                      <div className="user-input-wrapper">
+                        <i className="bi bi-person user-input-icon"></i>
+                        <input
+                          type="text"
+                          name="lastName"
+                          className="user-form-input"
+                          value={formData.lastName}
+                          onChange={handleInputChange}
+                          placeholder="Enter last name"
+                          required
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="user-form-grid" style={{ marginTop: '20px' }}>
+                    <div className="user-form-group">
+                      <label className="user-form-label">
+                        <i className="bi bi-envelope"></i>
+                        {t('emailLabel')} <span className="required">*</span>
+                      </label>
+                      <div className="user-input-wrapper">
+                        <i className="bi bi-envelope user-input-icon"></i>
+                        <input
+                          type="email"
+                          name="email"
+                          className="user-form-input"
+                          value={formData.email}
+                          onChange={handleInputChange}
+                          placeholder="user@slpa.lk"
+                          required
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="user-form-group">
+                      <label className="user-form-label">
+                        <i className="bi bi-hash"></i>
+                        {t('employeeIdLabel')} <span className="required">*</span>
+                      </label>
+                      <div className="user-input-wrapper">
+                        <i className="bi bi-hash user-input-icon"></i>
+                        <input
+                          type="text"
+                          name="employeeId"
+                          className="user-form-input"
+                          value={formData.employeeId}
+                          onChange={handleInputChange}
+                          placeholder="e.g., EMP001"
+                          required
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">{t('lastName')} *</label>
-                  <input
-                    type="text"
-                    name="lastName"
-                    className="form-input"
-                    value={formData.lastName}
-                    onChange={handleInputChange}
-                    required
-                  />
+                
+                {/* Organization Section */}
+                <div className="user-form-section">
+                  <div className="user-form-section-header">
+                    <div className="user-form-section-icon">
+                      <i className="bi bi-building"></i>
+                    </div>
+                    <span className="user-form-section-title">Organization & Role</span>
+                  </div>
+                  
+                  <div className="user-form-grid">
+                    <div className="user-form-group">
+                      <label className="user-form-label">
+                        <i className="bi bi-diagram-3"></i>
+                        {t('divisionLabel')} <span className="required">*</span>
+                      </label>
+                      <div className="user-input-wrapper">
+                        <i className="bi bi-diagram-3 user-input-icon"></i>
+                        <select
+                          name="division"
+                          className="user-form-select"
+                          value={formData.division}
+                          onChange={handleInputChange}
+                          required
+                        >
+                          <option value="">{t('selectDivision')}</option>
+                          {divisions.map(division => (
+                            <option key={division._id || division.id || division.name} value={division.name}>
+                              {division.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    
+                    <div className="user-form-group">
+                      <label className="user-form-label">
+                        <i className="bi bi-shield-check"></i>
+                        {t('roleLabel')} <span className="required">*</span>
+                      </label>
+                      <div className="user-input-wrapper">
+                        <i className="bi bi-shield-check user-input-icon"></i>
+                        <select
+                          name="role"
+                          className="user-form-select"
+                          value={formData.role}
+                          onChange={handleInputChange}
+                          required
+                        >
+                          <option value="employee">👤 Employee</option>
+                          <option value="administrative_clerk">📋 Administrative Clerk</option>
+                          <option value="clerk">📝 Clerk</option>
+                          <option value="admin">⚙️ Administrator</option>
+                          <option value="super_admin">👑 Super Admin</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="user-form-grid single" style={{ marginTop: '20px' }}>
+                    <div className="user-form-group">
+                      <label className="user-form-label">
+                        <i className="bi bi-collection"></i>
+                        {t('sectionLabel')}
+                      </label>
+                      <div className="user-input-wrapper">
+                        <i className="bi bi-collection user-input-icon"></i>
+                        <select
+                          name="section"
+                          className="user-form-select"
+                          value={formData.section}
+                          onChange={handleInputChange}
+                          disabled={!formData.division}
+                        >
+                          <option value="">
+                            {!formData.division 
+                              ? 'Select a division first' 
+                              : availableSections.length === 0 
+                                ? 'No sections available' 
+                                : t('selectSection')}
+                          </option>
+                          {availableSections.map(section => (
+                            <option key={section._id || section.id || section.name} value={section.name}>
+                              {formatSectionName(section.name)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
                 </div>
+                
+                {/* Security Section */}
+                <div className="user-form-section">
+                  <div className="user-form-section-header">
+                    <div className="user-form-section-icon">
+                      <i className="bi bi-shield-lock"></i>
+                    </div>
+                    <span className="user-form-section-title">Security</span>
+                  </div>
+                  
+                  <div className="user-form-grid">
+                    <div className="user-form-group">
+                      <label className="user-form-label">
+                        <i className="bi bi-key"></i>
+                        {t('passwordLabel')} {!editingUser && <span className="required">*</span>}
+                      </label>
+                      <div className="user-input-wrapper">
+                        <i className="bi bi-lock user-input-icon"></i>
+                        <input
+                          type="password"
+                          name="password"
+                          className="user-form-input"
+                          value={formData.password}
+                          onChange={handleInputChange}
+                          placeholder={editingUser ? "Leave blank to keep current" : "Enter password"}
+                          required={!editingUser}
+                          minLength="1"
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="user-form-group">
+                      <label className="user-form-label">
+                        <i className="bi bi-key-fill"></i>
+                        {t('confirmPasswordLabel')} {!editingUser && <span className="required">*</span>}
+                      </label>
+                      <div className="user-input-wrapper">
+                        <i className="bi bi-lock-fill user-input-icon"></i>
+                        <input
+                          type="password"
+                          name="confirmPassword"
+                          className="user-form-input"
+                          value={formData.confirmPassword}
+                          onChange={handleInputChange}
+                          placeholder={editingUser ? "Leave blank to keep current" : "Confirm password"}
+                          required={!editingUser}
+                          minLength="1"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
               </div>
-
-              <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                <div className="form-group">
-                  <label className="form-label">{t('emailLabel')} *</label>
-                  <input
-                    type="email"
-                    name="email"
-                    className="form-input"
-                    value={formData.email}
-                    onChange={handleInputChange}
-                    placeholder="user@slpa.lk"
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">{t('employeeIdLabel')} *</label>
-                  <input
-                    type="text"
-                    name="employeeId"
-                    className="form-input"
-                    value={formData.employeeId}
-                    onChange={handleInputChange}
-                    placeholder="e.g., EMP001"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                <div className="form-group">
-                  <label className="form-label">{t('divisionLabel')} *</label>
-                  <select
-                    name="division"
-                    className="form-select"
-                    value={formData.division}
-                    onChange={handleInputChange}
-                    required
-                  >
-                    <option value="">{t('selectDivision')}</option>
-                    {divisions.map(division => (
-                      <option key={division._id || division.id} value={division._id || division.id}>
-                        {division.name} ({division.code})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">{t('roleLabel')} *</label>
-                  <select
-                    name="role"
-                    className="form-select"
-                    value={formData.role}
-                    onChange={handleInputChange}
-                    required
-                  >
-                    <option value="employee">Employee</option>
-                    <option value="administrative_clerk">Administrative Clerk</option>
-                    <option value="clerk">Clerk</option>
-                    <option value="admin">Administrator</option>
-                    <option value="super_admin">Super Admin</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="form-group">
-                  <label className="form-label">{t('sectionLabel')}</label>
-                <select
-                  name="section"
-                  className="form-select"
-                  value={formData.section}
-                  onChange={handleInputChange}
-                >
-                    <option value="">{t('selectSection')}</option>
-                  {sections.map(section => (
-                    <option key={section._id || section.id} value={section._id || section.id}>
-                      {section.name} ({section.code})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                <div className="form-group">
-                  <label className="form-label">{t('passwordLabel')} {!editingUser && '*'}</label>
-                  <input
-                    type="password"
-                    name="password"
-                    className="form-input"
-                    value={formData.password}
-                    onChange={handleInputChange}
-                    placeholder={editingUser ? "Leave blank to keep current password" : "Enter password"}
-                    required={!editingUser}
-                    minLength="1"
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">{t('confirmPasswordLabel')} {!editingUser && '*'}</label>
-                  <input
-                    type="password"
-                    name="confirmPassword"
-                    className="form-input"
-                    value={formData.confirmPassword}
-                    onChange={handleInputChange}
-                    placeholder={editingUser ? "Leave blank to keep current password" : "Confirm password"}
-                    required={!editingUser}
-                    minLength="1"
-                  />
-                </div>
-              </div>
-
-              <div className="modal-footer" style={{ borderTop: '2px solid var(--gray-200)', paddingTop: '20px', marginTop: '24px', display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              
+              {/* Modal Footer */}
+              <div className="user-modal-footer">
                 <button 
                   type="button"
-                  className="btn-professional btn-secondary"
+                  className="user-btn user-btn-cancel"
                   onClick={() => setShowAddModal(false)}
-                  style={{ background: 'var(--gray-500)' }}
                 >
+                  <i className="bi bi-x-circle"></i>
                   {t('cancel')}
                 </button>
                 <button 
                   type="submit"
-                  className="btn-professional btn-success"
+                  className="user-btn user-btn-submit"
                   disabled={!canCreateUser && !editingUser}
-                  aria-disabled={!canCreateUser && !editingUser}
                   title={!canCreateUser && !editingUser ? 'You do not have permission to add users' : ''}
                 >
-                  <i className="bi bi-check-circle"></i>
+                  <i className={`bi ${editingUser ? 'bi-check-circle-fill' : 'bi-plus-circle-fill'}`}></i>
                   {editingUser ? t('updateUser') : (canCreateUser ? t('addUser') : t('noPermissionAddUser'))}
                 </button>
               </div>

@@ -15,7 +15,7 @@ import ApiDataViewer from './ApiDataViewer';
 import Settings from './Settings';
 import Footer from './Footer';
 import './Dashboard.css';
-import logo from '../../assets/logo.jpg';
+import logo from '../../assets/PortAuthLogo.png';
 
 const Dashboard = () => {
   const [activeSection, setActiveSection] = useState('dashboard');
@@ -375,7 +375,7 @@ const Dashboard = () => {
         ></div>
       )}
 
-      {/* Top Navigation */}
+      {/* Top Navigation - Modern Professional Header */}
       <nav className="top-nav">
         <div className="nav-container">
           {/* Toggle Button and Logo Section */}
@@ -389,37 +389,48 @@ const Dashboard = () => {
             </button>
             
             <div className="nav-brand">
-              <div className="brand-icon">
-                <img src={logo} alt="SLPA Logo" className="brand-logo" />
+              <div className="brand-logo-container">
+                <img src={logo} alt="SLPA Logo" className="brand-logo-animated" />
+                <div className="logo-glow"></div>
               </div>
-              <div className="brand-text">
-                <h1>{t('slpaTitle')}</h1>
-                <span>{t('createdBy')}</span>
+              <div className="brand-text-container">
+                <h1 className="brand-title">
+                  <span className="title-main">SLPA</span>
+                  <span className="title-divider"></span>
+                  <span className="title-sub">Time & Attendance</span>
+                </h1>
+                <span className="brand-subtitle">
+                  <i className="bi bi-shield-check"></i>
+                  Sri Lanka Ports Authority
+                </span>
               </div>
             </div>
           </div>
 
-          {/* Center Greeting - appears in the header center column */}
+          {/* Center Greeting - Modern Style */}
           <div className="nav-center">
-            <div className="header-greeting" aria-live="polite" aria-label={`Greeting: Hello ${displayName || user?.email || 'User'}`}>
-              <div className="greeting-pill" title={`Hello ${displayName || user?.email || 'User'}`}>
-                <div className="greeting-avatar" aria-hidden="true">{initials}</div>
-                <div className="greeting-content">
-                  <div className="greeting-line">Hello <span className="greeting-name">{displayName || user?.email || 'User'}</span></div>
-                  <div className="greeting-when">{getGreeting()}</div>
-                </div>
+            <div className="greeting-container">
+              <div className="greeting-avatar-wrapper">
+                <div className="greeting-avatar">{initials}</div>
+                <div className="avatar-status"></div>
+              </div>
+              <div className="greeting-text">
+                <span className="greeting-hello">Hello, <strong>{displayName || user?.email || 'User'}</strong></span>
+                <span className="greeting-time-of-day">
+                  <i className={`bi ${getGreeting().includes('morning') ? 'bi-sun' : getGreeting().includes('afternoon') ? 'bi-brightness-high' : 'bi-moon-stars'}`}></i>
+                  {getGreeting()}
+                </span>
               </div>
             </div>
           </div>
 
           {/* User Section */}
           <div className="nav-user">
-            <div className="header-info" aria-live="polite">
-              <div className="header-time-center">
-                <div className="time">{currentTime.time}</div>
-                <div className="date">{currentTime.date}</div>
-              </div>
+            <div className="header-datetime">
+              <div className="datetime-time">{currentTime.time}</div>
+              <div className="datetime-date">{currentTime.date}</div>
             </div>
+            
             {/* Header Actions */}
             <div className="header-actions">
               <button 
@@ -441,10 +452,9 @@ const Dashboard = () => {
               )}
               
               <button className="logout-btn" onClick={handleLogout}>
+                <i className="bi bi-box-arrow-right"></i>
                 <span>{t('logout')}</span>
               </button>
-
-              {/* Dark mode toggle removed per request */}
             </div>
           </div>
           
