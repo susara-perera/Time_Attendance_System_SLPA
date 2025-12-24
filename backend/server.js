@@ -201,6 +201,8 @@ app.use('/api/meals', require('./routes/meal'));
 // Sub-sections routes (list/create/update/delete)
 app.use('/api/subsections', require('./routes/subSection'));
 app.use('/api/reports', require('./routes/report'));
+// MySQL-backed reports (audit, attendance, meal) mounted separately
+app.use('/api/reports/mysql', require('./routes/reports'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/mysql', require('./routes/mysql'));
 app.use('/api/roles', require('./routes/role'));

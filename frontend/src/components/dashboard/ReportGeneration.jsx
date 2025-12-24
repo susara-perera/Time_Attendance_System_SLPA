@@ -265,6 +265,17 @@ const ReportGeneration = () => {
     }
   }, [reportType]);
 
+  // Ensure selected report type is allowed based on permissions
+  useEffect(() => {
+    if (!hasGeneratePermissionForType(reportType)) {
+      // Find the first allowed report type
+      const allowedTypes = ['attendance', 'audit', 'meal'].filter(type => hasGeneratePermissionForType(type));
+      if (allowedTypes.length > 0) {
+        setReportType(allowedTypes[0]);
+      }
+    }
+  }, [canGenerateAttendance, canGenerateAudit, canGenerateMeal, canViewReports, reportType]);
+
   // When division changes, reset section and sub-section
   useEffect(() => {
     if (divisionId === 'all') {
@@ -1519,9 +1530,15 @@ const ReportGeneration = () => {
                     onChange={(e) => setReportType(e.target.value)}
                     className="form-control"
                   >
-                    <option value="attendance">Attendance Report</option>
-                    <option value="audit">Audit Report</option>
-                    <option value="meal">Meal Report</option>
+                    {hasGeneratePermissionForType('attendance') && (
+                      <option value="attendance">Attendance Report</option>
+                    )}
+                    {hasGeneratePermissionForType('audit') && (
+                      <option value="audit">Audit Report</option>
+                    )}
+                    {hasGeneratePermissionForType('meal') && (
+                      <option value="meal">Meal Report</option>
+                    )}
                   </select>
                 </div>
 

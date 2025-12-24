@@ -120,44 +120,61 @@ const checkPermission = (resource, action) => {
     }
 
     try {
+      // Helper to resolve flexible permission identifiers
+      const resolvePermission = (permsObj, resourceKey, actionKey) => {
+        if (!permsObj) return false;
+        const resPerm = permsObj[resourceKey] || {};
+        // direct match
+        if (resPerm[actionKey] === true) return true;
+        // try common alternate forms: drop suffixes like `_generate`
+        const withoutGenerate = actionKey.replace(/_generate$/i, '');
+        if (withoutGenerate !== actionKey && resPerm[withoutGenerate] === true) return true;
+        // try adding `_generate` suffix
+        const withGenerate = actionKey.endsWith('_generate') ? actionKey : `${actionKey}_generate`;
+        if (withGenerate !== actionKey && resPerm[withGenerate] === true) return true;
+        // some roles may keep flat keys directly on permsObj (legacy); check those too
+        if (permsObj[actionKey] === true) return true;
+        if (permsObj[withoutGenerate] === true) return true;
+        if (permsObj[withGenerate] === true) return true;
+        return false;
+      };
+
       // Fetch the role to get permissions
       const Role = require('../models/Role');
       const role = await Role.findOne({ value: req.user.role });
-      
-      if (!role || !role.permissions) {
-        // Fallback to user permissions if role not found
-        const hasPermission = req.user.permissions?.[resource]?.[action];
-        if (!hasPermission) {
-          // Log unauthorized access attempt
-          AuditLog.createLog({
-            user: req.user._id,
-            action: 'permission_denied',
-            entity: { type: 'System' },
-            category: 'authorization',
-            severity: 'medium',
-            description: `Permission denied for ${resource}.${action}`,
-            details: `User attempted to perform '${action}' on '${resource}' without proper permissions`,
-            metadata: {
-              ipAddress: req.ip,
-              userAgent: req.get('User-Agent'),
-              method: req.method,
-              endpoint: req.originalUrl
-            },
-            isSecurityRelevant: true
-          });
 
-          return res.status(403).json({ 
-            success: false, 
-            message: `Access denied. Missing permission: ${resource}.${action}` 
-          });
-        }
-        return next();
+      // Fallback: check user-level permissions first (if role not present or doesn't allow)
+      const userHas = resolvePermission(req.user.permissions, resource, action);
+      if (userHas) return next();
+
+      if (!role || !role.permissions) {
+        // Log unauthorized access attempt
+        AuditLog.createLog({
+          user: req.user._id,
+          action: 'permission_denied',
+          entity: { type: 'System' },
+          category: 'authorization',
+          severity: 'medium',
+          description: `Permission denied for ${resource}.${action}`,
+          details: `User attempted to perform '${action}' on '${resource}' without proper permissions`,
+          metadata: {
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+            method: req.method,
+            endpoint: req.originalUrl
+          },
+          isSecurityRelevant: true
+        });
+
+        return res.status(403).json({ 
+          success: false, 
+          message: `Access denied. Missing permission: ${resource}.${action}` 
+        });
       }
 
-      // Check role permissions
-      const hasPermission = role.permissions?.[resource]?.[action];
-      
-      if (!hasPermission) {
+      // Check role permissions with flexible resolution
+      const roleHas = resolvePermission(role.permissions, resource, action);
+      if (!roleHas) {
         // Log unauthorized access attempt
         AuditLog.createLog({
           user: req.user._id,

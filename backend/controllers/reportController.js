@@ -2398,18 +2398,21 @@ module.exports = {
         }
       } else if (division_id && division_id !== 'all') {
         console.log(`🔍 Filtering by DIVISION: "${division_id}"`);
-        
+
+        // Prepare normalized filter string
+        const filterDivisionName = String(division_id).trim().toLowerCase();
+
         filteredEmployees = filteredEmployees.filter(emp => {
-            const empDivisionName = (emp.currentwork?.HIE_NAME_3 || '').trim();
-          
+          const empDivisionName = (emp.currentwork?.HIE_NAME_3 || '').trim();
+
           // Try exact match first, then contains match (bidirectional)
-          const exactMatch = empDivisionName.toLowerCase() === filterDivisionName.toLowerCase();
-          const containsMatch = empDivisionName.toLowerCase().includes(filterDivisionName.toLowerCase()) ||
-                               filterDivisionName.toLowerCase().includes(empDivisionName.toLowerCase());
-          
+          const exactMatch = empDivisionName.toLowerCase() === filterDivisionName;
+          const containsMatch = empDivisionName.toLowerCase().includes(filterDivisionName) ||
+                               filterDivisionName.includes(empDivisionName.toLowerCase());
+
           return exactMatch || containsMatch;
         });
-        
+
         console.log(`✅ Found ${filteredEmployees.length} employees in division "${division_id}"`);
       }
 
