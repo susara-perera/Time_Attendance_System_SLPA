@@ -17,32 +17,32 @@ import Footer from './Footer';
 import './Dashboard.css';
 import logo from '../../assets/PortAuthLogo.png';
 
+
 const Dashboard = () => {
   const [activeSection, setActiveSection] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const { user, logout } = useContext(AuthContext);
   const { t } = useLanguage();
   const canViewSettingsPerm = usePermission('settings', 'view');
   // Also support legacy/explicit permission key `settings_view` stored under `permissions.settings`
-  const canViewSettings = (user && user.role === 'super_admin') || canViewSettingsPerm || !!(user?.permissions && user.permissions.settings && (user.permissions.settings.settings_view === true || user.permissions.settings.view === true));
+  const canViewSettings = (user && (user.role === 'super_admin' || user.role === 'admin')) || canViewSettingsPerm || !!(user?.permissions && user.permissions.settings && (user.permissions.settings.settings_view === true || user.permissions.settings.view === true));
 
   // Employee view permission (master view for Employee Management)
   const canViewEmployeesPerm = usePermission('employees', 'read');
   // Also support legacy keys stored under `permissions.employees` (e.g., `employees_view` or `view`)
-  const canViewEmployees = (user && user.role === 'super_admin') || canViewEmployeesPerm || !!(user?.permissions && user.permissions.employees && (user.permissions.employees.employees_view === true || user.permissions.employees.view === true));
+  const canViewEmployees = (user && (user.role === 'super_admin' || user.role === 'admin')) || canViewEmployeesPerm || !!(user?.permissions && user.permissions.employees && (user.permissions.employees.employees_view === true || user.permissions.employees.view === true));
 
   // Division view permission (master view for Division Management)
   const canViewDivisionsPerm = usePermission('divisions', 'read');
-  const canViewDivisions = (user && user.role === 'super_admin') || canViewDivisionsPerm || !!(user?.permissions && user.permissions.divisions && (user.permissions.divisions.divisions_view === true || user.permissions.divisions.view === true));
+  const canViewDivisions = (user && (user.role === 'super_admin' || user.role === 'admin')) || canViewDivisionsPerm || !!(user?.permissions && user.permissions.divisions && (user.permissions.divisions.divisions_view === true || user.permissions.divisions.view === true));
 
   // Section view permission (master view for Section Management)
   const canViewSectionsPerm = usePermission('sections', 'read');
-  const canViewSections = (user && user.role === 'super_admin') || canViewSectionsPerm || !!(user?.permissions && user.permissions.sections && (user.permissions.sections.sections_view === true || user.permissions.sections.view === true));
+  const canViewSections = (user && (user.role === 'super_admin' || user.role === 'admin')) || canViewSectionsPerm || !!(user?.permissions && user.permissions.sections && (user.permissions.sections.sections_view === true || user.permissions.sections.view === true));
 
   // Permission Management view permission controls visibility of Roles & Permissions quick action
   const canViewPermissionManagementPerm = usePermission('permission_management', 'view_permission');
-  const canViewPermissionManagement = (user && user.role === 'super_admin') || canViewPermissionManagementPerm || !!(user?.permissions && user.permissions.roles && (user.permissions.roles.read === true || user.permissions.roles.view === true));
+  const canViewPermissionManagement = (user && (user.role === 'super_admin' || user.role === 'admin')) || canViewPermissionManagementPerm || !!(user?.permissions && user.permissions.roles && (user.permissions.roles.read === true || user.permissions.roles.view === true));
 
   // Helper to display possibly-object profile fields safely
   const getDisplay = (v) => {
@@ -110,15 +110,12 @@ const Dashboard = () => {
         if (sidebarOpen) {
           setSidebarOpen(false);
         }
-        if (showProfileDropdown) {
-          setShowProfileDropdown(false);
-        }
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [sidebarOpen, showProfileDropdown]);
+  }, [sidebarOpen]);
 
   const getCurrentTime = () => {
     const now = new Date();
@@ -218,11 +215,11 @@ const Dashboard = () => {
 
   // Users view permission (master view for User Management quick-action)
   const canViewUsersPerm = usePermission('users', 'read');
-  const canViewUsers = (user && user.role === 'super_admin') || canViewUsersPerm || !!(user?.permissions && user.permissions.users && (user.permissions.users.users_view === true || user.permissions.users.view === true));
+  const canViewUsers = (user && (user.role === 'super_admin' || user.role === 'admin')) || canViewUsersPerm || !!(user?.permissions && user.permissions.users && (user.permissions.users.users_view === true || user.permissions.users.view === true));
 
   // Reports view permission controls visibility of Report Generation quick action
   const canViewReportsPerm = usePermission('reports', 'view_reports');
-  const canViewReports = (user && user.role === 'super_admin') || canViewReportsPerm || !!(user?.permissions && user.permissions.reports && (user.permissions.reports.view_reports === true || user.permissions.reports.view === true));
+  const canViewReports = (user && (user.role === 'super_admin' || user.role === 'admin')) || canViewReportsPerm || !!(user?.permissions && user.permissions.reports && (user.permissions.reports.view_reports === true || user.permissions.reports.view === true));
   const quickActions = [
     {
       id: 'home',
@@ -433,14 +430,6 @@ const Dashboard = () => {
             
             {/* Header Actions */}
             <div className="header-actions">
-              <button 
-                className="header-action-btn profile-btn" 
-                onClick={() => setShowProfileDropdown(!showProfileDropdown)}
-                title={t('profile')}
-              >
-                <i className="bi bi-person-circle"></i>
-              </button>
-              
               {canViewSettings && (
                 <button 
                   className="header-action-btn settings-btn" 
@@ -458,60 +447,7 @@ const Dashboard = () => {
             </div>
           </div>
           
-          {/* Profile Dropdown */}
-          {showProfileDropdown && (
-            <div className="profile-dropdown">
-              <div className="profile-dropdown-header">
-                <div className="profile-avatar-large">
-                  <i className="bi bi-person-circle"></i>
-                </div>
-                <div className="profile-info">
-                  <h3>{user?.firstName || 'User'} {user?.lastName || ''}</h3>
-                  <p className="profile-role">{(typeof user?.role === 'string' ? user.role.replace('_', ' ') : getDisplay(user?.role)) || 'Super Admin'}</p>
-                </div>
-              </div>
-              <div className="profile-dropdown-body">
-                <div className="profile-detail">
-                  <i className="bi bi-envelope"></i>
-                  <span>{user?.email || 'email@example.com'}</span>
-                </div>
-                <div className="profile-detail">
-                  <i className="bi bi-phone"></i>
-                  <span>{user?.phone || 'N/A'}</span>
-                </div>
-                <div className="profile-detail">
-                  <i className="bi bi-building"></i>
-                  <span>{getDisplay(user?.division)}</span>
-                </div>
-                <div className="profile-detail">
-                  <i className="bi bi-diagram-3"></i>
-                  <span>{getDisplay(user?.section)}</span>
-                </div>
-              </div>
-              <div className="profile-dropdown-footer">
-                {canViewSettings && (
-                  <button 
-                    className="profile-dropdown-btn"
-                    onClick={() => {
-                      setShowProfileDropdown(false);
-                      handleQuickAction('settings');
-                    }}
-                  >
-                    <i className="bi bi-gear"></i>
-                    <span>{t('settings')}</span>
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-          
-          {/* Dropdown Overlay */}
-          {showProfileDropdown && (
-            <div 
-              className="dropdown-overlay"
-              onClick={() => setShowProfileDropdown(false)}
-            ></div>
-          )}
+
         </div>
       </nav>
 

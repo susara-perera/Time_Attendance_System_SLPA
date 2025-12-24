@@ -636,65 +636,80 @@ const createUser = async (req, res) => {
       }
     }
 
-    // Set default permissions based on role
+    // Set permissions from role or use provided permissions
     let userPermissions = permissions || {};
     
-    if (role === 'admin') {
-      userPermissions = {
-        users: { create: true, read: true, update: true, delete: false },
-        attendance: { create: true, read: true, update: true, delete: false },
-        reports: { create: true, read: true, update: false, delete: false },
-        divisions: { create: false, read: true, update: false, delete: false },
-        sections: { create: true, read: true, update: true, delete: false },
-        settings: { create: false, read: true, update: false, delete: false },
-        roles: { create: false, read: true, update: false, delete: false },
-        rolesManage: { create: false, read: true, update: false, delete: false }
-      };
-    } else if (role === 'clerk') {
-      userPermissions = {
-        users: { create: false, read: true, update: false, delete: false },
-        attendance: { create: true, read: true, update: true, delete: false },
-        reports: { create: true, read: true, update: false, delete: false },
-        divisions: { create: false, read: true, update: false, delete: false },
-        sections: { create: false, read: true, update: false, delete: false },
-        settings: { create: false, read: false, update: false, delete: false },
-        roles: { create: false, read: false, update: false, delete: false },
-        rolesManage: { create: false, read: false, update: false, delete: false }
-      };
-    } else if (role === 'administrative_clerk') {
-      userPermissions = {
-        users: { create: true, read: true, update: true, delete: false },
-        attendance: { create: true, read: true, update: true, delete: false },
-        reports: { create: true, read: true, update: false, delete: false },
-        divisions: { create: false, read: true, update: false, delete: false },
-        sections: { create: false, read: true, update: true, delete: false },
-        settings: { create: false, read: true, update: false, delete: false },
-        roles: { create: false, read: true, update: false, delete: false },
-        rolesManage: { create: false, read: true, update: false, delete: false }
-      };
-    } else if (role === 'super_admin') {
-      userPermissions = {
-        users: { create: true, read: true, update: true, delete: true },
-        attendance: { create: true, read: true, update: true, delete: true },
-        reports: { create: true, read: true, update: true, delete: true },
-        divisions: { create: true, read: true, update: true, delete: true },
-        sections: { create: true, read: true, update: true, delete: true },
-        settings: { create: true, read: true, update: true, delete: true },
-        roles: { create: true, read: true, update: true, delete: true },
-        rolesManage: { create: true, read: true, update: true, delete: true }
-      };
-    } else {
-      // employee permissions
-      userPermissions = {
-        users: { create: false, read: false, update: false, delete: false },
-        attendance: { create: true, read: true, update: false, delete: false },
-        reports: { create: false, read: false, update: false, delete: false },
-        divisions: { create: false, read: false, update: false, delete: false },
-        sections: { create: false, read: false, update: false, delete: false },
-        settings: { create: false, read: false, update: false, delete: false },
-        roles: { create: false, read: false, update: false, delete: false },
-        rolesManage: { create: false, read: false, update: false, delete: false }
-      };
+    // Try to get permissions from the role
+    try {
+      const Role = require('../models/Role');
+      const roleDoc = await Role.findOne({ value: role });
+      if (roleDoc && roleDoc.permissions) {
+        userPermissions = roleDoc.permissions;
+        console.log(`Using permissions from role '${role}':`, userPermissions);
+      } else {
+        console.log(`Role '${role}' not found or has no permissions, using defaults`);
+        // Fallback to hardcoded defaults if role not found
+        if (role === 'admin') {
+          userPermissions = {
+            users: { create: true, read: true, update: true, delete: false },
+            attendance: { create: true, read: true, update: true, delete: false },
+            reports: { create: true, read: true, update: false, delete: false },
+            divisions: { create: false, read: true, update: false, delete: false },
+            sections: { create: true, read: true, update: true, delete: false },
+            settings: { create: false, read: true, update: false, delete: false },
+            roles: { create: false, read: true, update: false, delete: false },
+            rolesManage: { create: false, read: true, update: false, delete: false }
+          };
+        } else if (role === 'clerk') {
+          userPermissions = {
+            users: { create: false, read: true, update: false, delete: false },
+            attendance: { create: true, read: true, update: true, delete: false },
+            reports: { create: true, read: true, update: false, delete: false },
+            divisions: { create: false, read: true, update: false, delete: false },
+            sections: { create: false, read: true, update: false, delete: false },
+            settings: { create: false, read: false, update: false, delete: false },
+            roles: { create: false, read: false, update: false, delete: false },
+            rolesManage: { create: false, read: false, update: false, delete: false }
+          };
+        } else if (role === 'administrative_clerk') {
+          userPermissions = {
+            users: { create: true, read: true, update: true, delete: false },
+            attendance: { create: true, read: true, update: true, delete: false },
+            reports: { create: true, read: true, update: false, delete: false },
+            divisions: { create: false, read: true, update: false, delete: false },
+            sections: { create: false, read: true, update: true, delete: false },
+            settings: { create: false, read: true, update: false, delete: false },
+            roles: { create: false, read: true, update: false, delete: false },
+            rolesManage: { create: false, read: true, update: false, delete: false }
+          };
+        } else if (role === 'super_admin') {
+          userPermissions = {
+            users: { create: true, read: true, update: true, delete: true },
+            attendance: { create: true, read: true, update: true, delete: true },
+            reports: { create: true, read: true, update: true, delete: true },
+            divisions: { create: true, read: true, update: true, delete: true },
+            sections: { create: true, read: true, update: true, delete: true },
+            settings: { create: true, read: true, update: true, delete: true },
+            roles: { create: true, read: true, update: true, delete: true },
+            rolesManage: { create: true, read: true, update: true, delete: true }
+          };
+        } else {
+          // employee permissions
+          userPermissions = {
+            users: { create: false, read: false, update: false, delete: false },
+            attendance: { create: true, read: true, update: false, delete: false },
+            reports: { create: false, read: false, update: false, delete: false },
+            divisions: { create: false, read: false, update: false, delete: false },
+            sections: { create: false, read: false, update: false, delete: false },
+            settings: { create: false, read: false, update: false, delete: false },
+            roles: { create: false, read: false, update: false, delete: false },
+            rolesManage: { create: false, read: false, update: false, delete: false }
+          };
+        }
+      }
+    } catch (roleError) {
+      console.error('Error fetching role permissions:', roleError);
+      // Continue with provided permissions or defaults
     }
 
     // Final validation: ensure division is set for non-super_admin roles

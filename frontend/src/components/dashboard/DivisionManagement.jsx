@@ -289,8 +289,20 @@ const DivisionManagement = () => {
   if (!canView) {
     return (
       <div className="division-management">
-        <div className="section-header">
-          <h2><i className="bi bi-building"></i> {t('divisionManagementTitle')}</h2>
+        <div style={{
+          background: 'linear-gradient(135deg, #1e40af 0%, #2563eb 50%, #3b82f6 100%)',
+          borderRadius: '20px',
+          padding: '32px 40px',
+          marginBottom: '28px',
+          color: '#fff',
+          position: 'relative',
+          overflow: 'hidden',
+          boxShadow: '0 10px 40px rgba(30, 64, 175, 0.3)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <i className="bi bi-building" style={{ fontSize: '28px' }}></i>
+            <h2 style={{ margin: 0, fontSize: '28px', fontWeight: 700 }}>{t('divisionManagementTitle')}</h2>
+          </div>
         </div>
         <div className="professional-card">
           <div className="no-data">
@@ -303,11 +315,49 @@ const DivisionManagement = () => {
 
   return (
     <div className="division-management">
-      <div className="section-header">
-        <h2><i className="bi bi-building"></i> {t('divisionManagementTitle')}</h2>
+      {/* Professional Header Banner */}
+      <div style={{
+        background: 'linear-gradient(135deg, #1e40af 0%, #2563eb 50%, #3b82f6 100%)',
+        borderRadius: '20px',
+        padding: '32px 40px',
+        marginBottom: '28px',
+        color: '#fff',
+        position: 'relative',
+        overflow: 'hidden',
+        boxShadow: '0 10px 40px rgba(30, 64, 175, 0.3)'
+      }}>
+        <div style={{ position: 'relative', zIndex: 2 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '8px' }}>
+            <div style={{
+              width: '48px',
+              height: '48px',
+              background: 'rgba(255,255,255,0.2)',
+              borderRadius: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <i className="bi bi-building" style={{ fontSize: '24px' }}></i>
+            </div>
+            <h2 style={{ margin: 0, fontSize: '28px', fontWeight: 700 }}>{t('divisionManagementTitle')}</h2>
+          </div>
+          <p style={{ margin: 0, opacity: 0.85, fontSize: '15px' }}>
+            Manage organizational divisions and view division details
+          </p>
+        </div>
+        <div style={{
+          position: 'absolute',
+          right: '30px',
+          top: '50%',
+          transform: 'translateY(-50%)',
+          opacity: 0.1,
+          fontSize: '120px'
+        }}>
+          <i className="bi bi-buildings"></i>
+        </div>
       </div>
 
-      {/* Unified Search Section */}
+      {/* Search and Filter Section */}
       <div style={{
         display: 'flex',
         alignItems: 'center',

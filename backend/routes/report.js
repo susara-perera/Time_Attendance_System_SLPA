@@ -28,6 +28,7 @@ const router = express.Router();
 router.get(
   '/attendance',
   auth,
+  checkPermission('reports', 'view_reports'),
   reportValidation.attendanceReport,
   auditTrail('attendance_report_generated', 'Report'),
   getAttendanceReport
@@ -38,7 +39,9 @@ router.get(
 // @access  Private
 router.post(
   '/attendance',
-  // auth, // Temporarily disable auth for testing
+  auth,
+  checkPermission('reports', 'view_reports'),
+  checkPermission('reports', 'attendance_generate'),
   // auditTrail('attendance_report_generated', 'Report'),
   getAttendanceReport
 );
@@ -50,6 +53,7 @@ router.get(
   '/audit',
   auth,
   authorize('admin', 'administrative_clerk', 'super_admin'),
+  checkPermission('reports', 'view_reports'),
   checkPermission('reports', 'audit'),
   reportValidation.auditReport,
   auditTrail('audit_report_generated', 'Report'),
@@ -62,6 +66,7 @@ router.get(
 router.get(
   '/meal',
   auth,
+  checkPermission('reports', 'view_reports'),
   reportValidation.mealReport,
   auditTrail('meal_report_generated', 'Report'),
   getMealReport
@@ -73,6 +78,7 @@ router.get(
 router.get(
   '/unit-attendance',
   auth,
+  checkPermission('reports', 'view_reports'),
   reportValidation.unitAttendanceReport,
   auditTrail('unit_attendance_report_generated', 'Report'),
   getUnitAttendanceReport
@@ -84,6 +90,7 @@ router.get(
 router.get(
   '/division/:divisionId',
   auth,
+  checkPermission('reports', 'view_reports'),
   reportValidation.divisionReport,
   auditTrail('division_report_generated', 'Report'),
   getDivisionReport
@@ -96,6 +103,7 @@ router.get(
   '/user-activity',
   auth,
   authorize('admin', 'administrative_clerk', 'super_admin'),
+  checkPermission('reports', 'view_reports'),
   checkPermission('reports', 'user_activity'),
   reportValidation.userActivityReport,
   auditTrail('user_activity_report_generated', 'Report'),
@@ -108,6 +116,7 @@ router.get(
 router.get(
   '/summary',
   auth,
+  checkPermission('reports', 'view_reports'),
   reportValidation.reportSummary,
   auditTrail('report_summary_generated', 'Report'),
   getReportSummary
@@ -120,6 +129,7 @@ router.post(
   '/custom',
   auth,
   authorize('admin', 'administrative_clerk', 'super_admin'),
+  checkPermission('reports', 'view_reports'),
   checkPermission('reports', 'custom'),
   reportValidation.customReport,
   auditTrail('custom_report_generated', 'Report'),
@@ -132,6 +142,7 @@ router.post(
 router.get(
   '/export/:reportType',
   auth,
+  checkPermission('reports', 'view_reports'),
   reportValidation.exportReport,
   auditTrail('report_exported', 'Report'),
   exportReport
@@ -144,7 +155,9 @@ router.get(
 // @access  Private
 router.post(
   '/mysql/attendance',
-  // auth, // Temporarily disable auth for testing
+  auth,
+  checkPermission('reports', 'view_reports'),
+  checkPermission('reports', 'attendance_generate'),
   // auditTrail('mysql_attendance_report_generated', 'Report'),
   generateMySQLAttendanceReport
 );
@@ -155,6 +168,8 @@ router.post(
 router.post(
   '/mysql/meal',
   auth,
+  checkPermission('reports', 'view_reports'),
+  checkPermission('reports', 'meal_generate'),
   auditTrail('mysql_meal_report_generated', 'Report'),
   generateMySQLMealReport
 );
@@ -164,8 +179,10 @@ router.post(
 // @access  Private
 router.post(
   '/mysql/audit',
-  // auth, // Temporarily disable auth for testing
-  // auditTrail('mysql_audit_report_generated', 'Report'),
+  auth,
+  checkPermission('reports', 'view_reports'),
+  checkPermission('reports', 'audit'),
+  auditTrail('mysql_audit_report_generated', 'Report'),
   require('../controllers/reportController').generateMySQLAuditReport
 );
 

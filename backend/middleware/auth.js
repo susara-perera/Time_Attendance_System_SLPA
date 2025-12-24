@@ -106,7 +106,7 @@ const authorize = (...roles) => {
 
 // Check specific permissions
 const checkPermission = (resource, action) => {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ 
         success: false, 
@@ -119,35 +119,77 @@ const checkPermission = (resource, action) => {
       return next();
     }
 
-    // Check if user has the required permission
-    const hasPermission = req.user.permissions?.[resource]?.[action];
-    
-    if (!hasPermission) {
-      // Log unauthorized access attempt
-      AuditLog.createLog({
-        user: req.user._id,
-        action: 'permission_denied',
-        entity: { type: 'System' },
-        category: 'authorization',
-        severity: 'medium',
-        description: `Permission denied for ${resource}.${action}`,
-        details: `User attempted to perform '${action}' on '${resource}' without proper permissions`,
-        metadata: {
-          ipAddress: req.ip,
-          userAgent: req.get('User-Agent'),
-          method: req.method,
-          endpoint: req.originalUrl
-        },
-        isSecurityRelevant: true
-      });
+    try {
+      // Fetch the role to get permissions
+      const Role = require('../models/Role');
+      const role = await Role.findOne({ value: req.user.role });
+      
+      if (!role || !role.permissions) {
+        // Fallback to user permissions if role not found
+        const hasPermission = req.user.permissions?.[resource]?.[action];
+        if (!hasPermission) {
+          // Log unauthorized access attempt
+          AuditLog.createLog({
+            user: req.user._id,
+            action: 'permission_denied',
+            entity: { type: 'System' },
+            category: 'authorization',
+            severity: 'medium',
+            description: `Permission denied for ${resource}.${action}`,
+            details: `User attempted to perform '${action}' on '${resource}' without proper permissions`,
+            metadata: {
+              ipAddress: req.ip,
+              userAgent: req.get('User-Agent'),
+              method: req.method,
+              endpoint: req.originalUrl
+            },
+            isSecurityRelevant: true
+          });
 
-      return res.status(403).json({ 
+          return res.status(403).json({ 
+            success: false, 
+            message: `Access denied. Missing permission: ${resource}.${action}` 
+          });
+        }
+        return next();
+      }
+
+      // Check role permissions
+      const hasPermission = role.permissions?.[resource]?.[action];
+      
+      if (!hasPermission) {
+        // Log unauthorized access attempt
+        AuditLog.createLog({
+          user: req.user._id,
+          action: 'permission_denied',
+          entity: { type: 'System' },
+          category: 'authorization',
+          severity: 'medium',
+          description: `Permission denied for ${resource}.${action}`,
+          details: `User attempted to perform '${action}' on '${resource}' without proper permissions`,
+          metadata: {
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+            method: req.method,
+            endpoint: req.originalUrl
+          },
+          isSecurityRelevant: true
+        });
+
+        return res.status(403).json({ 
+          success: false, 
+          message: `Access denied. Missing permission: ${resource}.${action}` 
+        });
+      }
+
+      next();
+    } catch (error) {
+      console.error('Error checking permissions:', error);
+      return res.status(500).json({ 
         success: false, 
-        message: `Access denied. Missing permission: ${resource}.${action}` 
+        message: 'Server error checking permissions' 
       });
     }
-
-    next();
   };
 };
 

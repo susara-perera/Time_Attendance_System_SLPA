@@ -396,6 +396,30 @@ const RoleAccessManagement = () => {
         cleared[p.id] = false;
       });
       setFormData(prev => ({ ...prev, [category]: { ...(prev[category] || {}), ...cleared } }));
+    } else if (category === 'reports' && id === 'view_reports' && oldVal === true) {
+      // user is unchecking view_reports -> clear all other report permissions
+      const reportPerms = (visiblePermissionCatalog.find(c => c.category === 'reports')?.permissions) || [];
+      const cleared = {};
+      reportPerms.forEach(p => {
+        cleared[p.id] = false;
+      });
+      setFormData(prev => ({ ...prev, [category]: { ...(prev[category] || {}), ...cleared } }));
+    } else if (category === 'reports' && id !== 'view_reports' && !oldVal === true) {
+      // user is trying to enable a report permission (not view_reports)
+      // Check if view_reports is enabled, if not, prevent the change
+      const hasViewReports = !!formData[category]?.['view_reports'];
+      if (!hasViewReports) {
+        // Show error message and don't allow the change
+        alert('Cannot enable report permissions without "View Reports" permission. Please enable "View Reports" first.');
+        return; // Don't proceed with the change
+      }
+      setFormData(prev => ({
+        ...prev,
+        [category]: {
+          ...prev[category],
+          [id]: !oldVal
+        }
+      }));
     } else {
       setFormData(prev => ({
         ...prev,
@@ -432,6 +456,12 @@ const RoleAccessManagement = () => {
         const userPerms = (visiblePermissionCatalog.find(c => c.category === 'users')?.permissions) || [];
         mergedPermissions[category] = mergedPermissions[category] || {};
         userPerms.forEach(p => {
+          mergedPermissions[category][p.id] = false;
+        });
+      } else if (category === 'reports' && id === 'view_reports' && oldVal === true) {
+        const reportPerms = (visiblePermissionCatalog.find(c => c.category === 'reports')?.permissions) || [];
+        mergedPermissions[category] = mergedPermissions[category] || {};
+        reportPerms.forEach(p => {
           mergedPermissions[category][p.id] = false;
         });
       } else {

@@ -72,6 +72,17 @@ const ReportGeneration = () => {
     startDate: '',
     endDate: ''
   });
+  
+  // Selection mode: 'single-date' | 'date-range' | 'single-month' | 'single-year'
+  const [selectionMode, setSelectionMode] = useState('date-range');
+  
+  // Start/End mode for date picker: 'date' | 'month' | 'year'
+  const [startMode, setStartMode] = useState('date');
+  const [endMode, setEndMode] = useState('date');
+  
+  // For single-month: selected year and month
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [loading, setLoading] = useState(false);
   const [reportData, setReportData] = useState(null);
   const [error, setError] = useState('');
@@ -170,12 +181,13 @@ const ReportGeneration = () => {
   const canViewReports = usePermission('reports', 'view_reports');
 
   const hasGeneratePermissionForType = (type) => {
-    // Super-admins and legacy 'create' grant generation capability
-    // usePermission already checks current user context; keep fallback for backwards-compatibility
-    if (type === 'attendance') return !!(canGenerateAttendance || canGenerateFallback || canViewReports);
-    if (type === 'audit') return !!(canGenerateAudit || canGenerateFallback || canViewReports);
-    if (type === 'meal') return !!(canGenerateMeal || canGenerateFallback || canViewReports);
-    return !!(canGenerateFallback || canViewReports);
+    // Require view_reports permission AND specific generate permission
+    if (!canViewReports) return false;
+    
+    if (type === 'attendance') return !!(canGenerateAttendance || canGenerateFallback);
+    if (type === 'audit') return !!(canGenerateAudit || canGenerateFallback);
+    if (type === 'meal') return !!(canGenerateMeal || canGenerateFallback);
+    return !!canGenerateFallback;
   };
 
   // Fetch divisions and sections on component mount
@@ -189,6 +201,8 @@ const ReportGeneration = () => {
       startDate: today,
       endDate: today
     });
+    setSelectedYear(new Date().getFullYear());
+    setSelectedMonth(new Date().getMonth());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1294,33 +1308,43 @@ const ReportGeneration = () => {
   // Unified calendar date click handler - single click selects the date
   const handleCalendarDateClick = (day, monthDate) => {
     if (!day) return;
-    
+
     const year = monthDate.getFullYear();
     const month = monthDate.getMonth();
-    const selectedDate = new Date(year, month, day);
-    const dateStr = selectedDate.toISOString().split('T')[0];
-    
-    // If no dates selected yet, or clicking while in "start" mode, select single date
+
+    // Determine selected date based on current start/end modes and which side is being selected
     if (!dateRange.startDate || calendarSelectMode === 'start') {
-      // Select this date as both start and end (single day)
+      // Selecting start
+      let selectedDate;
+      if (startMode === 'month') selectedDate = new Date(year, month, 1);
+      else if (startMode === 'year') selectedDate = new Date(year, 0, 1);
+      else selectedDate = new Date(year, month, day);
+
+      const dateStr = selectedDate.toISOString().split('T')[0];
       setDateRange({ startDate: dateStr, endDate: dateStr });
-      setCalendarSelectMode('end'); // Next click will extend the range
+      setCurrentMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
+      setCalendarSelectMode('end');
       return;
     }
-    
-    // If we have a start date and in "end" mode, create a range
+
+    // Selecting end
     if (calendarSelectMode === 'end') {
+      let selectedDate;
+      if (endMode === 'month') selectedDate = new Date(year, month + 1, 0);
+      else if (endMode === 'year') selectedDate = new Date(year, 11, 31);
+      else selectedDate = new Date(year, month, day);
+
+      const dateStr = selectedDate.toISOString().split('T')[0];
+
       if (dateStr < dateRange.startDate) {
-        // Clicked before start date - make this the new start, keep end as old start
         setDateRange({ startDate: dateStr, endDate: dateRange.startDate });
       } else if (dateStr === dateRange.startDate) {
-        // Clicked same date - keep as single day
         setDateRange({ startDate: dateStr, endDate: dateStr });
       } else {
-        // Clicked after start - extend range
         setDateRange({ ...dateRange, endDate: dateStr });
       }
-      setCalendarSelectMode('start'); // Reset for next selection
+      setEndMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
+      setCalendarSelectMode('start');
     }
   };
 
@@ -1328,9 +1352,18 @@ const ReportGeneration = () => {
     if (day) {
       const year = currentMonth.getFullYear();
       const month = currentMonth.getMonth();
-      const selectedDate = new Date(year, month, day);
+
+      let selectedDate;
+      if (startMode === 'month') {
+        selectedDate = new Date(year, month, 1);
+      } else if (startMode === 'year') {
+        selectedDate = new Date(year, 0, 1);
+      } else {
+        selectedDate = new Date(year, month, day);
+      }
+
       const dateStr = selectedDate.toISOString().split('T')[0];
-      
+
       // If end date exists and new start date is after end date, update end date to match
       if (dateRange.endDate && dateStr > dateRange.endDate) {
         setDateRange({ startDate: dateStr, endDate: dateStr });
@@ -1344,9 +1377,18 @@ const ReportGeneration = () => {
     if (day) {
       const year = endMonth.getFullYear();
       const month = endMonth.getMonth();
-      const selectedDate = new Date(year, month, day);
+
+      let selectedDate;
+      if (endMode === 'month') {
+        selectedDate = new Date(year, month + 1, 0); // last day of month
+      } else if (endMode === 'year') {
+        selectedDate = new Date(year, 11, 31); // end of year
+      } else {
+        selectedDate = new Date(year, month, day);
+      }
+
       const dateStr = selectedDate.toISOString().split('T')[0];
-      
+
       // If start date exists and new end date is before start date, update start date to match
       if (dateRange.startDate && dateStr < dateRange.startDate) {
         setDateRange({ startDate: dateStr, endDate: dateStr });
@@ -1636,22 +1678,790 @@ const ReportGeneration = () => {
               )}
             </div>
 
-            {/* Section 3: Date Range with Full Calendar UI */}
+            {/* Section 3: Date Selection */}
             {reportGrouping !== 'designation' && (
               <div className="form-section-group date-range-section">
+                {/* Selection Mode Chooser */}
+                <div style={{
+                  marginBottom: '24px',
+                  padding: '20px',
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  borderRadius: '12px',
+                  color: '#fff'
+                }}>
+                  <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 600 }}>
+                    <i className="bi bi-calendar-range" style={{ marginRight: '8px' }}></i>
+                    Select Report Time Period
+                  </h3>
+                  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectionMode('single-date')}
+                      style={{
+                        padding: '12px 20px',
+                        borderRadius: '8px',
+                        border: 'none',
+                        background: selectionMode === 'single-date' ? '#fff' : 'rgba(255,255,255,0.2)',
+                        color: selectionMode === 'single-date' ? '#667eea' : '#fff',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      <i className="bi bi-calendar-day" style={{ marginRight: '6px' }}></i>
+                      Single Date
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectionMode('date-range')}
+                      style={{
+                        padding: '12px 20px',
+                        borderRadius: '8px',
+                        border: 'none',
+                        background: selectionMode === 'date-range' ? '#fff' : 'rgba(255,255,255,0.2)',
+                        color: selectionMode === 'date-range' ? '#667eea' : '#fff',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      <i className="bi bi-calendar-range" style={{ marginRight: '6px' }}></i>
+                      Date Range
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectionMode('single-month')}
+                      style={{
+                        padding: '12px 20px',
+                        borderRadius: '8px',
+                        border: 'none',
+                        background: selectionMode === 'single-month' ? '#fff' : 'rgba(255,255,255,0.2)',
+                        color: selectionMode === 'single-month' ? '#667eea' : '#fff',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      <i className="bi bi-calendar-month" style={{ marginRight: '6px' }}></i>
+                      Single Month
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectionMode('single-year')}
+                      style={{
+                        padding: '12px 20px',
+                        borderRadius: '8px',
+                        border: 'none',
+                        background: selectionMode === 'single-year' ? '#fff' : 'rgba(255,255,255,0.2)',
+                        color: selectionMode === 'single-year' ? '#667eea' : '#fff',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      <i className="bi bi-calendar4-range" style={{ marginRight: '6px' }}></i>
+                      Single Year
+                    </button>
+                  </div>
+                </div>
+
+                {/* Single Date Selection */}
+                {selectionMode === 'single-date' && (
+                  <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <h4 style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: 600, color: '#475569' }}>
+                      Select a Single Date
+                    </h4>
+                    <input
+                      type="date"
+                      value={dateRange.startDate}
+                      onChange={(e) => setDateRange({ startDate: e.target.value, endDate: e.target.value })}
+                      style={{
+                        width: '100%',
+                        maxWidth: '400px',
+                        padding: '12px',
+                        borderRadius: '8px',
+                        border: '2px solid #e2e8f0',
+                        fontSize: '14px',
+                        fontWeight: 500,
+                        color: '#1e293b',
+                        background: '#fff'
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Date Range Selection */}
+                {selectionMode === 'date-range' && (
+                  <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <h4 style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: 600, color: '#475569' }}>
+                      Select Date Range
+                    </h4>
+                    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                      <div style={{ flex: '1', minWidth: '200px' }}>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                          Start Date
+                        </label>
+                        <input
+                          type="date"
+                          value={dateRange.startDate}
+                          onChange={(e) => setDateRange(prev => ({ ...prev, startDate: e.target.value }))}
+                          style={{
+                            width: '100%',
+                            padding: '12px',
+                            borderRadius: '8px',
+                            border: '2px solid #e2e8f0',
+                            fontSize: '14px',
+                            fontWeight: 500,
+                            color: '#1e293b',
+                            background: '#fff'
+                          }}
+                        />
+                      </div>
+                      <div style={{ flex: '1', minWidth: '200px' }}>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                          End Date
+                        </label>
+                        <input
+                          type="date"
+                          value={dateRange.endDate}
+                          onChange={(e) => setDateRange(prev => ({ ...prev, endDate: e.target.value }))}
+                          style={{
+                            width: '100%',
+                            padding: '12px',
+                            borderRadius: '8px',
+                            border: '2px solid #e2e8f0',
+                            fontSize: '14px',
+                            fontWeight: 500,
+                            color: '#1e293b',
+                            background: '#fff'
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Single Month Selection */}
+                {selectionMode === 'single-month' && (
+                  <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <h4 style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: 600, color: '#475569' }}>
+                      Select Year and Month
+                    </h4>
+                    
+                    {/* Year Selection Buttons */}
+                    <div style={{ marginBottom: '20px' }}>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '12px' }}>
+                        <i className="bi bi-calendar4-range" style={{ marginRight: '6px' }}></i>
+                        Select Year
+                      </label>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - 5 + i).map(year => (
+                          <button
+                            key={year}
+                            type="button"
+                            onClick={() => {
+                              setSelectedYear(year);
+                              const startOfMonth = new Date(year, selectedMonth, 1);
+                              const endOfMonth = new Date(year, selectedMonth + 1, 0);
+                              setDateRange({
+                                startDate: startOfMonth.toISOString().split('T')[0],
+                                endDate: endOfMonth.toISOString().split('T')[0]
+                              });
+                            }}
+                            style={{
+                              padding: '10px 16px',
+                              borderRadius: '8px',
+                              border: selectedYear === year ? '2px solid #667eea' : '1px solid #e2e8f0',
+                              background: selectedYear === year ? '#eef2ff' : '#fff',
+                              color: selectedYear === year ? '#667eea' : '#475569',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            {year}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Month Selection Buttons */}
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '12px' }}>
+                        <i className="bi bi-calendar-month" style={{ marginRight: '6px' }}></i>
+                        Select Month
+                      </label>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: '8px' }}>
+                        {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((monthName, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => {
+                              setSelectedMonth(idx);
+                              const startOfMonth = new Date(selectedYear, idx, 1);
+                              const endOfMonth = new Date(selectedYear, idx + 1, 0);
+                              setDateRange({
+                                startDate: startOfMonth.toISOString().split('T')[0],
+                                endDate: endOfMonth.toISOString().split('T')[0]
+                              });
+                            }}
+                            style={{
+                              padding: '10px',
+                              borderRadius: '8px',
+                              border: selectedMonth === idx ? '2px solid #667eea' : '1px solid #e2e8f0',
+                              background: selectedMonth === idx ? '#eef2ff' : '#fff',
+                              color: selectedMonth === idx ? '#667eea' : '#475569',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            {monthName}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Selected Period Display */}
+                    {dateRange.startDate && dateRange.endDate && (
+                      <div style={{
+                        marginTop: '20px',
+                        padding: '12px 16px',
+                        background: '#eef2ff',
+                        borderRadius: '8px',
+                        border: '1px solid #c7d2fe',
+                        textAlign: 'center'
+                      }}>
+                        <span style={{ fontSize: '14px', fontWeight: 600, color: '#667eea' }}>
+                          <i className="bi bi-check-circle-fill" style={{ marginRight: '6px' }}></i>
+                          Selected: {new Date(dateRange.startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Single Year Selection */}
+                {selectionMode === 'single-year' && (
+                  <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <h4 style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: 600, color: '#475569' }}>
+                      <i className="bi bi-calendar4-range" style={{ marginRight: '6px' }}></i>
+                      Select Year
+                    </h4>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - 5 + i).map(year => (
+                        <button
+                          key={year}
+                          type="button"
+                          onClick={() => {
+                            setSelectedYear(year);
+                            const startOfYear = new Date(year, 0, 1);
+                            const endOfYear = new Date(year, 11, 31);
+                            setDateRange({
+                              startDate: startOfYear.toISOString().split('T')[0],
+                              endDate: endOfYear.toISOString().split('T')[0]
+                            });
+                          }}
+                          style={{
+                            padding: '12px 20px',
+                            borderRadius: '8px',
+                            border: selectedYear === year ? '2px solid #667eea' : '1px solid #e2e8f0',
+                            background: selectedYear === year ? '#eef2ff' : '#fff',
+                            color: selectedYear === year ? '#667eea' : '#475569',
+                            fontWeight: 600,
+                            fontSize: '15px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          {year}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Selected Period Display */}
+                    {dateRange.startDate && dateRange.endDate && (
+                      <div style={{
+                        marginTop: '20px',
+                        padding: '12px 16px',
+                        background: '#eef2ff',
+                        borderRadius: '8px',
+                        border: '1px solid #c7d2fe',
+                        textAlign: 'center'
+                      }}>
+                        <span style={{ fontSize: '14px', fontWeight: 600, color: '#667eea' }}>
+                          <i className="bi bi-check-circle-fill" style={{ marginRight: '6px' }}></i>
+                          Selected: {selectedYear} (Full Year)
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Quick Date Selection Buttons */}
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '16px' }}>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setSelectionMode('single-date');
+                      const today = new Date().toISOString().split('T')[0];
+                      setDateRange({ startDate: today, endDate: today });
+                    }}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: '#fff',
+                      color: '#475569',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <i className="bi bi-calendar-day" style={{ marginRight: '4px' }}></i> Today
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setSelectionMode('single-month');
+                      const today = new Date();
+                      setSelectedYear(today.getFullYear());
+                      setSelectedMonth(today.getMonth());
+                      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+                      const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+                      setDateRange({ 
+                        startDate: startOfMonth.toISOString().split('T')[0], 
+                        endDate: endOfMonth.toISOString().split('T')[0] 
+                      });
+                    }}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: '#fff',
+                      color: '#475569',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <i className="bi bi-calendar-month" style={{ marginRight: '4px' }}></i> This Month
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setSelectionMode('single-month');
+                      const today = new Date();
+                      const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+                      setSelectedYear(lastMonth.getFullYear());
+                      setSelectedMonth(lastMonth.getMonth());
+                      const startOfMonth = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1);
+                      const endOfMonth = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 0);
+                      setDateRange({ 
+                        startDate: startOfMonth.toISOString().split('T')[0], 
+                        endDate: endOfMonth.toISOString().split('T')[0] 
+                      });
+                    }}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: '#fff',
+                      color: '#475569',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <i className="bi bi-calendar2-minus" style={{ marginRight: '4px' }}></i> Last Month
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setSelectionMode('single-year');
+                      const year = new Date().getFullYear();
+                      setSelectedYear(year);
+                      const startOfYear = new Date(year, 0, 1);
+                      const endOfYear = new Date(year, 11, 31);
+                      setDateRange({
+                        startDate: startOfYear.toISOString().split('T')[0],
+                        endDate: endOfYear.toISOString().split('T')[0]
+                      });
+                    }}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: '#fff',
+                      color: '#475569',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <i className="bi bi-calendar4-range" style={{ marginRight: '4px' }}></i> This Year
+                  </button>
+                </div>
+
+                {/* Hidden native date inputs for form validation */}
+                <input
+                  type="hidden"
+                  id="startDate"
+                  value={dateRange.startDate}
+                  required
+                />
+                <input
+                  type="hidden"
+                  id="endDate"
+                  value={dateRange.endDate}
+                  required
+                />
+              </div>
+            )}
+
+            {/* Hidden Calendar Widgets - keeping structure but hiding */}
+            <div
+              className="dual-calendar-container"
+              style={{
+                display: 'none',
+                marginTop: '24px',
+                gap: '24px',
+                marginBottom: '20px',
+                padding: '16px 20px',
+                background: '#f8fafc',
+                borderRadius: '12px',
+                border: '1px solid #e2e8f0',
+                flexWrap: 'wrap',
+                alignItems: 'flex-end'
+              }}
+            >
+                  {/* Start Date Input with selection modes */}
+                  <div style={{ flex: '1', minWidth: '220px' }}>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                      <i className="bi bi-calendar-event" style={{ marginRight: '6px' }}></i>Start Date
+                    </label>
+
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${startMode === 'date' ? 'active' : ''}`}
+                        onClick={() => setStartMode('date')}
+                        style={{ padding: '6px 10px', borderRadius: 8, border: startMode === 'date' ? '2px solid #2563eb' : '1px solid #e2e8f0', background: startMode === 'date' ? '#eef2ff' : '#fff', cursor: 'pointer' }}
+                      >Date</button>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${startMode === 'month' ? 'active' : ''}`}
+                        onClick={() => setStartMode('month')}
+                        style={{ padding: '6px 10px', borderRadius: 8, border: startMode === 'month' ? '2px solid #2563eb' : '1px solid #e2e8f0', background: startMode === 'month' ? '#eef2ff' : '#fff', cursor: 'pointer' }}
+                      >Month</button>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${startMode === 'year' ? 'active' : ''}`}
+                        onClick={() => setStartMode('year')}
+                        style={{ padding: '6px 10px', borderRadius: 8, border: startMode === 'year' ? '2px solid #2563eb' : '1px solid #e2e8f0', background: startMode === 'year' ? '#eef2ff' : '#fff', cursor: 'pointer' }}
+                      >Year</button>
+                    </div>
+                    <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
+                      Choose how to select the Start value: <strong>Date</strong> (exact day), <strong>Month</strong> (entire month), or <strong>Year</strong> (entire year).
+                    </div>
+
+                    {startMode === 'date' && (
+                      <input
+                        type="date"
+                        value={dateRange.startDate}
+                        onChange={(e) => setDateRange(prev => ({ ...prev, startDate: e.target.value }))}
+                        style={{
+                          width: '100%',
+                          padding: '10px 14px',
+                          borderRadius: '8px',
+                          border: '2px solid #e2e8f0',
+                          fontSize: '14px',
+                          fontWeight: 500,
+                          color: '#1e293b',
+                          background: '#fff',
+                          cursor: 'pointer'
+                        }}
+                      />
+                    )}
+
+                    {startMode === 'month' && (
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <select
+                          value={new Date(dateRange.startDate || new Date()).getMonth()}
+                          onChange={(e) => {
+                            const month = parseInt(e.target.value, 10);
+                            const year = new Date(dateRange.startDate || new Date()).getFullYear();
+                            const startOfMonth = new Date(year, month, 1);
+                            const newStart = startOfMonth.toISOString().split('T')[0];
+                            setCurrentMonth(startOfMonth);
+                            setDateRange(prev => ({
+                              ...prev,
+                              startDate: newStart,
+                              endDate: prev.endDate && prev.endDate < newStart ? newStart : prev.endDate
+                            }));
+                          }}
+                          style={{ flex: 1, padding: '10px 12px', borderRadius: '8px', border: '2px solid #e2e8f0', background: '#fff' }}
+                        >
+                          <option value={0}>January</option>
+                          <option value={1}>February</option>
+                          <option value={2}>March</option>
+                          <option value={3}>April</option>
+                          <option value={4}>May</option>
+                          <option value={5}>June</option>
+                          <option value={6}>July</option>
+                          <option value={7}>August</option>
+                          <option value={8}>September</option>
+                          <option value={9}>October</option>
+                          <option value={10}>November</option>
+                          <option value={11}>December</option>
+                        </select>
+                        <select
+                          value={new Date(dateRange.startDate || new Date()).getFullYear()}
+                          onChange={(e) => {
+                            const year = parseInt(e.target.value, 10);
+                            const month = new Date(dateRange.startDate || new Date()).getMonth();
+                            const startOfMonth = new Date(year, month, 1);
+                            const newStart = startOfMonth.toISOString().split('T')[0];
+                            setCurrentMonth(startOfMonth);
+                            setDateRange(prev => ({
+                              ...prev,
+                              startDate: newStart,
+                              endDate: prev.endDate && prev.endDate < newStart ? newStart : prev.endDate
+                            }));
+                          }}
+                          style={{ width: '110px', padding: '10px 12px', borderRadius: '8px', border: '2px solid #e2e8f0', background: '#fff' }}
+                        >
+                          {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - 5 + i).map(y => (
+                            <option key={y} value={y}>{y}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {startMode === 'year' && (
+                      <select
+                        value={new Date(dateRange.startDate || new Date()).getFullYear()}
+                        onChange={(e) => {
+                          const year = parseInt(e.target.value, 10);
+                          const startOfYear = new Date(year, 0, 1);
+                          const newStart = startOfYear.toISOString().split('T')[0];
+                          setDateRange(prev => ({
+                            ...prev,
+                            startDate: newStart,
+                            endDate: prev.endDate && prev.endDate < newStart ? newStart : prev.endDate
+                          }));
+                        }}
+                        style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '2px solid #e2e8f0', background: '#fff' }}
+                      >
+                        {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - 5 + i).map(y => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+
+                  {/* End Date Input with selection modes */}
+                  <div style={{ flex: '1', minWidth: '220px' }}>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                      <i className="bi bi-calendar-event" style={{ marginRight: '6px' }}></i>End Date
+                    </label>
+
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${endMode === 'date' ? 'active' : ''}`}
+                        onClick={() => setEndMode('date')}
+                        style={{ padding: '6px 10px', borderRadius: 8, border: endMode === 'date' ? '2px solid #2563eb' : '1px solid #e2e8f0', background: endMode === 'date' ? '#eef2ff' : '#fff', cursor: 'pointer' }}
+                      >Date</button>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${endMode === 'month' ? 'active' : ''}`}
+                        onClick={() => setEndMode('month')}
+                        style={{ padding: '6px 10px', borderRadius: 8, border: endMode === 'month' ? '2px solid #2563eb' : '1px solid #e2e8f0', background: endMode === 'month' ? '#eef2ff' : '#fff', cursor: 'pointer' }}
+                      >Month</button>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${endMode === 'year' ? 'active' : ''}`}
+                        onClick={() => setEndMode('year')}
+                        style={{ padding: '6px 10px', borderRadius: 8, border: endMode === 'year' ? '2px solid #2563eb' : '1px solid #e2e8f0', background: endMode === 'year' ? '#eef2ff' : '#fff', cursor: 'pointer' }}
+                      >Year</button>
+                    </div>
+                    <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
+                      Choose how to select the End value: <strong>Date</strong> (exact day), <strong>Month</strong> (entire month), or <strong>Year</strong> (entire year).
+                    </div>
+
+                    {endMode === 'date' && (
+                      <input
+                        type="date"
+                        value={dateRange.endDate}
+                        onChange={(e) => setDateRange(prev => ({ ...prev, endDate: e.target.value }))}
+                        style={{
+                          width: '100%',
+                          padding: '10px 14px',
+                          borderRadius: '8px',
+                          border: '2px solid #e2e8f0',
+                          fontSize: '14px',
+                          fontWeight: 500,
+                          color: '#1e293b',
+                          background: '#fff',
+                          cursor: 'pointer'
+                        }}
+                      />
+                    )}
+
+                    {endMode === 'month' && (
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <select
+                          value={new Date(dateRange.endDate || new Date()).getMonth()}
+                          onChange={(e) => {
+                            const month = parseInt(e.target.value, 10);
+                            const year = new Date(dateRange.endDate || new Date()).getFullYear();
+                            const endOfMonth = new Date(year, month + 1, 0);
+                            const newEnd = endOfMonth.toISOString().split('T')[0];
+                            setEndMonth(endOfMonth);
+                            setDateRange(prev => ({ ...prev, endDate: newEnd, startDate: prev.startDate && prev.startDate > newEnd ? newEnd : prev.startDate }));
+                          }}
+                          style={{ flex: 1, padding: '10px 12px', borderRadius: '8px', border: '2px solid #e2e8f0', background: '#fff' }}
+                        >
+                          <option value={0}>January</option>
+                          <option value={1}>February</option>
+                          <option value={2}>March</option>
+                          <option value={3}>April</option>
+                          <option value={4}>May</option>
+                          <option value={5}>June</option>
+                          <option value={6}>July</option>
+                          <option value={7}>August</option>
+                          <option value={8}>September</option>
+                          <option value={9}>October</option>
+                          <option value={10}>November</option>
+                          <option value={11}>December</option>
+                        </select>
+                        <select
+                          value={new Date(dateRange.endDate || new Date()).getFullYear()}
+                          onChange={(e) => {
+                            const year = parseInt(e.target.value, 10);
+                            const month = new Date(dateRange.endDate || new Date()).getMonth();
+                            const endOfMonth = new Date(year, month + 1, 0);
+                            const newEnd = endOfMonth.toISOString().split('T')[0];
+                            setEndMonth(endOfMonth);
+                            setDateRange(prev => ({ ...prev, endDate: newEnd, startDate: prev.startDate && prev.startDate > newEnd ? newEnd : prev.startDate }));
+                          }}
+                          style={{ width: '110px', padding: '10px 12px', borderRadius: '8px', border: '2px solid #e2e8f0', background: '#fff' }}
+                        >
+                          {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - 5 + i).map(y => (
+                            <option key={y} value={y}>{y}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {endMode === 'year' && (
+                      <select
+                        value={new Date(dateRange.endDate || new Date()).getFullYear()}
+                        onChange={(e) => {
+                          const year = parseInt(e.target.value, 10);
+                          const endOfYear = new Date(year, 11, 31);
+                          setDateRange(prev => ({ ...prev, endDate: endOfYear.toISOString().split('T')[0] }));
+                        }}
+                        style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '2px solid #e2e8f0', background: '#fff' }}
+                      >
+                        {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - 5 + i).map(y => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+
+                  {/* Month/Year Quick Select */}
+                  <div style={{ flex: '1', minWidth: '280px' }}>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                      <i className="bi bi-calendar-month" style={{ marginRight: '6px' }}></i>Quick Month/Year
+                    </label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <select
+                        value={new Date(dateRange.startDate || new Date()).getMonth()}
+                        onChange={(e) => {
+                          const month = parseInt(e.target.value);
+                          const year = new Date(dateRange.startDate || new Date()).getFullYear();
+                          const startOfMonth = new Date(year, month, 1);
+                          const endOfMonth = new Date(year, month + 1, 0);
+                          setDateRange({
+                            startDate: startOfMonth.toISOString().split('T')[0],
+                            endDate: endOfMonth.toISOString().split('T')[0]
+                          });
+                        }}
+                        style={{
+                          flex: '1',
+                          padding: '10px 12px',
+                          borderRadius: '8px',
+                          border: '2px solid #e2e8f0',
+                          fontSize: '14px',
+                          fontWeight: 500,
+                          color: '#1e293b',
+                          background: '#fff',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <option value={0}>January</option>
+                        <option value={1}>February</option>
+                        <option value={2}>March</option>
+                        <option value={3}>April</option>
+                        <option value={4}>May</option>
+                        <option value={5}>June</option>
+                        <option value={6}>July</option>
+                        <option value={7}>August</option>
+                        <option value={8}>September</option>
+                        <option value={9}>October</option>
+                        <option value={10}>November</option>
+                        <option value={11}>December</option>
+                      </select>
+                      <select
+                        value={new Date(dateRange.startDate || new Date()).getFullYear()}
+                        onChange={(e) => {
+                          const year = parseInt(e.target.value);
+                          const month = new Date(dateRange.startDate || new Date()).getMonth();
+                          const startOfMonth = new Date(year, month, 1);
+                          const endOfMonth = new Date(year, month + 1, 0);
+                          setDateRange({
+                            startDate: startOfMonth.toISOString().split('T')[0],
+                            endDate: endOfMonth.toISOString().split('T')[0]
+                          });
+                        }}
+                        style={{
+                          width: '100px',
+                          padding: '10px 12px',
+                          borderRadius: '8px',
+                          border: '2px solid #e2e8f0',
+                          fontSize: '14px',
+                          fontWeight: 500,
+                          color: '#1e293b',
+                          background: '#fff',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - 5 + i).map(y => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Selected Date Range Display */}
                 <div className="selected-date-display">
                   <div className="date-display-item">
                     <span className="date-label"><i className="bi bi-calendar-check"></i> Start Date</span>
                     <span className={`date-value ${dateRange.startDate ? 'selected' : 'placeholder'}`}>
-                      {dateRange.startDate 
-                        ? new Date(dateRange.startDate + 'T00:00:00').toLocaleDateString('en-US', { 
-                            weekday: 'short', 
-                            month: 'short', 
-                            day: 'numeric', 
-                            year: 'numeric' 
-                          })
-                        : 'Click a date'}
+                      {dateRange.startDate ? (
+                        startMode === 'date' ?
+                          new Date(dateRange.startDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+                          : startMode === 'month' ? new Date(dateRange.startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+                          : new Date(dateRange.startDate + 'T00:00:00').getFullYear()
+                      ) : 'Click a date'}
                     </span>
                   </div>
                   <div className="date-range-arrow">
@@ -1660,19 +2470,17 @@ const ReportGeneration = () => {
                   <div className="date-display-item">
                     <span className="date-label"><i className="bi bi-calendar-check"></i> End Date</span>
                     <span className={`date-value ${dateRange.endDate ? 'selected' : 'placeholder'}`}>
-                      {dateRange.endDate 
-                        ? new Date(dateRange.endDate + 'T00:00:00').toLocaleDateString('en-US', { 
-                            weekday: 'short', 
-                            month: 'short', 
-                            day: 'numeric', 
-                            year: 'numeric' 
-                          })
-                        : 'Click another date'}
+                      {dateRange.endDate ? (
+                        endMode === 'date' ?
+                          new Date(dateRange.endDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+                          : endMode === 'month' ? new Date(dateRange.endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+                          : new Date(dateRange.endDate + 'T00:00:00').getFullYear()
+                      ) : 'Click another date'}
                     </span>
                   </div>
                 </div>
 
-                {/* Selection Mode Indicator */}
+                {/* Selection Mode Indicator
                 <div className="selection-mode-indicator">
                   <span className={`mode-badge ${calendarSelectMode === 'start' ? 'active' : ''}`}>
                     <i className="bi bi-1-circle"></i> Click date to select
@@ -1683,10 +2491,10 @@ const ReportGeneration = () => {
                   <span className="hint-text">
                     <i className="bi bi-info-circle"></i> Single click = one day
                   </span>
-                </div>
+                </div> */}
 
                 {/* Quick Date Selection Buttons */}
-                <div className="quick-date-buttons enhanced">
+                {/* <div className="quick-date-buttons enhanced">
                   <button 
                     type="button"
                     onClick={() => {
@@ -1761,10 +2569,10 @@ const ReportGeneration = () => {
                   >
                     <i className="bi bi-calendar2-minus"></i> Last Month
                   </button>
-                </div>
+                </div> */}
 
                 {/* Full Calendar UI */}
-                <div className="calendar-container">
+                {/* <div className="calendar-container">
                   <div className="calendar-widget main-calendar">
                     <div className="calendar-header-controls">
                       <button type="button" onClick={previousMonth} className="calendar-nav-btn">
@@ -1815,7 +2623,7 @@ const ReportGeneration = () => {
                       </div>
                     </div>
                   </div>
-                </div>
+                </div> */}
 
                 {/* Hidden native date inputs for form validation */}
                 <input
@@ -1831,134 +2639,7 @@ const ReportGeneration = () => {
                   required
                 />
               </div>
-            )}
-
-                {/* Hidden Calendar Widgets - keeping structure but hiding */}
-                <div className="dual-calendar-container" style={{ display: 'none', marginTop: '24px' }}>
-                  {/* Start Date Calendar */}
-                  <div className="calendar-widget">
-                    <div className="calendar-header-controls">
-                      <button type="button" onClick={previousMonth} className="calendar-nav-btn">
-                        <i className="bi bi-chevron-left"></i>
-                      </button>
-                      <div className="calendar-month-year">
-                        {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                      </div>
-                      <button type="button" onClick={nextMonth} className="calendar-nav-btn">
-                        <i className="bi bi-chevron-right"></i>
-                      </button>
-                    </div>
-                    
-                    <div className="calendar-grid">
-                      <div className="calendar-weekdays">
-                        <div className="calendar-weekday">MON</div>
-                        <div className="calendar-weekday">TUE</div>
-                        <div className="calendar-weekday">WED</div>
-                        <div className="calendar-weekday">THU</div>
-                        <div className="calendar-weekday">FRI</div>
-                        <div className="calendar-weekday">SAT</div>
-                        <div className="calendar-weekday">SUN</div>
-                      </div>
-                      
-                      <div className="calendar-days">
-                        {generateCalendarDays(currentMonth).map((day, index) => (
-                          <div
-                            key={index}
-                            className={`calendar-day ${!day ? 'empty' : ''} ${isStartDateSelected(day, currentMonth) ? 'selected' : ''} ${isDateInRange(day, currentMonth) ? 'in-range' : ''} ${isDateDisabledForStart(day, currentMonth) ? 'disabled' : ''}`}
-                            onClick={() => !isDateDisabledForStart(day, currentMonth) && handleStartDateClick(day)}
-                          >
-                            {day}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* End Date Calendar */}
-                  <div className="calendar-widget">
-                    <div className="calendar-header-controls">
-                      <button type="button" onClick={previousEndMonth} className="calendar-nav-btn">
-                        <i className="bi bi-chevron-left"></i>
-                      </button>
-                      <div className="calendar-month-year">
-                        {endMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                      </div>
-                      <button type="button" onClick={nextEndMonth} className="calendar-nav-btn">
-                        <i className="bi bi-chevron-right"></i>
-                      </button>
-                    </div>
-                    
-                    <div className="calendar-grid">
-                      <div className="calendar-weekdays">
-                        <div className="calendar-weekday">MON</div>
-                        <div className="calendar-weekday">TUE</div>
-                        <div className="calendar-weekday">WED</div>
-                        <div className="calendar-weekday">THU</div>
-                        <div className="calendar-weekday">FRI</div>
-                        <div className="calendar-weekday">SAT</div>
-                        <div className="calendar-weekday">SUN</div>
-                      </div>
-                      
-                      <div className="calendar-days">
-                        {generateCalendarDays(endMonth).map((day, index) => (
-                          <div
-                            key={index}
-                            className={`calendar-day ${!day ? 'empty' : ''} ${isEndDateSelected(day, endMonth) ? 'selected' : ''} ${isDateInRange(day, endMonth) ? 'in-range' : ''} ${isDateDisabledForEnd(day, endMonth) ? 'disabled' : ''}`}
-                            onClick={() => !isDateDisabledForEnd(day, endMonth) && handleEndDateClick(day)}
-                          >
-                            {day}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Quick Selection Buttons - Centered Below Both Calendars */}
-                  <div className="calendar-quick-buttons-wrapper">
-                    <div className="calendar-quick-buttons">
-                      <button 
-                        type="button"
-                        onClick={() => {
-                          const today = new Date();
-                          const todayStr = today.toISOString().split('T')[0];
-                          setDateRange({ startDate: todayStr, endDate: todayStr });
-                        }}
-                        className="btn btn-sm btn-outline-secondary"
-                      >
-                        Today
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => {
-                          const today = new Date();
-                          const yesterday = new Date(today);
-                          yesterday.setDate(today.getDate() - 1);
-                          const yesterdayStr = yesterday.toISOString().split('T')[0];
-                          setDateRange({ startDate: yesterdayStr, endDate: yesterdayStr });
-                        }}
-                        className="btn btn-sm btn-outline-secondary"
-                      >
-                        Yesterday
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => {
-                          const today = new Date();
-                          const lastWeek = new Date(today);
-                          lastWeek.setDate(today.getDate() - 7);
-                          setDateRange({ 
-                            startDate: lastWeek.toISOString().split('T')[0], 
-                            endDate: today.toISOString().split('T')[0] 
-                          });
-                        }}
-                        className="btn btn-sm btn-outline-secondary"
-                      >
-                        Last 7 Days
-                      </button>
-                    </div>
-                  </div>
-                </div>
-            </div>
+            
 
             {/* Generate Report Button */}
             <div className="form-actions" style={{ marginTop: '2rem', display: 'flex', justifyContent: 'center' }}>

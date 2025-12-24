@@ -63,6 +63,7 @@ export const AuthProvider = ({ children }) => {
       try {
         const token = localStorage.getItem('token');
         if (!token) return;
+        // Refresh user data
         const res = await fetch('http://localhost:5000/api/auth/verify', {
           method: 'GET',
           headers: {
@@ -75,6 +76,14 @@ export const AuthProvider = ({ children }) => {
         const data = await res.json().catch(() => ({}));
         if (data && data.success && data.user) {
           setUser(data.user);
+        }
+        // Also refresh roles list to pick up permission changes
+        const rolesRes = await fetch('http://localhost:5000/api/roles', {
+          headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}) }
+        });
+        if (rolesRes.ok) {
+          const rolesData = await rolesRes.json().catch(() => ({}));
+          if (rolesData && rolesData.data) setRolesList(rolesData.data);
         }
       } catch (err) {
         console.warn('permissionsChanged handler error:', err);
@@ -124,41 +133,20 @@ export const AuthProvider = ({ children }) => {
         try {
           const token = localStorage.getItem('token');
           if (!token) return;
-          const res = await fetch('http://localhost:5000/api/auth/verify', {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            },
-            credentials: 'include'
+          // Fetch latest roles to update permissions
+          const rolesRes = await fetch('http://localhost:5000/api/roles', {
+            headers: { 'Authorization': `Bearer ${token}` }
           });
-          if (!res.ok) return;
-          const data = await res.json().catch(() => ({}));
-          if (data && data.success && data.user) {
-            // Update local user only if permissions changed to avoid unnecessary rerenders
-            const currentPerms = JSON.stringify(user?.permissions || {});
-            const newPerms = JSON.stringify(data.user.permissions || {});
-            if (currentPerms !== newPerms) {
-              setUser(data.user);
-              // Refresh roles list when permissions change to keep mapping accurate
-              try {
-                const token = localStorage.getItem('token');
-                if (token) {
-                  const rolesRes = await fetch('http://localhost:5000/api/roles', {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                  });
-                  if (rolesRes.ok) {
-                    const rolesData = await rolesRes.json().catch(() => ({}));
-                    if (rolesData && rolesData.data) setRolesList(rolesData.data);
-                  }
-                }
-              } catch (err) { /* ignore */ }
+          if (rolesRes.ok) {
+            const rolesData = await rolesRes.json().catch(() => ({}));
+            if (rolesData && rolesData.data) {
+              setRolesList(rolesData.data);
             }
           }
         } catch (err) {
           // Ignore polling errors silently
         }
-      }, 15000); // every 15 seconds
+      }, 5000); // every 5 seconds
     };
 
     if (user) startPolling();
@@ -182,7 +170,7 @@ export const AuthProvider = ({ children }) => {
   const hasPermission = (permId) => {
     if (!user) return false;
     // Super admin shortcut
-    if (user?.role === 'super_admin') return true;
+    if (user?.role === 'super_admin' || user?.role === 'admin') return true;
     const perms = getEffectivePermissions();
     if (!perms) return false;
 

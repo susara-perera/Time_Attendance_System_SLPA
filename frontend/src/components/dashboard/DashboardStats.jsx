@@ -196,34 +196,35 @@ const DashboardStats = ({ onQuickAction }) => {
     };
   }, [stats, trendPeriod]);
 
-  // Attendance overview doughnut data
+  // Attendance overview doughnut data - Present vs Absent from ACTIVE employees only
   const attendanceOverviewData = useMemo(() => {
     if (!stats) return null;
 
     const present = stats.todayAttendance?.employeesPresent || 0;
-    const total = stats.totalEmployees || 0;
-    const absent = Math.max(0, total - present);
+    // Use active employee count as the base, not total employees
+    const totalActive = activeEmployeeCount || 1;
+    const absent = Math.max(0, totalActive - present);
 
     return {
       labels: ['Present', 'Absent'],
       datasets: [{
         data: [present, absent],
-        backgroundColor: ['#10b981', '#ef4444'],
+        backgroundColor: ['#10b981', '#94a3b8'],
         borderColor: ['#fff', '#fff'],
-        borderWidth: 3,
-        hoverOffset: 10,
-        cutout: '70%'
+        borderWidth: 4,
+        hoverOffset: 12,
+        cutout: '75%'
       }]
     };
-  }, [stats]);
+  }, [stats, activeEmployeeCount]);
 
-  // Today's progress percentage
+  // Today's progress percentage - based on active employees
   const todayProgress = useMemo(() => {
-    if (!stats) return 0;
+    if (!stats || !activeEmployeeCount) return 0;
     const present = stats.todayAttendance?.employeesPresent || 0;
-    const total = stats.totalEmployees || 1;
-    return Math.round((present / total) * 100);
-  }, [stats]);
+    const totalActive = activeEmployeeCount || 1;
+    return Math.round((present / totalActive) * 100);
+  }, [stats, activeEmployeeCount]);
 
   // Chart options
   const lineChartOptions = {
@@ -544,7 +545,7 @@ const DashboardStats = ({ onQuickAction }) => {
               <div className="legend-item">
                 <span className="legend-color absent"></span>
                 <span className="legend-text">Absent</span>
-                <span className="legend-value">{(stats?.totalEmployees || 0) - (stats?.todayAttendance?.employeesPresent || 0)}</span>
+                <span className="legend-value">{Math.max(0, activeEmployeeCount - (stats?.todayAttendance?.employeesPresent || 0))}</span>
               </div>
             </div>
           </div>

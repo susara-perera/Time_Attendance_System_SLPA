@@ -168,6 +168,19 @@ const login = async (req, res) => {
 
     res.cookie('token', token, cookieOptions);
 
+    // Get effective permissions from role
+    let effectivePermissions = user.permissions || {};
+    try {
+      const Role = require('../models/Role');
+      const role = await Role.findOne({ value: user.role });
+      if (role && role.permissions) {
+        effectivePermissions = role.permissions;
+      }
+    } catch (roleError) {
+      console.error('Error fetching role permissions:', roleError);
+      // Fall back to user permissions
+    }
+
     res.status(200).json({
       success: true,
       message: 'Login successful',
@@ -182,7 +195,7 @@ const login = async (req, res) => {
         role: user.role,
         division: user.division,
         section: user.section,
-        permissions: user.permissions,
+        permissions: effectivePermissions,
         lastLogin: user.lastLogin
       }
     });
@@ -247,6 +260,22 @@ const getMe = async (req, res) => {
     const user = await User.findById(req.user._id)
       .populate('division', 'name code workingHours')
       .populate('section', 'name code');
+
+    // Get effective permissions from role
+    let effectivePermissions = user.permissions || {};
+    try {
+      const Role = require('../models/Role');
+      const role = await Role.findOne({ value: user.role });
+      if (role && role.permissions) {
+        effectivePermissions = role.permissions;
+      }
+    } catch (roleError) {
+      console.error('Error fetching role permissions:', roleError);
+      // Fall back to user permissions
+    }
+
+    // Override permissions with effective ones
+    user.permissions = effectivePermissions;
 
     res.status(200).json({
       success: true,
@@ -697,6 +726,19 @@ const refreshToken = async (req, res) => {
 // @access  Private
 const verifyToken = async (req, res) => {
   try {
+    // Get effective permissions from role
+    let effectivePermissions = req.user.permissions || {};
+    try {
+      const Role = require('../models/Role');
+      const role = await Role.findOne({ value: req.user.role });
+      if (role && role.permissions) {
+        effectivePermissions = role.permissions;
+      }
+    } catch (roleError) {
+      console.error('Error fetching role permissions:', roleError);
+      // Fall back to user permissions
+    }
+
     res.status(200).json({
       success: true,
       message: 'Token is valid',
@@ -704,7 +746,7 @@ const verifyToken = async (req, res) => {
         id: req.user._id,
         email: req.user.email,
         role: req.user.role,
-        permissions: req.user.permissions
+        permissions: effectivePermissions
       }
     });
 
