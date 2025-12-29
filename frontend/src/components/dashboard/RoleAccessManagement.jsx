@@ -87,13 +87,23 @@ const RoleAccessManagement = () => {
 
   // Permission checks
   // Permission checks
-  const hasViewRolesPermission = () => isSuperAdmin || hasPermission('view_roles') || hasPermission('roles.read');
+  const hasViewRolesPermission = () => {
+    if (isSuperAdmin) return true;
+    // Check multiple possible keys where view-roles might be stored
+    return (
+      hasPermission('role_management.view_roles') ||
+      hasPermission('role_management.view') ||
+      hasPermission('view_roles') ||
+      hasPermission('roles.read') ||
+      hasPermission('roles.view')
+    );
+  };
 
   const hasRoleReadPermission = () => hasViewRolesPermission();
 
   // Allow users who have explicit permission-management update rights
   // to modify role permissions as well (in addition to roles.update).
-  const hasRoleUpdatePermission = () => isSuperAdmin || hasPermission('update_role') || hasPermission('roles.update') || hasPermission('permission_management.update_permission');
+  const hasRoleUpdatePermission = () => isSuperAdmin || hasPermission('update_role') || hasPermission('roles.update') || hasPermission('permission_management.manage_permission');
 
   const hasRoleManageReadPermission = () => hasViewRolesPermission();
 
@@ -168,12 +178,11 @@ const RoleAccessManagement = () => {
         };
       }
       if (cat.category === 'settings') {
-        // Explicit system settings subsections
+        // Explicit system settings subsections (profile update moved to users)
         return {
           ...cat,
           permissions: [
             { id: 'settings_view', name: 'View Settings' },
-            { id: 'profile_update', name: 'Update Profile' },
             { id: 'settings_general', name: 'Change General Settings' },
             { id: 'settings_appearance', name: 'Change Appearance' },
             { id: 'settings_security', name: 'Change Security' }
@@ -256,8 +265,7 @@ const RoleAccessManagement = () => {
         category: 'permission_management',
         name: 'Permission Management',
         permissions: [
-          { id: 'view_permission', name: 'View Permission' },
-          { id: 'update_permission', name: 'Update Permission' }
+          { id: 'manage_permission', name: 'Manage Permission' }
         ]
       });
     }
@@ -309,7 +317,7 @@ const RoleAccessManagement = () => {
       transfer_recall: 'Manage transferring and recalling employees to and from sub-sections',
       roles: 'Define user roles and assign permission levels',
       role_management: 'Create, update, delete and view roles',
-      permission_management: 'View and update system permissions',
+      permission_management: 'Manage the permission catalog and assignments',
       settings: 'Configure system-wide settings and preferences',
       employees: 'Manage employee information and employment records'
     };
@@ -336,7 +344,6 @@ const RoleAccessManagement = () => {
       view_reports: 'Browse and view available reports and their metadata',
 
       // Settings-specific permissions
-      profile_update: 'Update your user profile information (name, contact, photo)',
       settings_general: 'Change general system settings (timezone, locale, defaults)',
       settings_appearance: 'Change appearance options (theme, layout, branding)',
       settings_security: 'Change security settings (password policies, 2FA, session rules)'
@@ -348,8 +355,7 @@ const RoleAccessManagement = () => {
     descriptions.update_role = 'Modify existing role details and assigned permissions';
     descriptions.delete_role = 'Delete roles that are no longer needed';
     descriptions.view_roles = 'View list of roles and their basic details';
-    descriptions.view_permission = 'View the permission catalog and current assignments';
-    descriptions.update_permission = 'Update permission definitions or assignments';
+    descriptions.manage_permission = 'Manage the permission catalog and assignments (view and update)';
     return descriptions[permissionId] || `Perform ${permissionId} operations`;
   };
 
@@ -420,6 +426,29 @@ const RoleAccessManagement = () => {
           [id]: !oldVal
         }
       }));
+    } else if (category === 'role_management' && id === 'view_roles' && oldVal === true) {
+      // user is unchecking view_roles -> clear other role permissions
+      const rolePerms = (visiblePermissionCatalog.find(c => c.category === 'role_management')?.permissions) || [];
+      const cleared = {};
+      rolePerms.forEach(p => {
+        cleared[p.id] = false;
+      });
+      setFormData(prev => ({ ...prev, [category]: { ...(prev[category] || {}), ...cleared } }));
+    } else if (category === 'role_management' && id !== 'view_roles' && !oldVal === true) {
+      // user is trying to enable a role permission (not view_roles)
+      // Check if view_roles is enabled, if not, prevent the change
+      const hasViewRoles = !!formData[category]?.['view_roles'];
+      if (!hasViewRoles) {
+        alert('Cannot enable role-management permissions without "View Roles" permission. Please enable "View Roles" first.');
+        return;
+      }
+      setFormData(prev => ({
+        ...prev,
+        [category]: {
+          ...prev[category],
+          [id]: !oldVal
+        }
+      }));
     } else {
       setFormData(prev => ({
         ...prev,
@@ -462,6 +491,12 @@ const RoleAccessManagement = () => {
         const reportPerms = (visiblePermissionCatalog.find(c => c.category === 'reports')?.permissions) || [];
         mergedPermissions[category] = mergedPermissions[category] || {};
         reportPerms.forEach(p => {
+          mergedPermissions[category][p.id] = false;
+        });
+      } else if (category === 'role_management' && id === 'view_roles' && oldVal === true) {
+        const rolePerms = (visiblePermissionCatalog.find(c => c.category === 'role_management')?.permissions) || [];
+        mergedPermissions[category] = mergedPermissions[category] || {};
+        rolePerms.forEach(p => {
           mergedPermissions[category][p.id] = false;
         });
       } else {
@@ -699,13 +734,16 @@ const RoleAccessManagement = () => {
                                             // For subsections: require 'read' (view) before other subsection permissions can be toggled
                                             (category.category === 'subsections' && permission.id !== 'read' && !formData?.subsections?.read) ||
                                             // For users: require 'read' (view) before other user permissions can be toggled
-                                            (category.category === 'users' && permission.id !== 'read' && !formData?.users?.read)
+                                            (category.category === 'users' && permission.id !== 'read' && !formData?.users?.read) ||
+                                            // For role_management: require 'view_roles' before other role-management permissions can be toggled
+                                            (category.category === 'role_management' && permission.id !== 'view_roles' && !formData?.role_management?.view_roles)
                                           }
                                           title={
                                             `${permission.name} - ${getPermissionDetailDescription(permission.id, category.category)}` +
                                             (category.category === 'settings' && permission.id !== 'settings_view' && !formData?.settings?.settings_view ? ' — Requires "View Settings" permission' : '') +
                                             (category.category === 'subsections' && permission.id !== 'read' && !formData?.subsections?.read ? ' — Requires "View Sub-Sections" permission' : '') +
-                                            (category.category === 'users' && permission.id !== 'read' && !formData?.users?.read ? ' — Requires "View Users" permission' : '')
+                                            (category.category === 'users' && permission.id !== 'read' && !formData?.users?.read ? ' — Requires "View Users" permission' : '') +
+                                            (category.category === 'role_management' && permission.id !== 'view_roles' && !formData?.role_management?.view_roles ? ' — Requires "View Roles" permission' : '')
                                           }
                                         />
                                   <span className="slider"></span>

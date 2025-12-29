@@ -182,7 +182,11 @@ export const AuthProvider = ({ children }) => {
         if (!cur) return false;
         cur = cur[p];
       }
-      return !!cur;
+      if (cur) return !!cur;
+      // Fallback: check for underscore version, e.g., settings.view -> settings.settings_view
+      const underscoreId = parts.join('_');
+      if (perms[parts[0]] && perms[parts[0]][underscoreId]) return true;
+      return false;
     }
 
     // Try direct keys (create_role, view_roles)

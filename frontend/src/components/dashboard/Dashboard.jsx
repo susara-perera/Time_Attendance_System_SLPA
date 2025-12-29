@@ -41,7 +41,7 @@ const Dashboard = () => {
   const canViewSections = (user && (user.role === 'super_admin' || user.role === 'admin')) || canViewSectionsPerm || !!(user?.permissions && user.permissions.sections && (user.permissions.sections.sections_view === true || user.permissions.sections.view === true));
 
   // Permission Management view permission controls visibility of Roles & Permissions quick action
-  const canViewPermissionManagementPerm = usePermission('permission_management', 'view_permission');
+  const canViewPermissionManagementPerm = usePermission('permission_management', 'manage_permission');
   const canViewPermissionManagement = (user && (user.role === 'super_admin' || user.role === 'admin')) || canViewPermissionManagementPerm || !!(user?.permissions && user.permissions.roles && (user.permissions.roles.read === true || user.permissions.roles.view === true));
 
   // Helper to display possibly-object profile fields safely

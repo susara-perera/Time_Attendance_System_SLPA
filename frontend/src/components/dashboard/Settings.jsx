@@ -35,11 +35,16 @@ const Settings = () => {
   const [activeTab, setActiveTab] = useState('general');
   // Additional settings state
   const { lang, setLang, t } = useLanguage();
-  const { user } = useContext(AuthContext);
+  const { user, hasPermission } = useContext(AuthContext);
 
   const hasSettingPerm = (permId) => {
     if (!user) return false;
     if (user.role === 'super_admin') return true;
+    // If the AuthContext exposes hasPermission, prefer it (supports dotted paths)
+    if (typeof hasPermission === 'function') {
+      if (permId.includes('.')) return hasPermission(permId);
+      return hasPermission(`settings.${permId}`);
+    }
     const s = user.permissions?.settings || {};
     // support boolean or string 'true' values
     return s[permId] === true || s[permId] === 'true' || false;
@@ -50,14 +55,15 @@ const Settings = () => {
   useEffect(() => {
     const tabsOrder = ['profile', 'general', 'appearance', 'security'];
     const mapping = {
-      profile: 'profile_update',
+      // profile has no permission requirement; available to any authenticated user
+      profile: null,
       general: 'settings_general',
       appearance: 'settings_appearance',
       security: 'settings_security'
     };
-    // If current activeTab is not permitted, pick the first permitted tab
-    if (!hasSettingPerm(mapping[activeTab])) {
-      const firstAllowed = tabsOrder.find(t => hasSettingPerm(mapping[t]));
+    // If current activeTab has a mapped permission, ensure it's permitted; otherwise allow it
+    if (mapping[activeTab] && !hasSettingPerm(mapping[activeTab])) {
+      const firstAllowed = tabsOrder.find(t => !mapping[t] || hasSettingPerm(mapping[t]));
       if (firstAllowed) setActiveTab(firstAllowed);
     }
   }, [user, activeTab]);
@@ -222,7 +228,7 @@ const Settings = () => {
         {/* Sidebar Navigation */}
         <div className="col-12 col-md-3 col-lg-2 mb-4">
           <div className="list-group shadow-sm" style={{ maxWidth: 220 }}>
-            {hasSettingPerm('profile_update') && (
+            {user && (
               <button
                 className={`list-group-item list-group-item-action${activeTab === 'profile' ? ' active' : ''}`}
                 onClick={() => setActiveTab('profile')}

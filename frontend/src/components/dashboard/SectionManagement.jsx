@@ -411,16 +411,27 @@ const SectionManagement = () => {
         throw new Error('No authentication token');
       }
 
-  // Fetch already transferred employees for this subsection and keep local copy
-  const currentTransferred = await fetchTransferredEmployees(subSection._id, token);
+      // Fetch already transferred employees for this subsection and keep local copy
+      const currentTransferred = await fetchTransferredEmployees(subSection._id, token);
 
-      // Get division and section info from the subsection
-      const divisionCode = subSection?.parentDivision?.division_code || '';
-      const divisionName = subSection?.parentDivision?.division_name || '';
-      const sectionCode = subSection?.parentSection?.hie_code || '';
-      const sectionName = subSection?.parentSection?.hie_name || '';
+      // Helper: normalization and tolerant matching
+      const norm = (v) => (v === undefined || v === null ? '' : String(v).trim().toLowerCase());
+      const anyMatch = (values, target) => {
+        const t = norm(target);
+        if (!t) return false;
+        return (values || []).some(v => {
+          const vv = norm(v);
+          return vv && (vv === t || vv.includes(t) || t.includes(vv));
+        });
+      };
 
-      console.log('🔍 Fetching employees from cache for:', { divisionCode, divisionName, sectionCode, sectionName });
+      // Extract division and section identifiers from subSection using multiple keys
+      const divisionCode = subSection?.parentDivision?.division_code || subSection?.parentDivision?.divisionCode || subSection?.parentDivision?.code || '';
+      const divisionName = subSection?.parentDivision?.division_name || subSection?.parentDivision?.divisionName || subSection?.parentDivision?.name || '';
+      const sectionCode = subSection?.parentSection?.hie_code || subSection?.parentSection?.hieCode || subSection?.parentSection?.code || '';
+      const sectionName = subSection?.parentSection?.hie_name || subSection?.parentSection?.hieName || subSection?.parentSection?.name || '';
+
+      console.log('🔍 Fetching employees from cache for (relaxed match):', { divisionCode, divisionName, sectionCode, sectionName });
 
       // Fetch employees from cache (much faster than direct HRIS API call)
       const response = await fetch(`${API_BASE_URL}/hris-cache/employees`, {
@@ -438,57 +449,66 @@ const SectionManagement = () => {
 
       const data = await response.json();
       const allEmployees = data?.data || data || [];
-      
+
       console.log('📊 Fetched from cache - Total employees:', allEmployees.length);
 
-      // Filter employees by matching division and section
-      const filteredEmployees = allEmployees.filter(emp => {
-        // Get employee's division info from various possible fields
-        const empDivCode = emp?.HIE_CODE_4 || emp?.hie_code_4 || emp?.DIVISION_CODE || emp?.division_code || 
-                          emp?.currentwork?.HIE_CODE_4 || emp?.currentwork?.DIVISION_CODE || '';
-        const empDivName = emp?.HIE_NAME_3 || emp?.hie_name_3 || emp?.DIVISION_NAME || emp?.division_name || 
-                          emp?.currentwork?.HIE_NAME_3 || emp?.currentwork?.DIVISION_NAME || '';
-        
-        // Get employee's section info from various possible fields
-        const empSecCode = emp?.HIE_CODE_3 || emp?.hie_code_3 || emp?.SECTION_CODE || emp?.section_code || 
-                          emp?.currentwork?.HIE_CODE_3 || emp?.currentwork?.SECTION_CODE || '';
-        const empSecName = emp?.HIE_NAME_4 || emp?.hie_name_4 || emp?.SECTION_NAME || emp?.section_name || 
-                          emp?.currentwork?.HIE_NAME_4 || emp?.currentwork?.SECTION_NAME || '';
+      // Candidate extractor: returns many possible fields where division/section might live
+      const getEmpDivCandidates = (emp) => [
+        emp?.HIE_CODE_4, emp?.hie_code_4, emp?.DIVISION_CODE, emp?.division_code, emp?.divisionCode,
+        emp?.currentwork?.HIE_CODE_4, emp?.currentwork?.DIVISION_CODE, emp?.currentwork?.division_code, emp?.currentwork?.divisionCode,
+        emp?.HIE_NAME_3, emp?.hie_name_3, emp?.DIVISION_NAME, emp?.division_name, emp?.divisionName,
+        emp?.currentwork?.HIE_NAME_3, emp?.currentwork?.DIVISION_NAME, emp?.currentwork?.division_name
+      ].filter(Boolean);
 
-        console.log('Employee check:', {
-          empNumber: emp?.EMP_NUMBER || emp?.empNumber,
-          empDivCode,
-          empDivName,
-          empSecCode,
-          empSecName,
-          targetDivCode: divisionCode,
-          targetDivName: divisionName,
-          targetSecCode: sectionCode,
-          targetSecName: sectionName
-        });
+      const getEmpSecCandidates = (emp) => [
+        emp?.HIE_CODE_3, emp?.hie_code_3, emp?.SECTION_CODE, emp?.section_code, emp?.sectionCode,
+        emp?.currentwork?.HIE_CODE_3, emp?.currentwork?.SECTION_CODE, emp?.currentwork?.section_code, emp?.currentwork?.sectionCode,
+        emp?.HIE_NAME_4, emp?.hie_name_4, emp?.SECTION_NAME, emp?.section_name, emp?.sectionName,
+        emp?.currentwork?.HIE_NAME_4, emp?.currentwork?.SECTION_NAME, emp?.currentwork?.section_name
+      ].filter(Boolean);
 
-        // Match by code OR name (more flexible matching)
-        const divisionMatch = (empDivCode && empDivCode === divisionCode) || 
-                             (empDivName && empDivName === divisionName);
-        const sectionMatch = (empSecCode && empSecCode === sectionCode) || 
-                            (empSecName && empSecName === sectionName);
+      // Primary strict filter (code or exact name)
+      let filteredEmployees = allEmployees.filter(emp => {
+        const divCandidates = getEmpDivCandidates(emp);
+        const secCandidates = getEmpSecCandidates(emp);
 
+        const divisionMatch = (divisionCode && anyMatch(divCandidates, divisionCode)) || (divisionName && anyMatch(divCandidates, divisionName));
+        const sectionMatch = (sectionCode && anyMatch(secCandidates, sectionCode)) || (sectionName && anyMatch(secCandidates, sectionName));
         return divisionMatch && sectionMatch;
       });
 
-      console.log('✅ Filtered employees:', filteredEmployees.length);
+      // If strict filter yields nothing, relax the matching rules (partial & name-based)
+      if (filteredEmployees.length === 0) {
+        console.warn('No employees found with strict matching; trying relaxed matching (partial / name-based)');
+        filteredEmployees = allEmployees.filter(emp => {
+          const divCandidates = getEmpDivCandidates(emp);
+          const secCandidates = getEmpSecCandidates(emp);
 
-      // Filter out already transferred employees for this subsection using latest (local) list
+          const divisionRelax = divisionCode ? anyMatch(divCandidates, divisionCode) || anyMatch([divisionCode], divCandidates.join(' ')) : (divisionName ? anyMatch(divCandidates, divisionName) : false);
+          const sectionRelax = sectionCode ? anyMatch(secCandidates, sectionCode) || anyMatch([sectionCode], secCandidates.join(' ')) : (sectionName ? anyMatch(secCandidates, sectionName) : false);
+
+          return (divisionRelax || (!divisionCode && divisionName && anyMatch(divCandidates, divisionName))) && (sectionRelax || (!sectionCode && sectionName && anyMatch(secCandidates, sectionName)));
+        });
+      }
+
+      console.log('✅ Filtered employees (after relaxed matching):', filteredEmployees.length);
+
+      // Exclude already transferred employees (both the authoritative currentTransferred and session-cached transferredEmployees)
       const notTransferredEmployees = filteredEmployees.filter(emp => {
-        const empId = String(emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || '');
-        const isAlreadyTransferred = currentTransferred.some(
+        const empId = String(emp?.EMP_NUMBER || emp?.empNumber || emp?.EMP_ID || emp?.emp_id || '');
+
+        const isInCurrent = (currentTransferred || []).some(
           te => String(te.employeeId) === empId && String(te.sub_section_id) === String(subSection._id)
         );
-        return !isAlreadyTransferred;
+
+        const isInSession = (transferredEmployees || []).some(
+          te => String(te.employeeId) === empId && String(te.sub_section_id) === String(subSection._id)
+        );
+
+        return !isInCurrent && !isInSession;
       });
 
       console.log('✅ Not transferred employees (after filtering):', notTransferredEmployees.length);
-      console.log('🔍 Already transferred count:', filteredEmployees.length - notTransferredEmployees.length);
 
       // Keep only active employees
       const activeNotTransferred = notTransferredEmployees.filter(isEmployeeActive);

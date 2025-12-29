@@ -68,6 +68,13 @@ const getPermissionCatalog = async (req, res) => {
         ]
       },
       {
+        category: 'permission_management',
+        name: 'Permission Management',
+        permissions: [
+          { id: 'manage_permission', name: 'Manage Permission' }
+        ]
+      },
+      {
         category: 'settings',
         name: 'System Settings',
         permissions: [
@@ -104,6 +111,17 @@ const updateRolePermissions = async (req, res) => {
 
     if (!roleId) return res.status(400).json({ success: false, message: 'roleId required' });
     if (!permissions || typeof permissions !== 'object') return res.status(400).json({ success: false, message: 'permissions object required' });
+
+    // Validation: prevent granting role-management perms (create/update/delete) without first granting View Roles
+    const roleMgmt = permissions.role_management || permissions.roles || null;
+    if (roleMgmt) {
+      const hasView = !!(roleMgmt.view_roles === true || roleMgmt.read === true || roleMgmt.view === true || roleMgmt.roles_view === true);
+      const otherKeys = Object.keys(roleMgmt).filter(k => !['view_roles','read','view','roles_view']);
+      const otherGranted = otherKeys.some(k => roleMgmt[k] === true);
+      if (!hasView && otherGranted) {
+        return res.status(400).json({ success: false, message: 'Cannot grant role management permissions without "View Roles" permission' });
+      }
+    }
 
     const role = await Role.findByIdAndUpdate(roleId, { permissions, updatedAt: Date.now() }, { new: true });
     if (!role) return res.status(404).json({ success: false, message: 'Role not found' });

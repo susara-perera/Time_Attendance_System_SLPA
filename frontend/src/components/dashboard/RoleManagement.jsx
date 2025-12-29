@@ -23,7 +23,7 @@ const RoleManagement = () => {
   // Role-based permission checks using AuthContext helper
   const hasRoleManageReadPermission = () => isSuperAdmin || hasPermission('view_roles') || hasPermission('roles.read');
   const hasRoleManageCreatePermission = () => isSuperAdmin || hasPermission('create_role') || hasPermission('roles.create');
-  const hasRoleManageUpdatePermission = () => isSuperAdmin || hasPermission('update_role') || hasPermission('roles.update') || hasPermission('permission_management.update_permission');
+  const hasRoleManageUpdatePermission = () => isSuperAdmin || hasPermission('update_role') || hasPermission('roles.update') || hasPermission('permission_management.manage_permission');
   const hasRoleManageDeletePermission = () => isSuperAdmin || hasPermission('delete_role') || hasPermission('roles.delete');
 
   // Show success modal with message
