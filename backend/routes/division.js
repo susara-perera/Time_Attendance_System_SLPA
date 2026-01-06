@@ -10,6 +10,7 @@ const {
   getDivisionMySQLSections,
   getDivisionStats,
   toggleDivisionStatus,
+  getSyncDivisions,
   getHrisDivisions,
   getCombinedDivisions
 } = require('../controllers/divisionController');
@@ -33,6 +34,15 @@ router.get('/hris', getHrisDivisions);
 // @desc    Get divisions from both local DB and HRIS API
 // @access  Public (for now)
 router.get('/combined', getCombinedDivisions);
+
+// @route   GET /api/divisions/sync
+// @desc    Get divisions directly from divisions_sync table
+// @access  Private
+router.get(
+  '/sync',
+  auth,
+  getSyncDivisions
+);
 
 // @route   GET /api/divisions
 // @desc    Get all divisions (supports ?source=hris for HRIS data)

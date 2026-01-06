@@ -70,28 +70,14 @@ if (process.env.MYSQL_ENABLED !== 'false') {
   console.log('📊 Using MongoDB for all reports');
 }
 
-// Initialize HRIS API cache at startup
-const { initializeCache } = require('./services/hrisApiService');
-// MongoDB cache removed
+// Initialize HRIS Sync Scheduler (daily at 12 PM for data sync)
+// NOTE: HRIS API is now ONLY used for daily sync, NOT for data access
+const { initializeScheduler } = require('./services/hrisSyncScheduler');
+console.log('🕐 Initializing HRIS sync scheduler (daily at 12 PM)...');
+initializeScheduler('0 12 * * *'); // Daily at 12 PM
 
-console.log('⏳ Initializing HRIS data cache at startup...');
-console.log('⚠️  Login will be blocked until cache initialization completes');
-
-initializeCache().then(success => {
-  if (success) {
-    console.log('✅ HRIS API cache initialized successfully');
-    console.log('🚀 System ready - Users can now login');
-  } else {
-    console.log('❌ HRIS API cache initialization failed');
-    console.log('⚠️  Users will need to wait for cache initialization on first login attempt');
-  }
-}).catch(err => {
-  console.error('❌ HRIS API cache initialization error:', err.message);
-  console.log('⚠️  System will attempt to initialize cache on first login attempt');
-});
-
-// Initialize MongoDB cache at startup
-// (MongoDB cache disabled) Remove MongoDB cache initialization.
+console.log('✅ System ready - Using MySQL sync tables for data access');
+console.log('🚀 Users can now login');
 
 // Security middleware
 app.use(helmet({
@@ -175,18 +161,14 @@ if (process.env.NODE_ENV === 'development') {
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  const { isCacheInitialized } = require('./services/hrisApiService');
-  
   res.status(200).json({
     status: 'OK',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: process.env.NODE_ENV,
     version: process.env.npm_package_version || '1.0.0',
-    cache: {
-      initialized: isCacheInitialized(),
-      status: isCacheInitialized() ? 'READY' : 'INITIALIZING'
-    }
+    dataSource: 'MySQL Sync Tables',
+    syncSchedule: 'Daily at 12:00 PM'
   });
 });
 
@@ -216,6 +198,10 @@ app.use('/api/hris-cache', require('./routes/hrisCache'));
 app.use('/api/mysql-subsections', require('./routes/mysqlSubSectionTransfer'));
 // (MongoDB cache route disabled) app.use('/api/mongodb-cache', require('./routes/mongodbCache'));
 app.use('/api/hris', require('./routes/hris'));
+// HRIS Sync routes
+app.use('/api/sync', require('./routes/sync'));
+// MySQL Data routes (fast synced data access)
+app.use('/api/mysql-data', require('./routes/mysqlData'));
 
 // Serve static files in production
 if (process.env.NODE_ENV === 'production') {

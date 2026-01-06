@@ -96,12 +96,13 @@ const EmployeeManagement = () => {
         callingName: e.CALLING_NAME ?? e.calling_name ?? e.preferredName ?? '',
         designation: e.DESIGNATION ?? e.designation ?? '',
         nic: String(e.NIC ?? e.nic ?? ''),
-        divisionId: String(e.DIVISION_ID ?? e.division_id ?? e.DIVISION_CODE ?? e.division_code ?? ''),
-        divisionCode: String(e.DIVISION_CODE ?? e.division_code ?? ''),
-        divisionName: e.DIVISION_NAME ?? e.division_name ?? hie3 ?? '',
-        sectionId: String(e.SECTION_ID ?? e.section_id ?? e.SECTION_CODE ?? e.section_code ?? ''),
-        sectionCode: String(e.SECTION_CODE ?? e.section_code ?? ''),
-        sectionName: e.SECTION_NAME ?? e.section_name ?? hie4 ?? '',
+        // Support both HRIS and employees_sync fields (DIV_CODE / SEC_CODE)
+        divisionId: String(e.DIVISION_ID ?? e.division_id ?? e.DIVISION_CODE ?? e.division_code ?? e.DIV_CODE ?? ''),
+        divisionCode: String(e.DIVISION_CODE ?? e.division_code ?? e.DIV_CODE ?? ''),
+        divisionName: e.DIVISION_NAME ?? e.division_name ?? e.DIV_NAME ?? hie3 ?? '',
+        sectionId: String(e.SECTION_ID ?? e.section_id ?? e.SECTION_CODE ?? e.section_code ?? e.SEC_CODE ?? ''),
+        sectionCode: String(e.SECTION_CODE ?? e.section_code ?? e.SEC_CODE ?? ''),
+        sectionName: e.SECTION_NAME ?? e.section_name ?? e.SEC_NAME ?? hie4 ?? '',
         gender: e.GENDER ?? e.gender ?? '',
         status: e.STATUS ?? e.status ?? 'ACTIVE',
         isActive: e.isActive ?? e.IS_ACTIVE ?? (e.STATUS === 'ACTIVE' || e.status === 'ACTIVE'),
@@ -121,10 +122,13 @@ const EmployeeManagement = () => {
     if (!row) return false;
     return (
       isColomboString(row.DIVISION_NAME) ||
+      isColomboString(row.DIV_NAME) ||
       isColomboString(row.HIE_NAME_3) ||
       isColomboString(row?.currentwork?.HIE_NAME_3) ||
       isColomboString(row?.division_name) ||
-      isColomboString(row?.divisionName)
+      isColomboString(row?.divisionName) ||
+      isColomboString(row?.DIV_CODE) ||
+      isColomboString(row?.DIVISION_CODE)
     );
   };
 
@@ -162,6 +166,10 @@ const EmployeeManagement = () => {
   const getEmployeeDivisions = () => {
     const maps = buildDivisionMaps();
     console.log('getEmployeeDivisions - divisions:', divisions.length, 'allEmployees:', allEmployees.length);
+    // Debug: show first few normalized employees to help trace missing counts
+    if (allEmployees && allEmployees.length) {
+      console.log('getEmployeeDivisions - sample employees:', allEmployees.slice(0,5));
+    }
 
     if (divisions && divisions.length) {
       const counts = new Map();
@@ -268,7 +276,6 @@ const EmployeeManagement = () => {
       console.log('📍 Current timestamp:', new Date().toLocaleTimeString());
 
       const endpoints = [
-        { key: 'employees', url: `${API_BASE_URL}/users/hris`, fallbackUrl: `${API_BASE_URL}/hris-cache/employees` },
         { key: 'sections', url: `${API_BASE_URL}/sections/hris`, fallbackUrl: `${API_BASE_URL}/hris-cache/sections` },
         { key: 'divisions', url: `${API_BASE_URL}/divisions/hris`, fallbackUrl: `${API_BASE_URL}/hris-cache/divisions` },
         // Use MySQL-backed subsections endpoint (MongoDB subsections route disabled on server)
@@ -322,7 +329,8 @@ const EmployeeManagement = () => {
         if (r.status === 'fulfilled') {
           responses[ep.key] = r.value;
           const fromCache = r.value?.data?.fromCache ? ' (from cache)' : '';
-          console.log(`${ep.key} OK${fromCache}:`, ep.url);
+          const dataCount = r.value?.data?.data?.length || 0;
+          console.log(`${ep.key} OK${fromCache}:`, ep.url, `(${dataCount} items)`);
         } else {
           failedEndpoints.push({ key: ep.key, url: ep.url, reason: r.reason });
           console.warn(`${ep.key} failed:`, ep.url, r.reason?.response?.status || r.reason?.message);
@@ -330,7 +338,6 @@ const EmployeeManagement = () => {
         }
       });
 
-      const employeeResponse = responses.employees;
       const sectionResponse = responses.sections;
       const divisionResponse = responses.divisions;
       const subSectionResponse = responses.subsections;
@@ -349,7 +356,6 @@ const EmployeeManagement = () => {
 
       console.log('Division Response:', divisionResponse?.data);
       console.log('Section Response:', sectionResponse?.data);
-      console.log('Employee Response:', employeeResponse?.data);
 
       // Process Divisions
       if (divisionResponse?.data?.success) {
@@ -387,10 +393,6 @@ const EmployeeManagement = () => {
       if (subSectionResponse?.data?.success) {
         const apiRows = subSectionResponse.data.data || [];
         console.log('Raw sub-sections:', apiRows.length);
-        console.log('Sub-sections data:', apiRows);
-        if (apiRows.length > 0) {
-          console.log('Sample sub-section:', apiRows[0]);
-        }
         setSubSections(apiRows);
       } else if (!subSectionResponse) {
         console.warn('Failed to fetch sub-sections: endpoint not reachable (404/Network)');
@@ -398,30 +400,7 @@ const EmployeeManagement = () => {
         console.warn('Failed to fetch sub-sections');
       }
 
-      // Process Employees
-      if (employeeResponse?.data?.success) {
-        const apiRows = employeeResponse.data.data || [];
-        console.log('Raw (HRIS) employees total:', apiRows.length);
-        // keep full HRIS list (normalized) for transfer lookups and other fallbacks
-        const allNormalized = normalizeEmployees(apiRows);
-        setNormalizedAllHrisEmployees(allNormalized);
-
-        // Don't apply Colombo filter automatically - show ALL employees
-        // Users can filter by division/section/sub-section themselves
-        console.log('Processing all employees (no Colombo filter):', apiRows.length);
-        setRawEmployees(apiRows);
-        const normalizedEmployees = normalizeEmployees(apiRows);
-        console.log('Normalized all employees:', normalizedEmployees.length);
-        setAllEmployees(normalizedEmployees);
-        setEmployees(normalizedEmployees);
-        if (employeeResponse.data.fallback) {
-          setError(prev => prev ?? `⚠️ ${employeeResponse.data.message}`);
-        }
-      } else if (!employeeResponse) {
-        setError(prev => prev ?? `Failed to fetch employees: endpoint not reachable (404/Network)`);
-      } else {
-        setError(prev => prev ?? 'Failed to fetch employees from HRIS API');
-      }
+      // Employees are now fetched on demand via fetchFilteredEmployees
 
       // Fetch all transferred employees
       // Use MySQL-backed transfer endpoint
@@ -578,130 +557,96 @@ const EmployeeManagement = () => {
     }
   }, [availableSections, selectedSection]);
 
-  useEffect(() => {
-    console.log('🎯 Filter effect triggered with:', {
-      allEmployees: allEmployees.length,
-      selectedDivision: selectedEmployeeDivision,
-      selectedSection: selectedSection,
-      selectedSubSection: selectedSubSection,
-      selectedStatus: selectedEmployeeStatus,
-      searchTerm: searchTerm
-    });
-    
-    let filtered = allEmployees;
+  const fetchFilteredEmployees = async () => {
+    setLoading(true);
+    setError(null);
+    const token = localStorage.getItem('token');
+    const headers = { 'Authorization': `Bearer ${token}` };
 
-    // Special handling for sub-section selection
-    if (selectedSubSection !== 'all') {
-      console.log('=== Sub-section filtering active ===');
-      console.log('Selected sub-section:', selectedSubSection);
-      console.log('Total transferred employees:', transferredEmployees.length);
-      console.log('Total HRIS employees:', allEmployees.length);
-      
-      // Get transferred employees for this sub-section
-      const transfersInSubSection = transferredEmployees.filter(transfer => 
-        String(transfer.sub_section_id) === String(selectedSubSection)
-      );
-      setTransferMatchesCount(transfersInSubSection.length);
-      
-      console.log('Transfers in this sub-section:', transfersInSubSection.length);
-      transfersInSubSection.forEach(t => {
-        console.log('  - transfer record:', {
-          employeeId: t.employeeId || t.employee_id || t.employeeId || t.empId,
-          employeeName: t.employeeName || t.employee_name || t.employeeName,
-          divisionCode: t.division_code || t.divisionCode,
-          divisionName: t.division_name || t.divisionName,
-          sectionCode: t.hie_code || t.section_code || t.sectionCode,
-          sectionName: t.hie_name || t.section_name || t.sectionName,
-          sub_section_id: t.sub_section_id
-        });
-      });
-      
-      const transferredEmployeeIds = transfersInSubSection.map(t => String(
-        t.employeeId || t.employee_id || t.employeeId || t.empId || t.employeeId || t.employee_id
-      ));
-      console.log('Transferred employee IDs:', transferredEmployeeIds);
-
-      // Match with the full normalized HRIS dataset regardless of Colombo filter, so transferred employees show even if
-      // they aren't in the Colombo-only `allEmployees` set used for the main grid.
-      const hrisToSearch = (normalizedAllHrisEmployees && normalizedAllHrisEmployees.length) ? normalizedAllHrisEmployees : allEmployees;
-      // Also collect a set of parsed integer values of transfer ids for numeric ID matching
-      const transferIdsAsNumbers = new Set(transferredEmployeeIds.map(id => {
-        const n = Number(id);
-        return (isNaN(n) ? id : String(n));
-      }));
-      filtered = hrisToSearch.filter(emp => {
-        const empId = String(emp.empNumber || emp.EMP_NUMBER || emp.employeeId || emp.employee_ID || emp.employee_id || '');
-        const isMatch = transferredEmployeeIds.includes(empId) || transferIdsAsNumbers.has(empId);
-        if (isMatch) {
-          console.log(`✅ Found employee: ${emp.fullName} (${empId})`);
+    try {
+      if (selectedSubSection && selectedSubSection !== 'all') {
+        const url = `${API_BASE_URL}/mysql-subsections/transferred/${selectedSubSection}`;
+        console.log(`Fetching sub-section employees: ${url}`);
+        const res = await axios.get(url, { headers });
+        if (res.data.success) {
+          const mapped = res.data.data.map(t => ({
+            empNumber: t.employee_id || t.employeeId,
+            fullName: t.employee_name || t.employeeName,
+            divisionCode: t.division_code,
+            divisionName: t.division_name,
+            sectionCode: t.section_code || t.hie_code,
+            sectionName: t.section_name || t.sub_section_name,
+            subSectionId: t.sub_section_id,
+            designation: t.designation || 'Transferred',
+            nic: t.nic || '',
+            isActive: true,
+            _raw: t
+          }));
+          setEmployees(mapped);
+          setAllEmployees(mapped.length > 0 ? mapped : []); // Update total for display
+        } else {
+          setEmployees([]);
+          setAllEmployees([]);
         }
-        return isMatch;
-      });
-      
-      console.log(`Matched ${filtered.length} employees for sub-section`);
-      if (transfersInSubSection.length > 0 && filtered.length === 0) {
-        console.warn('No HRIS employee records found for transferred employee IDs in this sub-section', transfersInSubSection.map(t => t.employeeId));
-      }
-    } else {
-      // Normal division/section filtering (when no sub-section is selected)
-      console.log('🔍 Applying filters:', { 
-        selectedDivision: selectedEmployeeDivision, 
-        selectedSection: selectedSection,
-        totalEmployees: filtered.length 
-      });
-      
-      if (selectedEmployeeDivision !== 'all') {
-        const maps = buildDivisionMaps();
-        const beforeCount = filtered.length;
-        filtered = filtered.filter(emp => getEmployeeDivisionKey(emp, maps) === String(selectedEmployeeDivision));
-        console.log(`📊 Division filter: ${beforeCount} → ${filtered.length} employees`);
-      }
-      
-      if (selectedSection !== 'all') {
-        const selObj = availableSections.find(s => String(s.id) === String(selectedSection));
-        const selNameKey = String(selObj?.name || '').toLowerCase().trim().replace(/\s+/g, ' ');
-        const beforeCount = filtered.length;
-        filtered = filtered.filter(emp => {
-          const byIdOrCode = String(emp.sectionId || emp.sectionCode) === String(selectedSection);
-          if (byIdOrCode) return true;
-          const empNameKey = String(emp.sectionHierarchyName || emp.sectionName || '').toLowerCase().trim().replace(/\s+/g, ' ');
-          return selNameKey && empNameKey === selNameKey;
-        });
-        console.log(`📊 Section filter: ${beforeCount} → ${filtered.length} employees`);
-      }
-    }
-
-    // Note: Removed automatic Colombo-only filter to allow users to see employees from all divisions
-    // Users can filter by selecting specific divisions/sections from the dropdowns
-    // The Colombo filter was preventing employees from non-Colombo divisions (like Information Systems) from being displayed
-
-    // Apply employee status filter
-    if (selectedEmployeeStatus !== 'all') {
-      const isActiveFilter = selectedEmployeeStatus === 'active';
-      filtered = filtered.filter(emp => emp.isActive === isActiveFilter);
-    }
-
-    // Apply search filter
-    if (searchTerm.trim()) {
-      const search = searchTerm.toLowerCase().trim();
-      const beforeCount = filtered.length;
-      filtered = filtered.filter(emp => {
-        const empId = String(emp.empNumber || '').toLowerCase();
-        const empName = String(emp.fullName || '').toLowerCase();
-        const empDesignation = String(emp.designation || '').toLowerCase();
-        const empNic = String(emp.nic || '').toLowerCase();
+      } else {
+        let params = {};
+        if (selectedEmployeeDivision && selectedEmployeeDivision !== 'all') {
+          if (selectedEmployeeDivision.startsWith('id:')) {
+            const id = selectedEmployeeDivision.replace('id:', '');
+            const div = divisions.find(d => String(d.id) === String(id));
+            if (div) params.divisionCode = div.code;
+          } else if (selectedEmployeeDivision.startsWith('name:')) {
+            const name = selectedEmployeeDivision.replace('name:', '');
+            const div = divisions.find(d => d.name === name);
+            if (div) params.divisionCode = div.code;
+          }
+        }
         
-        return empId.includes(search) || 
-               empName.includes(search) || 
-               empDesignation.includes(search) ||
-               empNic.includes(search);
-      });
-      console.log(`🔎 Search filter: ${beforeCount} → ${filtered.length} employees`);
-    }
+        if (selectedSection && selectedSection !== 'all') {
+          const sec = sections.find(s => String(s.id) === String(selectedSection));
+          if (sec) params.sectionCode = sec.code;
+        }
 
-    console.log(`✅ Final filtered employees: ${filtered.length}`);
-    setEmployees(filtered);
-  }, [allEmployees, normalizedAllHrisEmployees, selectedEmployeeDivision, selectedSection, selectedSubSection, selectedEmployeeStatus, transferredEmployees, availableSections, searchTerm]);
+        if (searchTerm) params.search = searchTerm;
+        
+        const qs = new URLSearchParams(params).toString();
+        // Use filtered endpoint
+        const url = `${API_BASE_URL}/mysql-data/employees?${qs}&limit=1000`;
+        console.log(`Fetching employees: ${url}`);
+        const res = await axios.get(url, { headers });
+        
+        if (res.data.success) {
+          const normalized = normalizeEmployees(res.data.data);
+          let final = normalized;
+          if (selectedEmployeeStatus !== 'all') {
+            const isActive = selectedEmployeeStatus === 'active';
+            final = final.filter(e => e.isActive === isActive);
+          }
+          setEmployees(final);
+          // For filtered view, we can't easily know total system employees, so we set allEmployees to current set 
+          // or we keep it empty. Setting to current set makes "X of X" display consistent.
+          setAllEmployees(final);
+        } else {
+          setEmployees([]);
+          setAllEmployees([]);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching filtered employees:', err);
+      // Don't clear state immediately on transient error, but maybe warn
+      setError('Failed to fetch filtered list');
+      setEmployees([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchFilteredEmployees();
+    }, 400); // Debounce
+    return () => clearTimeout(timer);
+  }, [selectedEmployeeDivision, selectedSection, selectedSubSection, selectedEmployeeStatus, searchTerm, divisions, sections]);
 
   const refreshData = () => {
     fetchAllData();

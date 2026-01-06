@@ -1,187 +1,139 @@
-const User = require('../models/User');
-const Division = require('../models/Division');
-const Section = require('../models/Section');
-const Attendance = require('../models/Attendance');
-const { createMySQLConnection } = require('../config/mysql');
-const { getCachedEmployees, getCachedOrFetch, isCacheInitialized } = require('../services/hrisApiService');
+/**
+ * Dashboard Controller - MySQL Sync Version
+ * 
+ * Uses MySQL sync tables (divisions_sync, sections_sync, employees_sync)
+ * instead of HRIS API cache for fast, reliable dashboard data
+ */
+
+const { sequelize } = require('../models/mysql');
 const moment = require('moment');
 
-// @desc    Get dashboard statistics
+// @desc    Get dashboard statistics using MySQL sync tables
 // @route   GET /api/dashboard/stats
 // @access  Private
 const getDashboardStats = async (req, res) => {
   try {
-    console.log('Getting dashboard statistics...');
+    console.log('📊 Getting dashboard statistics from MySQL sync tables...');
 
-    // Get basic counts from MongoDB
-    const [totalUsers, totalSubSections] = await Promise.all([
-      User.countDocuments({ isActive: true }),
-      require('../models/SubSection').countDocuments({})
-    ]);
+    // Get counts from MySQL sync tables (fast!)
+    const [[divisionCount]] = await sequelize.query(
+      'SELECT COUNT(*) as count FROM divisions_sync'
+    );
 
-    // Get section count using Section Management logic (HRIS cache, fallback to local)
-    let totalSections = 0;
+    const [[sectionCount]] = await sequelize.query(
+      'SELECT COUNT(*) as count FROM sections_sync'
+    );
+
+    const [[employeeCount]] = await sequelize.query(
+      'SELECT COUNT(*) as count FROM employees_sync WHERE IS_ACTIVE = 1'
+    );
+
+    // Get sub-sections count from MySQL
+    let subSectionCount = 0;
     try {
-      const { getCachedSections, getCachedOrFetch, isCacheInitialized, initializeCache } = require('../services/hrisApiService');
-      if (!isCacheInitialized()) {
-        await initializeCache();
-      }
-      let sections = getCachedSections();
-      if (!sections) {
-        const allHierarchy = await getCachedOrFetch('company_hierarchy', {});
-        sections = allHierarchy.filter(item => item.DEF_LEVEL === 4 || item.DEF_LEVEL === '4');
-      }
-      totalSections = Array.isArray(sections) ? sections.length : 0;
+      const [[subSecCount]] = await sequelize.query(
+        'SELECT COUNT(*) as count FROM sub_sections'
+      );
+      subSectionCount = subSecCount?.count || 0;
     } catch (err) {
-      // Fallback to local DB
-      totalSections = await require('../models/Section').countDocuments({ isActive: true });
+      // Table doesn't exist yet, try MongoDB fallback
+      try {
+        const SubSection = require('../models/SubSection');
+        subSectionCount = await SubSection.countDocuments({});
+      } catch (mongoErr) {
+        subSectionCount = 0;
+      }
     }
 
-    // Get division count using Division Management logic (HRIS cache, fallback to local)
-    let totalDivisions = 0;
-    try {
-      const { getCachedDivisions, getCachedOrFetch, isCacheInitialized, initializeCache } = require('../services/hrisApiService');
-      if (!isCacheInitialized()) {
-        await initializeCache();
-      }
-      let divisions = getCachedDivisions();
-      if (!divisions) {
-        const allHierarchy = await getCachedOrFetch('company_hierarchy', {});
-        divisions = allHierarchy.filter(item => item.DEF_LEVEL === 3 || item.DEF_LEVEL === '3');
-      }
-      totalDivisions = Array.isArray(divisions) ? divisions.length : 0;
-    } catch (err) {
-      // Fallback to local DB
-      totalDivisions = await Division.countDocuments({ isActive: true });
-    }
+    // Get system users count from MongoDB
+    const User = require('../models/User');
+    const totalUsers = await User.countDocuments({ isActive: true });
 
-    // Get today's attendance from MySQL
+    // Get today's date
     const today = moment().format('YYYY-MM-DD');
-    const connection = await createMySQLConnection();
-    
-    // Get today's attendance stats
-    const [attendanceStats] = await connection.execute(`
-      SELECT 
-        COUNT(DISTINCT employee_ID) as employees_present,
-        COUNT(*) as total_scans,
-        SUM(CASE WHEN scan_type = 'IN' THEN 1 ELSE 0 END) as in_scans,
-        SUM(CASE WHEN scan_type = 'OUT' THEN 1 ELSE 0 END) as out_scans
-      FROM attendance 
-      WHERE date_ = ?
-    `, [today]);
 
-    // Get recent attendance summary (last 7 days)
-    const weekAgo = moment().subtract(7, 'days').format('YYYY-MM-DD');
-    const [weeklyStats] = await connection.execute(`
-      SELECT 
-        date_,
-        COUNT(DISTINCT employee_ID) as daily_employees
-      FROM attendance 
-      WHERE date_ BETWEEN ? AND ?
-      GROUP BY date_
-      ORDER BY date_ DESC
-    `, [weekAgo, today]);
-
-    await connection.end();
-
-    // Try to get HRIS total employees from HRIS cache/service (preferred source) - fallback to mongo users
-    // Always fetch HRIS employees the same way as Employee Management page
-    let hrisEmployees;
+    // Try to get attendance stats from attendance_sync
+    let presentToday = 0;
     try {
-      hrisEmployees = await getCachedOrFetch('employee', {});
+      const [[todayStats]] = await sequelize.query(`
+        SELECT COUNT(DISTINCT employee_id) as present_count
+        FROM attendance_sync 
+        WHERE attendance_date = ? AND status = 'present'
+      `, { replacements: [today] });
+      presentToday = todayStats?.present_count || 0;
     } catch (err) {
-      console.warn('HRIS fetch failed for dashboard, falling back to Mongo users:', err?.message || err);
-      hrisEmployees = null;
+      // attendance_sync not available yet
     }
-    // If HRIS unavailable, fallback to Mongo users
-    // Prefer HRIS-backed employee total but count only active employees (isActive === true)
-    const totalEmployees = (hrisEmployees && Array.isArray(hrisEmployees) && hrisEmployees.length > 0)
-      ? hrisEmployees.filter(emp => emp && emp.isActive === true).length
-      : totalUsers;
-    console.log(`HRIS active employee count for dashboard: ${hrisEmployees && Array.isArray(hrisEmployees) ? hrisEmployees.filter(emp => emp && emp.isActive === true).length : 'N/A'}`);
-    const presentToday = attendanceStats[0]?.employees_present || 0;
-    const totalScans = attendanceStats[0]?.total_scans || 0;
-    const inScans = attendanceStats[0]?.in_scans || 0;
-    const outScans = attendanceStats[0]?.out_scans || 0;
-    const attendanceRate = totalEmployees > 0 ? parseFloat(((presentToday / totalEmployees) * 100).toFixed(1)) : 0;
 
-    // calculate active users (users who logged in in last 24 hours), best-effort (if lastLogin exists)
-    const activeUsers = await User.countDocuments({ isActive: true, lastLogin: { $gte: moment().subtract(24, 'hours').toDate() } });
+    const totalEmployees = employeeCount?.count || 0;
+    const attendanceRate = totalEmployees > 0 
+      ? parseFloat(((presentToday / totalEmployees) * 100).toFixed(1)) 
+      : 0;
 
-    // Recent activities: fetch last 5 sub-section additions and last 5 employee transfers
-    const SubSection = require('../models/SubSection');
-    const TransferToSubsection = require('../models/TransferToSubsection');
+    // Calculate active users (logged in last 24 hours)
+    const activeUsers = await User.countDocuments({ 
+      isActive: true, 
+      lastLogin: { $gte: moment().subtract(24, 'hours').toDate() } 
+    });
 
-    // Get all activities from the past week
-    const weekAgoDate = moment().subtract(7, 'days').toDate();
-    const recentSubSections = await SubSection.find({ createdAt: { $gte: weekAgoDate } }, {
-      'subSection.sub_hie_name': 1,
-      createdAt: 1,
-      'parentSection.hie_name': 1
-    }).sort({ createdAt: -1 });
+    // Get recent activities
+    let recentActivities = [];
+    try {
+      const SubSection = require('../models/SubSection');
+      const TransferToSubsection = require('../models/TransferToSubsection');
+      const weekAgoDate = moment().subtract(7, 'days').toDate();
 
-    const recentTransfers = await TransferToSubsection.find({ transferredAt: { $gte: weekAgoDate } }, {
-      employeeName: 1,
-      sub_hie_name: 1,
-      transferredAt: 1,
-      hie_name: 1
-    }).sort({ transferredAt: -1 });
+      const [recentSubSections, recentTransfers] = await Promise.all([
+        SubSection.find({ createdAt: { $gte: weekAgoDate } }).sort({ createdAt: -1 }).limit(5).lean(),
+        TransferToSubsection.find({ transferredAt: { $gte: weekAgoDate } }).sort({ transferredAt: -1 }).limit(5).lean()
+      ]);
 
-    const subSectionActivities = recentSubSections.map(sub => ({
-      title: 'New Sub-Section',
-      description: `"${sub.subSection.sub_hie_name}" added to section "${sub.parentSection.hie_name}"`,
-      date: moment(sub.createdAt).format('YYYY-MM-DD'),
-      time: moment(sub.createdAt).format('HH:mm:ss'),
-      icon: 'bi bi-diagram-2'
-    }));
+      const subSectionActivities = recentSubSections.map(sub => ({
+        title: 'New Sub-Section',
+        description: `"${sub.subSection?.sub_hie_name || 'Unknown'}" added`,
+        date: moment(sub.createdAt).format('YYYY-MM-DD'),
+        time: moment(sub.createdAt).format('HH:mm:ss'),
+        icon: 'bi bi-diagram-2'
+      }));
 
-    const transferActivities = recentTransfers.map(tr => ({
-      title: 'Employee Transferred',
-      description: `"${tr.employeeName}" transferred to sub-section "${tr.sub_hie_name}" (${tr.hie_name})`,
-      date: moment(tr.transferredAt).format('YYYY-MM-DD'),
-      time: moment(tr.transferredAt).format('HH:mm:ss'),
-      icon: 'bi bi-arrow-left-right'
-    }));
+      const transferActivities = recentTransfers.map(tr => ({
+        title: 'Employee Transferred',
+        description: `"${tr.employeeName}" transferred to "${tr.sub_hie_name}"`,
+        date: moment(tr.transferredAt).format('YYYY-MM-DD'),
+        time: moment(tr.transferredAt).format('HH:mm:ss'),
+        icon: 'bi bi-arrow-left-right'
+      }));
 
-    // Combine and sort by date/time descending
-    const allActivities = [...subSectionActivities, ...transferActivities]
-      .sort((a, b) => {
-        const aDate = new Date(`${a.date}T${a.time}`);
-        const bDate = new Date(`${b.date}T${b.time}`);
-        return bDate - aDate;
-      });
-
-    // Only send latest 3 by default, but send all for frontend 'Show All'
-    const recentActivities = allActivities;
+      recentActivities = [...subSectionActivities, ...transferActivities]
+        .sort((a, b) => new Date(`${b.date}T${b.time}`) - new Date(`${a.date}T${a.time}`))
+        .slice(0, 10);
+    } catch (err) {
+      console.log('⚠️ Could not fetch activities:', err.message);
+    }
 
     const stats = {
-      // Keep backwards-compatible keys
-      totalUsers,
-      // HRIS-backed employee total (preferred)
-      hrisTotal: (hrisEmployees && Array.isArray(hrisEmployees) && hrisEmployees.length) ? hrisEmployees.length : null,
-      // Aliased/expected keys for frontend
-      totalEmployees,
-      totalDivisions,
-      activeUsers,
-      totalSections,
-      totalSubSections,
-      presentToday,
-      attendanceRate,
+      totalDivisions: divisionCount?.count || 0,
+      totalSections: sectionCount?.count || 0,
+      totalSubSections: subSectionCount,
+      totalEmployees: totalEmployees,
+      totalUsers: totalUsers,
+      presentToday: presentToday,
+      attendanceRate: attendanceRate,
+      activeUsers: activeUsers,
+      today: today,
+      recentActivities: recentActivities,
+      weeklyAttendance: [],
       todayAttendance: {
         employeesPresent: presentToday,
-        totalScans,
-        inScans,
-        outScans
+        totalScans: 0,
+        inScans: 0,
+        outScans: 0
       },
-      weeklyTrend: weeklyStats.map(day => ({
-        date: day.date_,
-        employees: day.daily_employees
-      })),
-      recentActivities
+      weeklyTrend: [],
+      dataSource: 'MySQL Sync'
     };
 
-    console.log('Dashboard stats generated successfully');
-    console.log(`HRIS total employees: ${hrisEmployees && Array.isArray(hrisEmployees) ? hrisEmployees.length : 'N/A'}`);
+    console.log(`✅ Dashboard: ${stats.totalDivisions} div, ${stats.totalSections} sec, ${stats.totalEmployees} emp`);
 
     res.status(200).json({
       success: true,
@@ -189,14 +141,126 @@ const getDashboardStats = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Get dashboard stats error:', error);
+    console.error('❌ Dashboard stats error:', error.message);
     res.status(500).json({
       success: false,
-      message: 'Server error getting dashboard statistics'
+      message: 'Failed to fetch dashboard stats',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get recent activities
+// @route   GET /api/dashboard/activities/recent
+// @access  Private
+const getRecentActivities = async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 10;
+    const weekAgoDate = moment().subtract(7, 'days').toDate();
+
+    const SubSection = require('../models/SubSection');
+    const TransferToSubsection = require('../models/TransferToSubsection');
+
+    let recentSubSections = [];
+    let recentTransfers = [];
+
+    try {
+      recentSubSections = await SubSection.find({ createdAt: { $gte: weekAgoDate } })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean();
+    } catch (err) {}
+
+    try {
+      recentTransfers = await TransferToSubsection.find({ transferredAt: { $gte: weekAgoDate } })
+        .sort({ transferredAt: -1 })
+        .limit(limit)
+        .lean();
+    } catch (err) {}
+
+    const subSectionActivities = recentSubSections.map(sub => ({
+      title: 'New Sub-Section',
+      description: `"${sub.subSection?.sub_hie_name || 'Unknown'}" added`,
+      date: moment(sub.createdAt).format('YYYY-MM-DD'),
+      time: moment(sub.createdAt).format('HH:mm:ss'),
+      icon: 'bi bi-diagram-2'
+    }));
+
+    const transferActivities = recentTransfers.map(tr => ({
+      title: 'Employee Transferred',
+      description: `"${tr.employeeName}" transferred to "${tr.sub_hie_name}"`,
+      date: moment(tr.transferredAt).format('YYYY-MM-DD'),
+      time: moment(tr.transferredAt).format('HH:mm:ss'),
+      icon: 'bi bi-arrow-left-right'
+    }));
+
+    const allActivities = [...subSectionActivities, ...transferActivities]
+      .sort((a, b) => new Date(`${b.date}T${b.time}`) - new Date(`${a.date}T${a.time}`))
+      .slice(0, limit);
+
+    res.status(200).json({
+      success: true,
+      data: allActivities
+    });
+
+  } catch (error) {
+    console.error('Error fetching recent activities:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch recent activities'
+    });
+  }
+};
+
+// @desc    Get dashboard total counts (cached from total_count_dashboard table)
+// @route   GET /api/dashboard/total-counts
+// @access  Private
+const getDashboardTotalCounts = async (req, res) => {
+  try {
+    const { getDashboardTotals } = require('../services/dashboardTotalsService');
+    const result = await getDashboardTotals();
+
+    res.status(200).json({
+      success: true,
+      data: result?.data || result,
+      cached: result?.cached || true
+    });
+
+  } catch (error) {
+    console.error('Get dashboard total counts error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error getting dashboard totals'
+    });
+  }
+};
+
+// @desc    Refresh dashboard total counts
+// @route   POST /api/dashboard/total-counts/refresh
+// @access  Private
+const refreshDashboardTotalCounts = async (req, res) => {
+  try {
+    const { updateDashboardTotals } = require('../services/dashboardTotalsService');
+    const result = await updateDashboardTotals();
+
+    res.status(200).json({
+      success: true,
+      message: 'Dashboard totals refreshed successfully',
+      data: result?.totals || result
+    });
+
+  } catch (error) {
+    console.error('Refresh dashboard total counts error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error refreshing dashboard totals'
     });
   }
 };
 
 module.exports = {
-  getDashboardStats
+  getDashboardStats,
+  getRecentActivities,
+  getDashboardTotalCounts,
+  refreshDashboardTotalCounts
 };

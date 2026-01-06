@@ -3,15 +3,7 @@ const Division = require('../models/Division');
 const Section = require('../models/Section');
 const AuditLog = require('../models/AuditLog');
 const mongoose = require('mongoose');
-const { 
-  readData, 
-  getCachedOrFetch, 
-  getCachedEmployees,
-  getCachedDivisions,
-  getCachedSections,
-  isCacheInitialized,
-  initializeCache 
-} = require('../services/hrisApiService');
+// Note: HRIS cache is no longer used - data comes from MySQL sync tables
 
 // @desc    Get all users
 // @route   GET /api/users
@@ -1476,180 +1468,111 @@ const unlockAllUsers = async (req, res) => {
   }
 };
 
-// @desc    Get all employees from HRIS API
+// @desc    Get all employees from MySQL sync tables (replaces HRIS cache)
 // @route   GET /api/users/hris
 // @access  Public (for now)
 const getHrisEmployees = async (req, res) => {
   try {
-    console.log('📥 Fetching employees from HRIS (using cache)...');
+    console.log('📥 Fetching employees from MySQL sync tables...');
     
-    // Ensure cache is initialized
-    if (!isCacheInitialized()) {
-      console.log('🔄 Cache not initialized, initializing now...');
-      await initializeCache();
-    }
+    const { sequelize } = require('../models/mysql');
+    const { emp_number, division, section, search, page = 1, limit = 1000 } = req.query;
     
-    const { emp_number, division, section } = req.query;
+    // Build SQL query with filters
+    let whereClause = 'WHERE IS_ACTIVE = 1'; // Only active employees
+    const replacements = {};
     
-    // Get employees from cache
-    let allEmployees = getCachedEmployees();
-    
-    // If not in cache, fetch and cache
-    if (!allEmployees) {
-      console.log('⚠️ Employees not in cache, fetching from API...');
-      allEmployees = await getCachedOrFetch('employee', {});
-    }
-    
-    // Get hierarchy data from cache for division and section mapping
-    const allHierarchy = await getCachedOrFetch('company_hierarchy', {});
-    const divisions = allHierarchy.filter(item => item.DEF_LEVEL === 3 || item.DEF_LEVEL === '3');
-    const sections = allHierarchy.filter(item => item.DEF_LEVEL === 4 || item.DEF_LEVEL === '4');
-    
-    // Create mappings
-    const divisionMap = {};
-    const sectionMap = {};
-    
-    divisions.forEach(div => {
-      divisionMap[div.HIE_CODE] = div.HIE_NAME_3 || div.HIE_NAME;
-    });
-    
-    sections.forEach(sec => {
-      sectionMap[sec.HIE_CODE] = {
-        name: sec.HIE_NAME_4 || sec.HIE_NAME,
-        division_code: sec.HIE_RELATIONSHIP
-      };
-    });
-
-    // Transform and filter employees
-    let employees = allEmployees;
-    
-    // Apply emp_number filter if provided
+    // Filter by employee number
     if (emp_number) {
-      const empNumbers = Array.isArray(emp_number) ? emp_number.map(Number) : [Number(emp_number)];
-      employees = employees.filter(emp => empNumbers.includes(emp.EMP_NUMBER));
+      whereClause += ' AND EMP_NO = :emp_number';
+      replacements.emp_number = String(emp_number);
     }
     
-    // Transform employees data to include division and section info
-    const transformedEmployees = employees.map((employee, index) => {
-      // Employee division and section codes come from HIE_CODE_4 (division) and HIE_CODE_3 (section)
-      const divisionCode = employee.HIE_CODE_4;
-      const sectionCode = employee.HIE_CODE_3;
-      
-      // Get division and section names from hierarchy mapping
-      const divisionName = divisionMap[divisionCode] || 
-        employee.currentwork?.HIE_NAME_3 || 
-        `Division ${divisionCode}`;
-      
-      const sectionInfo = sectionMap[sectionCode] || {};
-      const sectionName = sectionInfo.name || 
-        employee.currentwork?.HIE_NAME_4 || 
-        `Section ${sectionCode}`;
-      
-      return {
-        _id: employee._id || `hris_emp_${index}`,
-        EMP_NUMBER: employee.EMP_NUMBER,
-        FULLNAME: employee.FULLNAME,
-        CALLING_NAME: employee.CALLING_NAME,
-        DESIGNATION: employee.currentwork?.designation,
-        GENDER: employee.GENDER,
-        NIC: employee.NIC,
-        DATE_OF_BIRTH: employee.BIRTHDAY,
-        DATE_OF_JOINING: employee.DATE_JOINED,
-        SECTION_CODE: sectionCode,
-        SECTION_NAME: sectionName,
-        DIVISION_CODE: divisionCode,
-        DIVISION_NAME: divisionName,
-        STATUS: employee.ACTIVE_HRM_FLG === 1 ? 'ACTIVE' : 'INACTIVE',
-        currentwork: employee.currentwork
-      };
-    });
-
-    // Apply division filter if provided
+    // Filter by division
     if (division && division !== 'all') {
-      employees = transformedEmployees.filter(emp => 
-        String(emp.DIVISION_CODE) === String(division)
-      );
-    } else {
-      employees = transformedEmployees;
+      whereClause += ' AND DIV_CODE = :division';
+      replacements.division = String(division);
     }
-
-    // Apply section filter if provided
+    
+    // Filter by section
     if (section && section !== 'all') {
-      employees = employees.filter(emp => 
-        String(emp.SECTION_CODE) === String(section)
-      );
+      whereClause += ' AND SEC_CODE = :section';
+      replacements.section = String(section);
     }
+    
+    // Search filter
+    if (search) {
+      whereClause += ' AND (EMP_NAME LIKE :search OR EMP_NO LIKE :search OR EMP_NIC LIKE :search)';
+      replacements.search = `%${search}%`;
+    }
+    
+    // Get total count
+    const [[countResult]] = await sequelize.query(
+      `SELECT COUNT(*) as total FROM employees_sync ${whereClause}`,
+      { replacements }
+    );
+    const total = countResult?.total || 0;
+    
+    // Calculate pagination
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const totalPages = Math.ceil(total / parseInt(limit));
+    
+    // Fetch employees with pagination
+    const [employees] = await sequelize.query(
+      `SELECT * FROM employees_sync ${whereClause} ORDER BY EMP_NAME ASC LIMIT :limit OFFSET :offset`,
+      { replacements: { ...replacements, limit: parseInt(limit), offset } }
+    );
+    
+    // Transform to frontend expected format
+    const transformedEmployees = employees.map((emp, index) => ({
+      _id: `mysql_emp_${emp.EMP_NO}`,
+      EMP_NUMBER: emp.EMP_NO,
+      FULLNAME: emp.EMP_NAME,
+      CALLING_NAME: emp.EMP_FIRST_NAME || emp.EMP_NAME,
+      DESIGNATION: emp.EMP_DESIGNATION,
+      GENDER: emp.EMP_GENDER || 'N/A',
+      NIC: emp.EMP_NIC || 'N/A',
+      DATE_OF_BIRTH: emp.EMP_DATE_OF_BIRTH || null,
+      DATE_OF_JOINING: emp.EMP_DATE_JOINED,
+      SECTION_CODE: emp.SEC_CODE,
+      SECTION_NAME: emp.SEC_NAME,
+      DIVISION_CODE: emp.DIV_CODE,
+      DIVISION_NAME: emp.DIV_NAME,
+      STATUS: emp.IS_ACTIVE ? 'ACTIVE' : 'INACTIVE',
+      EMP_STATUS: emp.EMP_STATUS,
+      EMP_TYPE: emp.EMP_TYPE,
+      EMP_GRADE: emp.EMP_GRADE,
+      EMP_EMAIL: emp.EMP_EMAIL,
+      EMP_PHONE: emp.EMP_PHONE,
+      EMP_MOBILE: emp.EMP_MOBILE,
+      LOCATION: emp.LOCATION,
+      source: 'MySQL'
+    }));
 
-    console.log(`Successfully fetched ${employees.length} employees from HRIS`);
+    console.log(`✅ Successfully fetched ${transformedEmployees.length} employees from MySQL (total: ${total})`);
     
     res.status(200).json({
       success: true,
-      message: 'HRIS employees fetched successfully',
-      data: employees,
+      message: 'Employees fetched from MySQL sync tables',
+      data: transformedEmployees,
       pagination: {
-        page: 1,
-        limit: employees.length,
-        total: employees.length,
-        totalPages: 1,
-        hasNextPage: false,
-        hasPrevPage: false
-      }
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        totalPages,
+        hasNextPage: parseInt(page) < totalPages,
+        hasPrevPage: parseInt(page) > 1
+      },
+      source: 'MySQL'
     });
-  } catch (error) {
-    console.error('Get HRIS employees error:', error.message);
-    console.error('Falling back to local employees...');
     
-    try {
-      // Fallback to local employees
-      const User = require('../models/User');
-      const localEmployees = await User.find({ isActive: true })
-        .populate('division', 'name code')
-        .populate('section', 'name code')
-        .sort({ firstName: 1, lastName: 1 });
-
-      const transformedLocalEmployees = localEmployees.map((employee, index) => ({
-        _id: employee._id,
-        EMP_NUMBER: employee.employeeId,
-        FULLNAME: `${employee.firstName} ${employee.lastName}`,
-        CALLING_NAME: employee.firstName,
-        DESIGNATION: employee.role,
-        GENDER: employee.gender || 'N/A',
-        NIC: employee.nic || 'N/A',
-        DATE_OF_BIRTH: employee.dateOfBirth?.toISOString() || null,
-        DATE_OF_JOINING: employee.dateOfJoining?.toISOString() || null,
-        SECTION_CODE: employee.section?.code || 'N/A',
-        SECTION_NAME: employee.section?.name || 'No Section',
-        DIVISION_CODE: employee.division?.code || 'N/A',
-        DIVISION_NAME: employee.division?.name || 'No Division',
-        STATUS: employee.isActive ? 'ACTIVE' : 'INACTIVE',
-        source: 'LOCAL_FALLBACK'
-      }));
-
-      console.log(`Fallback: returning ${transformedLocalEmployees.length} local employees`);
-
-      res.status(200).json({
-        success: true,
-        message: 'HRIS API unavailable. Showing local employees as fallback.',
-        data: transformedLocalEmployees,
-        pagination: {
-          page: 1,
-          limit: transformedLocalEmployees.length,
-          total: transformedLocalEmployees.length,
-          totalPages: 1,
-          hasNextPage: false,
-          hasPrevPage: false
-        },
-        fallback: true,
-        originalError: 'HRIS API connection failed'
-      });
-    } catch (fallbackError) {
-      console.error('Fallback to local employees also failed:', fallbackError);
-      res.status(500).json({
-        success: false,
-        message: 'Both HRIS API and local database are unavailable',
-        error: error.message
-      });
-    }
+  } catch (error) {
+    console.error('❌ Get employees from MySQL error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch employees from MySQL',
+      error: error.message
+    });
   }
 };
 

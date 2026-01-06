@@ -1085,106 +1085,108 @@ const SectionManagement = () => {
     return emp?.ACTIVE_HRM_FLG === 1 || emp?.STATUS === 'ACTIVE' || emp?.status === 'ACTIVE' || emp?.isActive === true;
   };
 
-  // Fetch sections and divisions from HRIS APIs (read-only)
+  // Fetch sections and divisions from MySQL sync tables (fallback to HRIS)
   const fetchData = useCallback(async () => {
     try {
       const token = localStorage.getItem('token');
-      
-      if (!token) {
-        console.error('No authentication token found');
-        setLoading(false);
-        return;
-      }
 
-      // Fetch sections, divisions and cached employees in parallel from HRIS
-      const [sectionsResponse, divisionsResponse, employeesResponse] = await Promise.all([
-        fetch(`${API_BASE_URL}/sections/hris`, {
+      // Primary: Use fast MySQL sync data (no auth required)
+      // Fallback: Use HRIS endpoints (may require auth)
+      const [sectionsResponse, divisionsResponse] = await Promise.all([
+        // Try MySQL sections first, fallback to HRIS
+        fetch(`${API_BASE_URL}/mysql-data/sections`, {
           headers: {
-            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
           credentials: 'include'
-        }),
-        fetch(`${API_BASE_URL}/divisions/hris`, {
+        }).catch(() => fetch(`${API_BASE_URL}/sections/hris`, {
           headers: {
-            'Authorization': `Bearer ${token}`,
+            'Authorization': token ? `Bearer ${token}` : '',
             'Content-Type': 'application/json'
           },
           credentials: 'include'
-        })
-        ,
-        fetch(`${API_BASE_URL}/hris-cache/employees`, {
+        })),
+        // Try MySQL divisions first, fallback to HRIS
+        fetch(`${API_BASE_URL}/mysql-data/divisions`, {
           headers: {
-            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
           credentials: 'include'
-        })
+        }).catch(() => fetch(`${API_BASE_URL}/divisions/hris`, {
+          headers: {
+            'Authorization': token ? `Bearer ${token}` : '',
+            'Content-Type': 'application/json'
+          },
+          credentials: 'include'
+        }))
       ]);
 
-      if (sectionsResponse.ok) {
-        const sData = await sectionsResponse.json();
-        const rows = Array.isArray(sData?.data) ? sData.data : [];
-        setRawSections(rows);
-        const normalizedSections = rows.map((s) => {
-          const divisionId = String(s?.division_id ?? s?.DIVISION_ID ?? s?.division_code ?? s?.DIVISION_CODE ?? s?.hie_relationship ?? '');
-          const divisionName = s?.division_name ?? s?.DIVISION_NAME ?? '';
-          const sectionId = String(s?._id ?? s?.id ?? s?.SECTION_ID ?? s?.code ?? s?.hie_code ?? s?.SECTION_CODE ?? s?.section_code ?? '');
-          return {
-            _id: sectionId,
-            name: s?.name ?? s?.section_name ?? s?.SECTION_NAME ?? s?.hie_name ?? s?.hie_relationship ?? `Section ${sectionId}`,
-            division: divisionName ? { _id: divisionId || undefined, name: divisionName } : (divisionId || ''),
-            code: String(s?.code ?? s?.SECTION_CODE ?? s?.hie_code ?? s?.section_code ?? ''),
-            divisionCode: String(s?.division_code ?? s?.DIVISION_CODE ?? ''),
-            isActive: typeof s?.isActive === 'boolean' ? s.isActive : (typeof s?.active === 'boolean' ? s.active : true),
-            status: s?.status ?? undefined,
-            createdAt: s?.createdAt ?? s?.created_at ?? s?.CREATED_AT ?? s?.createdOn ?? s?.CREATED_ON ?? null,
-            _raw: s,
-          };
-        }).sort((a, b) => a.name.localeCompare(b.name));
-  setSections(normalizedSections);
-      } else {
-        console.error('Failed to fetch HRIS sections:', sectionsResponse.status, sectionsResponse.statusText);
-        setSections([]);
-      }
+      let sectionData = [];
+      let divisionData = [];
+      let divisionMap = {}; // Map of code -> _id
 
+      // 1. Process Divisions First to build the lookup map
       if (divisionsResponse.ok) {
         const dData = await divisionsResponse.json();
         const rows = Array.isArray(dData?.data) ? dData.data : [];
         setRawDivisions(rows);
-        const normalizedDivisions = rows.map((d) => ({
-          _id: String(d?._id ?? d?.id ?? d?.DIVISION_ID ?? d?.code ?? d?.hie_code ?? d?.DIVISION_CODE ?? ''),
-          code: String(d?.code ?? d?.DIVISION_CODE ?? d?.hie_code ?? ''),
-          name: d?.name ?? d?.DIVISION_NAME ?? d?.hie_name ?? d?.hie_relationship ?? 'Unknown Division',
-          _raw: d,
-        })).sort((a, b) => a.name.localeCompare(b.name));
-        setDivisions(normalizedDivisions);
-        // Set default to IS division if not chosen yet
-        const defId = findDefaultDivisionId(normalizedDivisions);
-        setSelectedDivision(prev => prev || defId);
-      } else {
-        console.error('Failed to fetch HRIS divisions:', divisionsResponse.status, divisionsResponse.statusText);
-        setDivisions([]);
+        
+        divisionData = rows.map((d) => {
+          const divisionId = String(d?._id ?? d?.id ?? d?.DIVISION_ID ?? d?.code ?? d?.division_code ?? d?.DIVISION_CODE ?? d?.hie_code ?? d?.HIE_CODE ?? '');
+          const divisionCode = String(d?.code ?? d?.DIVISION_CODE ?? d?.division_code ?? d?.hie_code ?? d?.HIE_CODE ?? '');
+          
+          if (divisionCode) divisionMap[divisionCode] = divisionId;
+          
+          return {
+            _id: divisionId,
+            name: d?.name ?? d?.division_name ?? d?.DIVISION_NAME ?? d?.hie_name ?? d?.HIE_NAME ?? d?.HIE_NAME_3 ?? `Division ${divisionId}`,
+            code: divisionCode,
+            isActive: typeof d?.isActive === 'boolean' ? d.isActive : (typeof d?.active === 'boolean' ? d.active : (d?.STATUS === 'ACTIVE')),
+            status: d?.status ?? d?.STATUS ?? undefined,
+            createdAt: d?.createdAt ?? d?.created_at ?? d?.CREATED_AT ?? d?.createdOn ?? d?.CREATED_ON ?? d?.synced_at ?? null,
+            source: d?.source ?? (divisionsResponse.url?.includes('/mysql-data') ? 'MySQL Sync' : 'HRIS'),
+            _raw: d,
+          };
+        }).sort((a, b) => a.name.localeCompare(b.name));
+        
+        console.log('Division Map (Code -> ID):', Object.keys(divisionMap).length, 'entries');
+        setDivisions(divisionData);
+        // Default to 'all' to ensure data shows up even if ID mapping is tricky
+        setSelectedDivision(prev => prev || 'all');
       }
 
-      // Employees (from cache) - compute active/inactive counts
-      if (employeesResponse && employeesResponse.ok) {
-        try {
-          const eData = await employeesResponse.json();
-          const rows = Array.isArray(eData?.data) ? eData.data : (Array.isArray(eData) ? eData : []);
-          const total = rows.length;
-          const active = rows.filter(isEmployeeActive).length;
-          setActiveEmployeeCount(active);
-          setInactiveEmployeeCount(Math.max(0, total - active));
-        } catch (e) {
-          console.warn('Failed parsing cached employees response:', e);
-          setActiveEmployeeCount(0);
-          setInactiveEmployeeCount(0);
-        }
-      } else {
-        if (employeesResponse) console.error('Failed to fetch cached employees:', employeesResponse.status, employeesResponse.statusText);
-        setActiveEmployeeCount(0);
-        setInactiveEmployeeCount(0);
+      // 2. Process Sections using the division map
+      if (sectionsResponse.ok) {
+        const sData = await sectionsResponse.json();
+        const rows = Array.isArray(sData?.data) ? sData.data : [];
+        setRawSections(rows);
+        
+        sectionData = rows.map((s) => {
+          // Identify division code from section data
+          const divCode = String(s?.division_code ?? s?.DIVISION_CODE ?? s?.HIE_RELATIONSHIP ?? s?.HIE_CODE_3 ?? '');
+          
+          // Try to resolve division ID from map, fallback to raw division_id field
+          const resolvedDivisionId = divCode && divisionMap[divCode] ? divisionMap[divCode] : String(s?.division_id ?? s?.DIVISION_ID ?? divCode ?? '');
+          
+          const divisionName = s?.division_name ?? s?.DIVISION_NAME ?? s?.parentDivision?.division_name ?? s?.parentDivision?.name ?? '';
+          const sectionId = String(s?._id ?? s?.id ?? s?.SECTION_ID ?? s?.code ?? s?.hie_code ?? s?.SECTION_CODE ?? s?.section_code ?? s?.HIE_CODE ?? '');
+          
+          return {
+            _id: sectionId,
+            name: s?.name ?? s?.section_name ?? s?.SECTION_NAME ?? s?.hie_name ?? s?.HIE_NAME ?? s?.HIE_NAME_4 ?? s?.hie_relationship ?? `Section ${sectionId}`,
+            // IMPORTANT: division field must match the _id used in division filter
+            division: divisionName ? { _id: resolvedDivisionId || undefined, name: divisionName } : (resolvedDivisionId || ''),
+            code: String(s?.code ?? s?.SECTION_CODE ?? s?.hie_code ?? s?.HIE_CODE ?? s?.section_code ?? ''),
+            divisionCode: divCode,
+            isActive: typeof s?.isActive === 'boolean' ? s.isActive : (typeof s?.active === 'boolean' ? s.active : (s?.STATUS === 'ACTIVE')),
+            status: s?.status ?? s?.STATUS ?? undefined,
+            createdAt: s?.createdAt ?? s?.created_at ?? s?.CREATED_AT ?? s?.createdOn ?? s?.CREATED_ON ?? s?.synced_at ?? null,
+            source: s?.source ?? (sectionsResponse.url?.includes('/mysql-data') ? 'MySQL Sync' : 'HRIS'),
+            _raw: s,
+          };
+        }).sort((a, b) => a.name.localeCompare(b.name));
+        
+        setSections(sectionData);
       }
 
       setLoading(false);

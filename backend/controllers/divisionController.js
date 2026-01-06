@@ -2,14 +2,9 @@ const Division = require('../models/Division');
 const Section = require('../models/Section');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
-const { 
-  readData, 
-  getCachedOrFetch, 
-  getCachedDivisions,
-  getCachedSections,
-  isCacheInitialized,
-  initializeCache 
-} = require('../services/hrisApiService');
+const hrisApiService = require('../services/hrisApiService'); // Only used for hierarchy sync, not cache
+const mysqlDataService = require('../services/mysqlDataService');
+// Note: HRIS cache is no longer used for data access - data comes from MySQL sync tables
 
 // @desc    Get all divisions
 // @route   GET /api/divisions
@@ -570,6 +565,51 @@ const getDivisionSections = async (req, res) => {
   }
 };
 
+// @desc    Get divisions directly from MySQL divisions_sync table
+// @route   GET /api/divisions/sync
+// @access  Private
+const getSyncDivisions = async (req, res) => {
+  try {
+    const {
+      search,
+      status = 'ACTIVE',
+      page = 1,
+      limit = req.query.limit ? parseInt(req.query.limit, 10) : 500
+    } = req.query;
+
+    // Pull from MySQL sync table (fast, read-only)
+    const allDivisions = await mysqlDataService.getDivisionsFromMySQL({ search, status });
+
+    // Simple in-memory pagination because dataset is small (< 1k rows)
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || allDivisions.length || 1;
+    const start = (pageNum - 1) * limitNum;
+    const paginated = allDivisions.slice(start, start + limitNum);
+
+    res.status(200).json({
+      success: true,
+      message: 'Divisions fetched from divisions_sync',
+      data: paginated,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: allDivisions.length,
+        totalPages: Math.max(1, Math.ceil(allDivisions.length / limitNum)),
+        hasNextPage: start + limitNum < allDivisions.length,
+        hasPrevPage: pageNum > 1
+      },
+      source: 'MySQL_SYNC'
+    });
+  } catch (error) {
+    console.error('Get divisions from divisions_sync error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Server error getting divisions from divisions_sync',
+      error: error.message
+    });
+  }
+};
+
 // @desc    Get division statistics
 // @route   GET /api/divisions/:id/stats
 // @access  Private
@@ -826,51 +866,64 @@ const getDivisionMySQLSections = async (req, res) => {
   }
 };
 
-// @desc    Get all divisions from HRIS API
+// @desc    Get all divisions from MySQL sync tables (replaces HRIS cache)
 // @route   GET /api/divisions/hris
 // @access  Public (for now)
 const getHrisDivisions = async (req, res) => {
   try {
-    console.log('📥 Fetching divisions from HRIS (using cache)...');
+    console.log('📥 Fetching divisions from MySQL sync tables...');
     
-    // Ensure cache is initialized
-    if (!isCacheInitialized()) {
-      console.log('🔄 Cache not initialized, initializing now...');
-      await initializeCache();
+    const { sequelize } = require('../models/mysql');
+    const { search } = req.query;
+    
+    // Build query
+    let whereClause = '';
+    const replacements = {};
+    
+    if (search) {
+      whereClause = 'WHERE (HIE_NAME LIKE :search OR HIE_CODE LIKE :search)';
+      replacements.search = `%${search}%`;
     }
     
-    // Try to get divisions from cache first
-    let divisions = getCachedDivisions();
+    // Fetch divisions with employee counts
+    const [divisions] = await sequelize.query(`
+      SELECT 
+        d.*,
+        COALESCE(e.emp_count, 0) as employee_count
+      FROM divisions_sync d
+      LEFT JOIN (
+        SELECT DIV_CODE, COUNT(*) as emp_count 
+        FROM employees_sync 
+        WHERE IS_ACTIVE = 1 
+        GROUP BY DIV_CODE
+      ) e ON d.HIE_CODE = e.DIV_CODE
+      ${whereClause}
+      ORDER BY d.HIE_NAME ASC
+    `, { replacements });
     
-    // If not in cache, fetch and cache
-    if (!divisions) {
-      console.log('⚠️ Divisions not in cache, fetching from API...');
-      const allHierarchy = await getCachedOrFetch('company_hierarchy', {});
-      divisions = allHierarchy.filter(item => item.DEF_LEVEL === 3 || item.DEF_LEVEL === '3');
-    }
-    
-    // Transform HRIS data to match frontend expectations
+    // Transform to frontend expected format
     const transformedDivisions = divisions.map((division, index) => ({
-      _id: division.HIE_CODE_4 || division.HIE_CODE || `hris_${index}`,
-      code: division.HIE_CODE_4 || division.HIE_CODE || 'N/A',
-      name: division.HIE_NAME_3 || division.HIE_NAME || 'Unknown Division',
+      _id: `mysql_div_${division.HIE_CODE}`,
+      code: division.HIE_CODE || 'N/A',
+      name: division.HIE_NAME || 'Unknown Division',
       description: division.HIE_NAME_SINHALA || '',
-      isActive: true, // Assume all HRIS divisions are active
-      employeeCount: 0, // Will need separate call to get this
-      createdAt: new Date().toISOString(),
+      isActive: true,
+      employeeCount: division.employee_count || 0,
+      createdAt: division.created_at || new Date().toISOString(),
       status: 'ACTIVE',
-      // Additional HRIS specific fields
-      hie_code: division.HIE_CODE_4 || division.HIE_CODE,
-      hie_name: division.HIE_NAME_3 || division.HIE_NAME,
+      // Additional fields for compatibility
+      hie_code: division.HIE_CODE,
+      hie_name: division.HIE_NAME,
       hie_relationship: division.HIE_RELATIONSHIP,
-      def_level: division.DEF_LEVEL
+      def_level: 3,
+      source: 'MySQL'
     }));
 
-    console.log(`Successfully fetched ${transformedDivisions.length} divisions from HRIS`);
+    console.log(`✅ Successfully fetched ${transformedDivisions.length} divisions from MySQL`);
 
     res.status(200).json({
       success: true,
-      message: 'HRIS divisions fetched successfully',
+      message: 'Divisions fetched from MySQL sync tables',
       data: transformedDivisions,
       pagination: {
         page: 1,
@@ -879,102 +932,65 @@ const getHrisDivisions = async (req, res) => {
         totalPages: 1,
         hasNextPage: false,
         hasPrevPage: false
-      }
+      },
+      source: 'MySQL'
     });
-  } catch (error) {
-    console.error('Get HRIS divisions error:', error.message);
-    console.error('Falling back to local divisions...');
     
-    try {
-      // Fallback to local divisions with HRIS-like structure
-      const localDivisions = await Division.find({ isActive: true })
-        .populate('manager', 'firstName lastName email employeeId')
-        .populate('employeeCount')
-        .populate('sectionCount')
-        .sort({ name: 1 });
-
-      // Transform local divisions to match HRIS format
-      const transformedLocalDivisions = localDivisions.map((division, index) => ({
-        _id: division._id,
-        code: division.code || `DIV${String(index + 1).padStart(3, '0')}`,
-        name: division.name,
-        description: division.description || '',
-        isActive: division.isActive,
-        employeeCount: division.employeeCount || 0,
-        createdAt: division.createdAt?.toISOString() || new Date().toISOString(),
-        status: division.isActive ? 'ACTIVE' : 'INACTIVE',
-        // HRIS-like fields for compatibility
-        hie_code: division.code || `DIV${String(index + 1).padStart(3, '0')}`,
-        hie_name: division.name,
-        hie_relationship: 'LOCAL_DB',
-        def_level: 3,
-        source: 'LOCAL_FALLBACK'
-      }));
-
-      console.log(`Fallback: returning ${transformedLocalDivisions.length} local divisions`);
-
-      res.status(200).json({
-        success: true,
-        message: 'HRIS API unavailable. Showing local divisions as fallback.',
-        data: transformedLocalDivisions,
-        pagination: {
-          page: 1,
-          limit: transformedLocalDivisions.length,
-          total: transformedLocalDivisions.length,
-          totalPages: 1,
-          hasNextPage: false,
-          hasPrevPage: false
-        },
-        fallback: true,
-        originalError: 'HRIS API connection failed'
-      });
-    } catch (fallbackError) {
-      console.error('Fallback to local divisions also failed:', fallbackError);
-      res.status(500).json({
-        success: false,
-        message: 'Both HRIS API and local database are unavailable',
-        error: error.message
-      });
-    }
+  } catch (error) {
+    console.error('❌ Get divisions from MySQL error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch divisions from MySQL',
+      error: error.message
+    });
   }
 };
 
-// @desc    Get combined divisions from both local DB and HRIS API
+// @desc    Get combined divisions from both local DB and MySQL sync
 // @route   GET /api/divisions/combined
 // @access  Public (for now)
 const getCombinedDivisions = async (req, res) => {
   try {
-    const { prioritize = 'hris' } = req.query; // 'hris' or 'local'
+    const { prioritize = 'mysql' } = req.query; // 'mysql' or 'local'
+    const { sequelize } = require('../models/mysql');
 
     let divisions = [];
-    let hrisDivisions = [];
+    let mysqlDivisions = [];
     let localDivisions = [];
 
     try {
-      // Ensure cache is initialized
-      if (!isCacheInitialized()) {
-        await initializeCache();
-      }
+      // Fetch divisions from MySQL sync table
+      const [mysqlData] = await sequelize.query(`
+        SELECT 
+          d.*,
+          COALESCE(e.emp_count, 0) as employee_count
+        FROM divisions_sync d
+        LEFT JOIN (
+          SELECT DIV_CODE, COUNT(*) as emp_count 
+          FROM employees_sync 
+          WHERE IS_ACTIVE = 1 
+          GROUP BY DIV_CODE
+        ) e ON d.HIE_CODE = e.DIV_CODE
+        ORDER BY d.HIE_NAME ASC
+      `);
       
-      // Fetch HRIS divisions from cache
-      const hrisData = getCachedDivisions() || [];
-      hrisDivisions = hrisData.map((division, index) => ({
-        _id: `hris_${division.HIE_CODE || index}`,
+      mysqlDivisions = mysqlData.map((division, index) => ({
+        _id: `mysql_${division.HIE_CODE || index}`,
         code: division.HIE_CODE || 'N/A',
         name: division.HIE_NAME || 'Unknown Division',
         description: division.HIE_NAME_SINHALA || '',
         isActive: true,
-        employeeCount: 0,
-        createdAt: new Date().toISOString(),
+        employeeCount: division.employee_count || 0,
+        createdAt: division.created_at || new Date().toISOString(),
         status: 'ACTIVE',
-        source: 'HRIS',
+        source: 'MySQL',
         hie_code: division.HIE_CODE,
         hie_name: division.HIE_NAME,
         hie_relationship: division.HIE_RELATIONSHIP,
-        def_level: division.DEF_LEVEL
+        def_level: 3
       }));
-    } catch (hrisError) {
-      console.warn('Failed to fetch HRIS divisions:', hrisError.message);
+    } catch (mysqlError) {
+      console.warn('Failed to fetch MySQL divisions:', mysqlError.message);
     }
 
     try {
@@ -996,10 +1012,10 @@ const getCombinedDivisions = async (req, res) => {
     }
 
     // Combine divisions based on priority
-    if (prioritize === 'hris') {
-      divisions = [...hrisDivisions, ...localDivisions];
+    if (prioritize === 'mysql') {
+      divisions = [...mysqlDivisions, ...localDivisions];
     } else {
-      divisions = [...localDivisions, ...hrisDivisions];
+      divisions = [...localDivisions, ...mysqlDivisions];
     }
 
     // Remove duplicates based on name (case insensitive)
@@ -1022,7 +1038,7 @@ const getCombinedDivisions = async (req, res) => {
         hasPrevPage: false
       },
       meta: {
-        hrisCount: hrisDivisions.length,
+        mysqlCount: mysqlDivisions.length,
         localCount: localDivisions.length,
         totalCount: uniqueDivisions.length,
         prioritize
@@ -1048,6 +1064,7 @@ module.exports = {
   getDivisionMySQLSections,
   getDivisionStats,
   toggleDivisionStatus,
+  getSyncDivisions,
   getHrisDivisions,
   getCombinedDivisions
 };

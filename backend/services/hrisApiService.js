@@ -11,13 +11,8 @@ const HRIS_PASSWORD = 'Is@division_2026';
 let token = null;
 let tokenExpiresAt = null;
 
-// Cache configuration
-const CACHE_TTL = 30 * 60 * 1000; // 30 minutes cache TTL
-const cache = {
-  data: {},
-  timestamps: {},
-  isInitialized: false
-};
+// Cache configuration removed
+
 
 const login = async () => {
   try {
@@ -124,145 +119,15 @@ const readData = async (collection, filter_array = {}, project = '', paginate = 
   }
 };
 
-// Check if cache is valid for a given key
-const isCacheValid = (key) => {
-  if (!cache.timestamps[key]) return false;
-  const age = Date.now() - cache.timestamps[key];
-  return age < CACHE_TTL;
-};
-
-// Get cached data if available and valid
-const getCachedData = (key) => {
-  if (isCacheValid(key)) {
-    console.log(`📦 Using cached data for: ${key}`);
-    return cache.data[key];
-  }
-  return null;
-};
-
-// Set cache data
-const setCacheData = (key, data) => {
-  cache.data[key] = data;
-  cache.timestamps[key] = Date.now();
-  console.log(`💾 Cached data for: ${key} (TTL: ${CACHE_TTL / 1000}s)`);
-};
-
-// Clear specific cache or all cache
-const clearCache = (key = null) => {
-  if (key) {
-    delete cache.data[key];
-    delete cache.timestamps[key];
-    console.log(`🗑️ Cleared cache for: ${key}`);
-  } else {
-    cache.data = {};
-    cache.timestamps = {};
-    console.log('🗑️ Cleared all cache');
-  }
-};
-
-// Initialize HRIS data cache - called once at server startup or user login
-const initializeCache = async () => {
-  try {
-    console.log('🚀 Initializing HRIS data cache...');
-    
-    // Login to HRIS
-    await login();
-    
-    // Fetch all critical data at once
-    console.log('📥 Fetching company hierarchy...');
-    const hierarchy = await readData('company_hierarchy', {});
-    setCacheData('company_hierarchy', hierarchy);
-    
-    // Extract divisions (Level 3) and sections (Level 4)
-    const divisions = hierarchy.filter(item => item.DEF_LEVEL === 3 || item.DEF_LEVEL === '3');
-    const sections = hierarchy.filter(item => item.DEF_LEVEL === 4 || item.DEF_LEVEL === '4');
-    
-    setCacheData('divisions', divisions);
-    setCacheData('sections', sections);
-    
-    console.log('📥 Fetching employees...');
-    const employees = await readData('employee', {});
-    setCacheData('employees', employees);
-    
-    cache.isInitialized = true;
-    console.log(`✅ HRIS cache initialized successfully`);
-    console.log(`   - Hierarchy items: ${hierarchy.length}`);
-    console.log(`   - Divisions: ${divisions.length}`);
-    console.log(`   - Sections: ${sections.length}`);
-    console.log(`   - Employees: ${employees.length}`);
-    
-    return true;
-  } catch (error) {
-    console.error('❌ Failed to initialize HRIS cache:', error.message);
-    cache.isInitialized = false;
-    return false;
-  }
-};
-
-// Get cached or fetch data with smart caching
-const getCachedOrFetch = async (collection, filter_array = {}, project = '', paginate = false) => {
-  // Generate cache key based on collection and filters
-  const cacheKey = `${collection}_${JSON.stringify(filter_array)}`;
-  
-  // Check if we have valid cached data
-  const cachedData = getCachedData(cacheKey);
-  if (cachedData) {
-    return cachedData;
-  }
-  
-  // Fetch fresh data
-  console.log(`🔄 Fetching fresh data for: ${collection}`);
-  const data = await readData(collection, filter_array, project, paginate);
-  
-  // Cache the result
-  setCacheData(cacheKey, data);
-  
-  return data;
-};
-
-// Get divisions from cache
-const getCachedDivisions = () => {
-  const cached = getCachedData('divisions');
-  if (cached) return cached;
-  
-  // Fallback to hierarchy if divisions not cached separately
-  const hierarchy = getCachedData('company_hierarchy');
-  if (hierarchy) {
-    const divisions = hierarchy.filter(item => item.DEF_LEVEL === 3 || item.DEF_LEVEL === '3');
-    setCacheData('divisions', divisions);
-    return divisions;
-  }
-  
-  return null;
-};
-
-// Get sections from cache
-const getCachedSections = () => {
-  const cached = getCachedData('sections');
-  if (cached) return cached;
-  
-  // Fallback to hierarchy if sections not cached separately
-  const hierarchy = getCachedData('company_hierarchy');
-  if (hierarchy) {
-    const sections = hierarchy.filter(item => item.DEF_LEVEL === 4 || item.DEF_LEVEL === '4');
-    setCacheData('sections', sections);
-    return sections;
-  }
-  
-  return null;
-};
-
-// Get employees from cache
-const getCachedEmployees = () => {
-  return getCachedData('employees');
-};
-
-// Refresh cache manually
-const refreshCache = async () => {
-  console.log('🔄 Manually refreshing HRIS cache...');
-  clearCache();
-  return await initializeCache();
-};
+// Deprecated cache functions - kept as no-ops to prevent crashes if referenced
+const initializeCache = async () => { console.warn('⚠️ initializeCache is deprecated'); return true; };
+const refreshCache = async () => { console.warn('⚠️ refreshCache is deprecated'); return true; };
+const clearCache = () => { console.warn('⚠️ clearCache is deprecated'); };
+const getCachedOrFetch = async () => { console.warn('⚠️ getCachedOrFetch is deprecated'); return []; };
+const getCachedDivisions = () => { console.warn('⚠️ getCachedDivisions is deprecated'); return []; };
+const getCachedSections = () => { console.warn('⚠️ getCachedSections is deprecated'); return []; };
+const getCachedEmployees = () => { console.warn('⚠️ getCachedEmployees is deprecated'); return []; };
+const isCacheInitialized = () => { return true; }; // Always return true to avoid blocking
 
 module.exports = {
   login,
@@ -274,5 +139,5 @@ module.exports = {
   getCachedDivisions,
   getCachedSections,
   getCachedEmployees,
-  isCacheInitialized: () => cache.isInitialized
+  isCacheInitialized
 };

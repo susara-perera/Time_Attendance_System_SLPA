@@ -15,15 +15,14 @@ const {
 } = require('../controllers/authController');
 const { auth } = require('../middleware/auth');
 const { authValidation, userValidation } = require('../middleware/validation');
-const { ensureCacheInitialized } = require('../middleware/cacheCheck');
+// Cache check removed - using MySQL sync tables
 
 const router = express.Router();
 
 // @route   POST /api/auth/login
 // @desc    Login user
 // @access  Public
-// @note    Ensures HRIS cache is initialized before allowing login
-router.post('/login', authValidation.login, ensureCacheInitialized, login);
+router.post('/login', authValidation.login, login);
 
 // @route   POST /api/auth/logout
 // @desc    Logout user

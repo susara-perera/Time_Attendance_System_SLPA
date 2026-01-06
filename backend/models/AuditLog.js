@@ -22,13 +22,19 @@ const auditLogSchema = new mongoose.Schema({
   'division_created', 'division_updated', 'division_deleted', 'section_created', 'section_updated', 'section_deleted',
   // SubSection actions
   'subsection_created', 'subsection_updated', 'subsection_deleted', 'subsections_viewed', 'subsection_viewed',
+  // MySQL SubSection actions
+  'mysql_subsection_created', 'mysql_subsection_updated', 'mysql_subsection_deleted', 'mysql_subsections_viewed',
   // MySQL transfer actions
-  'mysql_transfers_all_listed',
+  'mysql_transfers_all_listed', 'mysql_transfers_listed', 'mysql_employee_transferred', 
+  'mysql_employee_transferred_bulk', 'mysql_transfer_recalled', 'mysql_transfer_recalled_bulk',
   // Employee Transfer actions
   'employee_transferred_to_subsection', 'employee_transfer_recalled',
       
       // Meal actions
       'meal_ordered', 'meal_updated', 'meal_cancelled', 'meal_served', 'meal_paid',
+      'meals_viewed', 'meal_viewed', 'user_meal_bookings_viewed', 'meal_bookings_viewed', 
+      'meal_stats_viewed', 'meal_created', 'meal_booked', 'meal_rated', 
+      'meal_menu_generated', 'meal_deleted', 'meal_booking_cancelled',
       
       // Report actions
       'report_generated', 'report_downloaded', 'report_viewed',
@@ -47,7 +53,7 @@ const auditLogSchema = new mongoose.Schema({
     type: {
       type: String,
       required: [true, 'Entity type is required'],
-  enum: ['User', 'Attendance', 'Division', 'Section', 'SubSection', 'TransferToSubsection', 'Meal', 'Settings', 'Report', 'System']
+  enum: ['User', 'Attendance', 'Division', 'Section', 'SubSection', 'MySQLSubSection', 'TransferToSubsection', 'Meal', 'Settings', 'Report', 'System']
     },
     id: {
       type: mongoose.Schema.Types.ObjectId,

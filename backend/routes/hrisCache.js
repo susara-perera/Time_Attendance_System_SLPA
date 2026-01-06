@@ -1,118 +1,105 @@
 const express = require('express');
 const router = express.Router();
 const { auth, authorize } = require('../middleware/auth');
-const { 
-  refreshCache, 
-  clearCache, 
-  isCacheInitialized,
-  getCachedDivisions,
-  getCachedSections,
-  getCachedEmployees
-} = require('../services/hrisApiService');
+const { sequelize } = require('../models/mysql');
 
 // @route   GET /api/hris-cache/status
-// @desc    Get HRIS cache status
+// @desc    Get MySQL sync tables status (replaces HRIS cache)
 // @access  Private
 router.get('/status', auth, async (req, res) => {
   try {
-    const isInitialized = isCacheInitialized();
-    const divisions = getCachedDivisions();
-    const sections = getCachedSections();
-    const employees = getCachedEmployees();
+    const [[divCount]] = await sequelize.query('SELECT COUNT(*) as count FROM divisions_sync');
+    const [[secCount]] = await sequelize.query('SELECT COUNT(*) as count FROM sections_sync');
+    const [[empCount]] = await sequelize.query('SELECT COUNT(*) as count FROM employees_sync WHERE IS_ACTIVE = 1');
 
     res.status(200).json({
       success: true,
       data: {
-        isInitialized,
-        divisionsCount: divisions ? divisions.length : 0,
-        sectionsCount: sections ? sections.length : 0,
-        employeesCount: employees ? employees.length : 0,
-        hasDivisions: !!divisions,
-        hasSections: !!sections,
-        hasEmployees: !!employees
+        isInitialized: true,
+        divisionsCount: divCount?.count || 0,
+        sectionsCount: secCount?.count || 0,
+        employeesCount: empCount?.count || 0,
+        hasDivisions: divCount?.count > 0,
+        hasSections: secCount?.count > 0,
+        hasEmployees: empCount?.count > 0,
+        source: 'MySQL'
       }
     });
   } catch (error) {
     console.error('Get cache status error:', error);
     res.status(500).json({
       success: false,
-      message: 'Error getting cache status'
+      message: 'Error getting MySQL sync status'
     });
   }
 });
 
 // @route   POST /api/hris-cache/refresh
-// @desc    Manually refresh HRIS cache
+// @desc    Trigger manual HRIS sync to MySQL
 // @access  Private (super_admin only)
 router.post('/refresh', auth, authorize('super_admin'), async (req, res) => {
   try {
-    console.log('🔄 Manual cache refresh requested by:', req.user.email);
-    const success = await refreshCache();
+    console.log('🔄 Manual sync refresh requested by:', req.user.email);
+    const { triggerManualSync } = require('../services/hrisSyncScheduler');
+    await triggerManualSync(req.user.email);
 
-    if (success) {
-      res.status(200).json({
-        success: true,
-        message: 'HRIS cache refreshed successfully'
-      });
-    } else {
-      res.status(500).json({
-        success: false,
-        message: 'Failed to refresh HRIS cache'
-      });
-    }
+    res.status(200).json({
+      success: true,
+      message: 'MySQL sync completed successfully'
+    });
   } catch (error) {
-    console.error('Refresh cache error:', error);
+    console.error('Refresh sync error:', error);
     res.status(500).json({
       success: false,
-      message: 'Error refreshing cache'
+      message: 'Error running sync'
     });
   }
 });
 
 // @route   POST /api/hris-cache/clear
-// @desc    Clear HRIS cache
+// @desc    Clear sync (deprecated - no-op)
 // @access  Private (super_admin only)
 router.post('/clear', auth, authorize('super_admin'), async (req, res) => {
-  try {
-    console.log('🗑️ Cache clear requested by:', req.user.email);
-    clearCache();
-
-    res.status(200).json({
-      success: true,
-      message: 'HRIS cache cleared successfully'
-    });
-  } catch (error) {
-    console.error('Clear cache error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error clearing cache'
-    });
-  }
+  res.status(200).json({
+    success: true,
+    message: 'No action needed - data persists in MySQL'
+  });
 });
 
 // @route   GET /api/hris-cache/employees
-// @desc    Get all cached employees from HRIS
+// @desc    Get all employees from MySQL sync table
 // @access  Private
 router.get('/employees', auth, async (req, res) => {
   try {
-    const employees = getCachedEmployees();
-
-    if (!employees) {
-      return res.status(503).json({
-        success: false,
-        message: 'HRIS cache not initialized yet'
-      });
-    }
+    const [employees] = await sequelize.query(`
+      SELECT 
+        EMP_NO as EMP_NUMBER,
+        EMP_NAME as FULLNAME,
+        EMP_FIRST_NAME as CALLING_NAME,
+        EMP_NIC as NIC,
+        EMP_DESIGNATION as DESIGNATION,
+        EMP_DATE_JOINED as DATE_JOINED,
+        DIV_CODE as DIVISION_CODE,
+        DIV_NAME as DIVISION_NAME,
+        SEC_CODE as SECTION_CODE,
+        SEC_NAME as SECTION_NAME,
+        STATUS,
+        IS_ACTIVE
+      FROM employees_sync 
+      WHERE IS_ACTIVE = 1 
+      ORDER BY EMP_NAME ASC
+    `);
 
     res.status(200).json({
       success: true,
-      data: employees
+      data: employees,
+      source: 'MySQL'
     });
   } catch (error) {
-    console.error('Get cached employees error:', error);
+    console.error('Get employees error:', error);
     res.status(500).json({
       success: false,
-      message: 'Error getting cached employees'
+      message: 'Error getting employees from MySQL'
     });
   }
 });

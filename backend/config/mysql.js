@@ -1,4 +1,24 @@
 const mysql = require('mysql2/promise');
+const { Sequelize } = require('sequelize');
+
+// Sequelize instance for ORM operations
+const sequelize = new Sequelize(
+  process.env.MYSQL_DATABASE || 'slpa_db',
+  process.env.MYSQL_USER || 'root',
+  process.env.MYSQL_PASSWORD || '',
+  {
+    host: process.env.MYSQL_HOST || 'localhost',
+    port: process.env.MYSQL_PORT || 3306,
+    dialect: 'mysql',
+    logging: false, // Set to console.log to see SQL queries
+    pool: {
+      max: 10,
+      min: 0,
+      acquire: 30000,
+      idle: 10000
+    }
+  }
+);
 
 // Simple MySQL connection for reports and attendance data
 const createMySQLConnection = async () => {
@@ -37,6 +57,7 @@ const testMySQLConnection = async () => {
 };
 
 module.exports = {
+  sequelize,
   createMySQLConnection,
   testMySQLConnection,
   ensureMySQLSchema
@@ -165,6 +186,35 @@ async function ensureMySQLSchema() {
     `;
     await conn.execute(ddlMoneyAllowanceEmployees);
     console.log('🛠️  Ensured MySQL table exists: money_allowance_employees');
+
+    // Create sync tables for HRIS data
+    const fs = require('fs');
+    const path = require('path');
+    const syncTablesSQL = path.join(__dirname, 'createSyncTables.sql');
+    
+    if (fs.existsSync(syncTablesSQL)) {
+      const sqlContent = fs.readFileSync(syncTablesSQL, 'utf8');
+      // Split by semicolon and execute each statement
+      const statements = sqlContent
+        .split(';')
+        .map(s => s.trim())
+        .filter(s => s.length > 0 && !s.startsWith('--') && !s.startsWith('/*'));
+      
+      for (const statement of statements) {
+        if (statement.toUpperCase().includes('CREATE TABLE') || 
+            statement.toUpperCase().includes('INSERT INTO')) {
+          try {
+            await conn.execute(statement);
+          } catch (err) {
+            // Ignore errors for tables that already exist
+            if (!err.message.includes('already exists')) {
+              console.warn('⚠️  SQL execution warning:', err.message);
+            }
+          }
+        }
+      }
+      console.log('🛠️  Ensured MySQL sync tables exist (divisions_sync, sections_sync, employees_sync, sync_logs)');
+    }
   } catch (err) {
     console.error('❌ Failed ensuring MySQL schema:', err.message);
   } finally {

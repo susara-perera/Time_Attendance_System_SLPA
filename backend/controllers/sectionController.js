@@ -3,13 +3,7 @@ const User = require('../models/User');
 const Division = require('../models/Division');
 const AuditLog = require('../models/AuditLog');
 const { validationResult } = require('express-validator');
-const { 
-  readData, 
-  getCachedOrFetch, 
-  getCachedSections,
-  isCacheInitialized,
-  initializeCache 
-} = require('../services/hrisApiService');
+// Note: HRIS cache is no longer used - data comes from MySQL sync tables
 
 // @desc    Get all sections
 // @route   GET /api/sections
@@ -713,65 +707,74 @@ const removeEmployeeFromSection = async (req, res) => {
   }
 };
 
-// @desc    Get all sections from HRIS API
+// @desc    Get all sections from MySQL sync tables (replaces HRIS cache)
 // @route   GET /api/sections/hris
 // @access  Public (for now)
 const getHrisSections = async (req, res) => {
   try {
-    console.log('📥 Fetching sections from HRIS (using cache)...');
+    console.log('📥 Fetching sections from MySQL sync tables...');
     
-    // Ensure cache is initialized
-    if (!isCacheInitialized()) {
-      console.log('🔄 Cache not initialized, initializing now...');
-      await initializeCache();
+    const { sequelize } = require('../models/mysql');
+    const { search, division } = req.query;
+    
+    // Build query
+    let whereClause = '';
+    const replacements = {};
+    
+    if (search) {
+      whereClause = 'WHERE (s.HIE_NAME_4 LIKE :search OR s.HIE_CODE LIKE :search)';
+      replacements.search = `%${search}%`;
     }
     
-    // Try to get sections from cache first
-    let sections = getCachedSections();
-    
-    // If not in cache, fetch and cache
-    if (!sections) {
-      console.log('⚠️ Sections not in cache, fetching from API...');
-      const allHierarchy = await getCachedOrFetch('company_hierarchy', {});
-      sections = allHierarchy.filter(item => item.DEF_LEVEL === 4 || item.DEF_LEVEL === '4');
+    if (division && division !== 'all') {
+      whereClause += whereClause ? ' AND ' : 'WHERE ';
+      whereClause += 's.HIE_CODE_3 = :division';
+      replacements.division = String(division);
     }
     
-    // Get divisions for mapping
-    const allHierarchy = await getCachedOrFetch('company_hierarchy', {});
-    const divisions = allHierarchy.filter(item => item.DEF_LEVEL === 3 || item.DEF_LEVEL === '3');
-    const divisionMap = {};
-    divisions.forEach(div => {
-      divisionMap[div.HIE_CODE] = div.HIE_NAME_3 || div.HIE_NAME;
-    });
+    // Fetch sections with employee counts
+    const [sections] = await sequelize.query(`
+      SELECT 
+        s.*,
+        d.HIE_NAME as division_name,
+        COALESCE(e.emp_count, 0) as employee_count
+      FROM sections_sync s
+      LEFT JOIN divisions_sync d ON s.HIE_CODE_3 = d.HIE_CODE
+      LEFT JOIN (
+        SELECT SEC_CODE, COUNT(*) as emp_count 
+        FROM employees_sync 
+        WHERE IS_ACTIVE = 1 
+        GROUP BY SEC_CODE
+      ) e ON s.HIE_CODE = e.SEC_CODE
+      ${whereClause}
+      ORDER BY s.HIE_NAME_4 ASC
+    `, { replacements });
     
-    // Transform HRIS data to match frontend expectations
-    const transformedSections = sections.map((section, index) => {
-      const divisionName = divisionMap[section.HIE_RELATIONSHIP] || `Division ${section.HIE_RELATIONSHIP}`;
-      
-      return {
-        _id: section.HIE_CODE_3 || section.HIE_CODE || `hris_section_${index}`,
-        code: section.HIE_CODE_3 || section.HIE_CODE || 'N/A',
-        name: section.HIE_NAME_4 || section.HIE_NAME || 'Unknown Section',
-        description: section.HIE_NAME_SINHALA || '',
-        isActive: true, // Assume all HRIS sections are active
-        employeeCount: 0, // Will need separate call to get this
-        createdAt: new Date().toISOString(),
-        status: 'ACTIVE',
-        // Additional HRIS specific fields
-        hie_code: section.HIE_CODE_3 || section.HIE_CODE,
-        hie_name: section.HIE_NAME_4 || section.HIE_NAME,
-        hie_relationship: divisionName, // Use division name instead of code
-        def_level: section.DEF_LEVEL,
-        division_code: section.HIE_RELATIONSHIP, // Keep original code for reference
-        division_name: divisionName // Explicit division name field
-      };
-    });
+    // Transform to frontend expected format
+    const transformedSections = sections.map((section, index) => ({
+      _id: `mysql_sec_${section.HIE_CODE}`,
+      code: section.HIE_CODE || 'N/A',
+      name: section.HIE_NAME_4 || 'Unknown Section',
+      description: section.HIE_NAME_SINHALA || '',
+      isActive: true,
+      employeeCount: section.employee_count || 0,
+      createdAt: section.created_at || new Date().toISOString(),
+      status: 'ACTIVE',
+      // Additional fields for compatibility
+      hie_code: section.HIE_CODE,
+      hie_name: section.HIE_NAME_4,
+      hie_relationship: section.division_name || section.HIE_CODE_3,
+      def_level: 4,
+      division_code: section.HIE_CODE_3,
+      division_name: section.division_name,
+      source: 'MySQL'
+    }));
 
-    console.log(`Successfully fetched ${transformedSections.length} sections from HRIS`);
+    console.log(`✅ Successfully fetched ${transformedSections.length} sections from MySQL`);
 
     res.status(200).json({
       success: true,
-      message: 'HRIS sections fetched successfully',
+      message: 'Sections fetched from MySQL sync tables',
       data: transformedSections,
       pagination: {
         page: 1,
@@ -780,64 +783,17 @@ const getHrisSections = async (req, res) => {
         totalPages: 1,
         hasNextPage: false,
         hasPrevPage: false
-      }
+      },
+      source: 'MySQL'
     });
-  } catch (error) {
-    console.error('Get HRIS sections error:', error.message);
-    console.error('Falling back to local sections...');
     
-    try {
-      // Fallback to local sections with HRIS-like structure
-      const Section = require('../models/Section');
-      const localSections = await Section.find({ isActive: true })
-        .populate('division', 'name code')
-        .populate('supervisor', 'firstName lastName email employeeId')
-        .populate('employeeCount')
-        .sort({ name: 1 });
-
-      // Transform local sections to match HRIS format
-      const transformedLocalSections = localSections.map((section, index) => ({
-        _id: section._id,
-        code: section.code || `SEC${String(index + 1).padStart(3, '0')}`,
-        name: section.name,
-        description: section.description || '',
-        isActive: section.isActive,
-        employeeCount: section.employeeCount || 0,
-        createdAt: section.createdAt?.toISOString() || new Date().toISOString(),
-        status: section.isActive ? 'ACTIVE' : 'INACTIVE',
-        // HRIS-like fields for compatibility
-        hie_code: section.code || `SEC${String(index + 1).padStart(3, '0')}`,
-        hie_name: section.name,
-        hie_relationship: section.division ? section.division.name : 'LOCAL_DB',
-        def_level: 4,
-        source: 'LOCAL_FALLBACK'
-      }));
-
-      console.log(`Fallback: returning ${transformedLocalSections.length} local sections`);
-
-      res.status(200).json({
-        success: true,
-        message: 'HRIS API unavailable. Showing local sections as fallback.',
-        data: transformedLocalSections,
-        pagination: {
-          page: 1,
-          limit: transformedLocalSections.length,
-          total: transformedLocalSections.length,
-          totalPages: 1,
-          hasNextPage: false,
-          hasPrevPage: false
-        },
-        fallback: true,
-        originalError: 'HRIS API connection failed'
-      });
-    } catch (fallbackError) {
-      console.error('Fallback to local sections also failed:', fallbackError);
-      res.status(500).json({
-        success: false,
-        message: 'Both HRIS API and local database are unavailable',
-        error: error.message
-      });
-    }
+  } catch (error) {
+    console.error('❌ Get sections from MySQL error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch sections from MySQL',
+      error: error.message
+    });
   }
 };
 

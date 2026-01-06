@@ -3,6 +3,12 @@ const MySQLUser = require('./User');
 const MySQLDivision = require('./Division');
 const MySQLSection = require('./Section');
 
+// Import sync models
+const DivisionSync = require('./DivisionSync')(sequelize);
+const SectionSync = require('./SectionSync')(sequelize);
+const EmployeeSync = require('./EmployeeSync')(sequelize);
+const SyncLog = require('./SyncLog')(sequelize);
+
 // Define associations
 MySQLUser.belongsTo(MySQLDivision, { 
   foreignKey: 'divisionId', 
@@ -53,5 +59,10 @@ module.exports = {
   sequelize,
   MySQLUser,
   MySQLDivision,
-  MySQLSection
+  MySQLSection,
+  // Sync models
+  DivisionSync,
+  SectionSync,
+  EmployeeSync,
+  SyncLog
 };

@@ -31,7 +31,7 @@ exports.list = async (req, res, next) => {
     const { sectionId } = req.query;
     conn = await createMySQLConnection();
 
-    let sql = 'SELECT * FROM subsections';
+    let sql = 'SELECT * FROM sub_sections';
     const params = [];
     if (sectionId && sectionId !== 'all') {
       sql += ' WHERE section_id = ?';
@@ -76,7 +76,7 @@ exports.create = async (req, res, next) => {
     };
 
     conn = await createMySQLConnection();
-    const sql = `INSERT INTO subsections
+    const sql = `INSERT INTO sub_sections
       (division_id, division_code, division_name, section_id, section_code, section_name, sub_name, sub_code)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
     const params = [
@@ -88,7 +88,7 @@ exports.create = async (req, res, next) => {
     await conn.execute(sql, params);
 
     // Fetch created row id
-    const [row] = await conn.execute('SELECT * FROM subsections WHERE section_id = ? AND sub_code = ? LIMIT 1', [payload.section_id, payload.sub_code]);
+    const [row] = await conn.execute('SELECT * FROM sub_sections WHERE section_id = ? AND sub_code = ? LIMIT 1', [payload.section_id, payload.sub_code]);
     const created = Array.isArray(row) && row[0] ? mapRow(row[0]) : null;
 
     // Log audit trail for MySQL sub-section creation
@@ -152,14 +152,14 @@ exports.update = async (req, res, next) => {
     if (newCode) { setParts.push('sub_code = ?'); params.push(newCode); }
     params.push(String(id));
 
-    const sql = `UPDATE subsections SET ${setParts.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`;
+    const sql = `UPDATE sub_sections SET ${setParts.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`;
     const [result] = await conn.execute(sql, params);
 
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'Sub-section not found' });
     }
 
-    const [rows] = await conn.execute('SELECT * FROM subsections WHERE id = ? LIMIT 1', [String(id)]);
+    const [rows] = await conn.execute('SELECT * FROM sub_sections WHERE id = ? LIMIT 1', [String(id)]);
     const updated = Array.isArray(rows) && rows[0] ? mapRow(rows[0]) : null;
 
     // Log audit trail for MySQL sub-section update
@@ -207,10 +207,10 @@ exports.remove = async (req, res, next) => {
     conn = await createMySQLConnection();
     
     // Fetch the subsection before deletion for audit log
-    const [existingRows] = await conn.execute('SELECT * FROM subsections WHERE id = ? LIMIT 1', [String(id)]);
+    const [existingRows] = await conn.execute('SELECT * FROM sub_sections WHERE id = ? LIMIT 1', [String(id)]);
     const existing = Array.isArray(existingRows) && existingRows[0] ? existingRows[0] : null;
     
-    const [result] = await conn.execute('DELETE FROM subsections WHERE id = ?', [String(id)]);
+    const [result] = await conn.execute('DELETE FROM sub_sections WHERE id = ?', [String(id)]);
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'Sub-section not found' });
     }

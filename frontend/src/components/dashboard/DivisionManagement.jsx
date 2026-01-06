@@ -73,47 +73,76 @@ const DivisionManagement = () => {
   // Helper: normalize text for case-insensitive comparisons
   const normalizeTextKey = (s) => (typeof s === 'string' ? s.replace(/\s+/g, ' ').trim().toLowerCase() : '');
 
-  // Fetch divisions from HRIS API (read-only display)
+  // Fetch divisions from MySQL sync table (fallback to legacy HRIS endpoint)
   const fetchDivisions = async () => {
     try {
       const token = localStorage.getItem('token');
-      
-      if (!token) {
-        console.error('No authentication token found');
+
+      // Primary: Use fast MySQL sync data (no auth required)
+      // Fallback: Use HRIS endpoint (may require auth)
+      const endpoints = [
+        `${API_BASE_URL}/mysql-data/divisions`,  // Fast MySQL sync (no auth)
+        `${API_BASE_URL}/divisions/hris`         // Legacy HRIS (may require auth)
+      ];
+
+      let response;
+      let data = null;
+      let successfulUrl = null;
+
+      for (const url of endpoints) {
+        console.log(`Fetching divisions from ${url}...`);
+        try {
+          // MySQL endpoint doesn't require auth, HRIS might
+          const headers = {
+            'Content-Type': 'application/json'
+          };
+
+          if (url.includes('/hris') && token) {
+            headers['Authorization'] = `Bearer ${token}`;
+          }
+
+          response = await fetch(url, {
+            headers: headers,
+            credentials: 'include'
+          });
+
+          if (response.ok) {
+            data = await response.json();
+            console.log('Divisions API Response:', data);
+            successfulUrl = url;
+            setIsHrisSource(url.includes('/hris'));
+            break;
+          } else {
+            const errorText = await response.text();
+            console.warn(`Division fetch failed at ${url}:`, response.status, response.statusText, errorText);
+          }
+        } catch (err) {
+          console.error(`Error fetching from ${url}:`, err);
+        }
+      }
+
+      if (!data || !data.data) {
+        console.error('No division data received from any endpoint');
+        setDivisions([]);
         setLoading(false);
         return;
       }
 
-      console.log('Fetching divisions from HRIS API...');
-      const response = await fetch(`${API_BASE_URL}/divisions/hris`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include'
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('HRIS API Response:', data);
-        const rows = Array.isArray(data?.data) ? data.data : [];
-        // Normalize to local shape expected by the table
-        const normalized = rows.map((d) => ({
-          _id: String(d?._id ?? d?.id ?? d?.DIVISION_ID ?? d?.code ?? d?.hie_code ?? d?.DIVISION_CODE ?? ''),
-          code: String(d?.code ?? d?.DIVISION_CODE ?? d?.hie_code ?? ''),
-          name: d?.name ?? d?.DIVISION_NAME ?? d?.hie_name ?? d?.hie_relationship ?? 'Unknown Division',
-          isActive: typeof d?.isActive === 'boolean' ? d.isActive : (typeof d?.active === 'boolean' ? d.active : true),
-          employeeCount: d?.employeeCount ?? d?.count ?? undefined,
-          createdAt: d?.createdAt ?? d?.created_at ?? d?.CREATED_AT ?? d?.createdOn ?? d?.CREATED_ON ?? null,
-        })).sort((a, b) => a.name.localeCompare(b.name));
-        setDivisions(normalized);
-        setIsHrisSource(true);
-      } else {
-        console.error('Failed to fetch divisions:', response.status, response.statusText);
-        const errorText = await response.text();
-        console.error('Error details:', errorText);
-        setDivisions([]);
-      }
+      const rows = Array.isArray(data?.data) ? data.data : [];
+      // Normalize to local shape expected by the table
+      // Handle both MySQL sync data and HRIS data formats
+      const normalized = rows.map((d) => ({
+        _id: String(d?._id ?? d?.id ?? d?.DIVISION_ID ?? d?.code ?? d?.hie_code ?? d?.DIVISION_CODE ?? d?.HIE_CODE ?? ''),
+        code: String(d?.code ?? d?.DIVISION_CODE ?? d?.hie_code ?? d?.HIE_CODE ?? ''),
+        name: d?.name ?? d?.DIVISION_NAME ?? d?.hie_name ?? d?.HIE_NAME ?? d?.hie_relationship ?? 'Unknown Division',
+        nameSinhala: d?.HIE_NAME_SINHALA ?? d?.name_sinhala ?? '',
+        nameTamil: d?.HIE_NAME_TAMIL ?? d?.name_tamil ?? '',
+        isActive: typeof d?.isActive === 'boolean' ? d.isActive : (typeof d?.active === 'boolean' ? d.active : (d?.STATUS === 'ACTIVE')),
+        employeeCount: d?.employeeCount ?? d?.count ?? undefined,
+        createdAt: d?.createdAt ?? d?.created_at ?? d?.CREATED_AT ?? d?.createdOn ?? d?.CREATED_ON ?? d?.synced_at ?? null,
+        source: d?.source ?? (successfulUrl?.includes('/mysql-data') ? 'MySQL Sync' : 'HRIS')
+      })).sort((a, b) => a.name.localeCompare(b.name));
+      setDivisions(normalized);
     } catch (error) {
       console.error('Error fetching divisions:', error);
       setDivisions([]);
