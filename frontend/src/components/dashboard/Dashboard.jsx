@@ -13,6 +13,7 @@ import RoleAccessManagement from './RoleAccessManagement';
 import RoleManagement from './RoleManagement';
 import ApiDataViewer from './ApiDataViewer';
 import Settings from './Settings';
+import ManualSync from './ManualSync';
 import Footer from './Footer';
 import './Dashboard.css';
 import logo from '../../assets/PortAuthLogo.png';
@@ -89,6 +90,9 @@ const Dashboard = () => {
         break;
       case 'roles':
         setActiveSection('roles');
+        break;
+      case 'sync':
+        setActiveSection('sync');
         break;
       case 'settings':
         setActiveSection('settings');
@@ -204,6 +208,8 @@ const Dashboard = () => {
         return <RoleAccessManagement />;
       case 'role-management':
         return <RoleManagement />;
+      case 'sync':
+        return <ManualSync />;
       case 'api':
         return <ApiDataViewer />;
       case 'settings':
@@ -261,6 +267,13 @@ const Dashboard = () => {
       label: t('sectionManagement'),
       icon: 'bi-diagram-3',
       color: 'purple',
+      roles: ['super_admin', 'admin']
+    },
+    {
+      id: 'sync',
+      label: 'Manual Sync',
+      icon: 'bi-arrow-repeat',
+      color: 'info',
       roles: ['super_admin', 'admin']
     },
     {

@@ -56,7 +56,7 @@ const auditLogSchema = new mongoose.Schema({
   enum: ['User', 'Attendance', 'Division', 'Section', 'SubSection', 'MySQLSubSection', 'TransferToSubsection', 'Meal', 'Settings', 'Report', 'System']
     },
     id: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: mongoose.Schema.Types.Mixed, // Changed to Mixed to support MySQL numeric IDs and MongoDB ObjectIds
       required: false // Made optional to handle cases where ID might not be available immediately
     },
     name: {

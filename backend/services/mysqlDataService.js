@@ -197,6 +197,56 @@ const getSectionFromMySQL = async (hieCode) => {
 };
 
 /**
+ * Get subsections from MySQL with filtering
+ */
+const getSubSectionsFromMySQL = async (filters = {}) => {
+  try {
+    let whereClause = '';
+    const replacements = {};
+
+    // Section filter
+    if (filters.sectionCode) {
+      whereClause = `WHERE section_code = :sectionCode`;
+      replacements.sectionCode = filters.sectionCode;
+    }
+
+    // Division filter (if provided)
+    if (filters.divisionCode) {
+      whereClause += whereClause ? ' AND ' : 'WHERE ';
+      whereClause += `division_code = :divisionCode`;
+      replacements.divisionCode = filters.divisionCode;
+    }
+
+    const [subsections] = await sequelize.query(
+      `SELECT * FROM sub_sections ${whereClause} ORDER BY sub_name ASC`,
+      {
+        replacements,
+        nest: false,
+        raw: true
+      }
+    );
+
+    return subsections.map(sub => ({
+      _id: String(sub.id),
+      id: sub.id,
+      sub_name: sub.sub_name,
+      sub_code: sub.sub_code,
+      section_code: sub.section_code,
+      division_code: sub.division_code,
+      section_name: sub.section_name,
+      division_name: sub.division_name,
+      created_at: sub.created_at,
+      updated_at: sub.updated_at,
+      source: 'MySQL'
+    }));
+
+  } catch (error) {
+    console.error('❌ [MySQL] Error fetching subsections:', error.message);
+    throw error;
+  }
+};
+
+/**
  * Get employees from MySQL with filtering
  */
 const getEmployeesFromMySQL = async (filters = {}) => {
@@ -204,35 +254,40 @@ const getEmployeesFromMySQL = async (filters = {}) => {
     let whereClause = '';
     const replacements = {};
 
+    // Exclude transferred employees (those with transferred_status = TRUE)
+    // Use LEFT JOIN to find employees NOT in transferred_employees with TRUE status
+    let joinClause = `
+      LEFT JOIN transferred_employees te 
+      ON employees_sync.EMP_NO = te.employee_id AND te.transferred_status = TRUE
+    `;
+    whereClause = `WHERE te.id IS NULL`; // Only include employees not transferred
+
     // Search filter
     if (filters.search) {
-      whereClause = `WHERE (EMP_NAME LIKE :search OR EMP_NO LIKE :search OR EMP_NIC LIKE :search OR EMP_EMAIL LIKE :search)`;
+      whereClause += ` AND (EMP_NAME LIKE :search OR EMP_NO LIKE :search OR EMP_NIC LIKE :search OR EMP_EMAIL LIKE :search)`;
       replacements.search = `%${filters.search}%`;
     }
 
     // Division filter
     if (filters.divisionCode) {
-      whereClause += whereClause ? ' AND ' : 'WHERE ';
-      whereClause += `DIV_CODE = :divisionCode`;
+      whereClause += ` AND DIV_CODE = :divisionCode`;
       replacements.divisionCode = filters.divisionCode;
     }
 
     // Section filter
     if (filters.sectionCode) {
-      whereClause += whereClause ? ' AND ' : 'WHERE ';
-      whereClause += `SEC_CODE = :sectionCode`;
+      whereClause += ` AND SEC_CODE = :sectionCode`;
       replacements.sectionCode = filters.sectionCode;
     }
 
     // Designation filter
     if (filters.designation) {
-      whereClause += whereClause ? ' AND ' : 'WHERE ';
-      whereClause += `EMP_DESIGNATION LIKE :designation`;
+      whereClause += ` AND EMP_DESIGNATION LIKE :designation`;
       replacements.designation = `%${filters.designation}%`;
     }
 
     const [employees] = await sequelize.query(
-      `SELECT * FROM employees_sync ${whereClause} ORDER BY EMP_NAME ASC`,
+      `SELECT employees_sync.* FROM employees_sync ${joinClause} ${whereClause} ORDER BY EMP_NAME ASC`,
       {
         replacements,
         nest: false,
@@ -252,6 +307,7 @@ const getEmployeesFromMySQL = async (filters = {}) => {
       EMP_PHONE: emp.EMP_PHONE,
       EMP_MOBILE: emp.EMP_MOBILE,
       EMP_ADDRESS: emp.EMP_ADDRESS,
+      EMP_GENDER: emp.EMP_GENDER,
       EMP_STATUS: emp.EMP_STATUS,
       EMP_TYPE: emp.EMP_TYPE,
       EMP_DESIGNATION: emp.EMP_DESIGNATION,
@@ -311,6 +367,7 @@ const getEmployeeFromMySQL = async (empNo) => {
       EMP_PHONE: emp.EMP_PHONE,
       EMP_MOBILE: emp.EMP_MOBILE,
       EMP_ADDRESS: emp.EMP_ADDRESS,
+      EMP_GENDER: emp.EMP_GENDER,
       EMP_STATUS: emp.EMP_STATUS,
       EMP_TYPE: emp.EMP_TYPE,
       EMP_DESIGNATION: emp.EMP_DESIGNATION,
@@ -413,6 +470,9 @@ module.exports = {
   getSectionsFromMySQL,
   getSectionFromMySQL,
   getEmployeeCountBySection,
+  
+  // Subsections
+  getSubSectionsFromMySQL,
   
   // Employees
   getEmployeesFromMySQL,

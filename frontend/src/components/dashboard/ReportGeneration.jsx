@@ -8,6 +8,14 @@ import { useLanguage } from '../../context/LanguageContext';
 
 const ReportGeneration = () => {
   const { t } = useLanguage();
+  
+  // Helper function to format date without timezone issues
+  const formatDateToYYYYMMDD = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
   const [activeStep, setActiveStep] = useState('report');
   const [reportType, setReportType] = useState('attendance');
   const [reportScope, setReportScope] = useState('individual');
@@ -36,10 +44,16 @@ const ReportGeneration = () => {
       setSubSections([]);
       setSubSectionId('all');
     } else {
-      // Filter sections by matching divisionId (same logic as EmployeeManagement.jsx)
+      // Filter sections by matching divisionId (MySQL sync uses division_code field)
       const sectionsForDivision = allSections.filter(section => {
-        const sectionDivId = String(section.division_id || section.divisionId || section.DIVISION_ID || '');
-        const selectedDivId = String(divisionId);
+        const sectionDivId = String(section.division_code || section.division_id || section.divisionId || section.DIVISION_ID || '');
+        let selectedDivId = String(divisionId);
+        
+        // Handle MySQL sync ID prefix if present (from getHrisDivisions)
+        if (selectedDivId.startsWith('mysql_div_')) {
+          selectedDivId = selectedDivId.replace('mysql_div_', '');
+        }
+        
         return sectionDivId === selectedDivId;
       });
       
@@ -138,12 +152,14 @@ const ReportGeneration = () => {
       if (!id) return;
       if (seen.has(id)) return;
       seen.add(id);
-      const divisionId = String(s.division_id ?? s.DIVISION_ID ?? s.division_code ?? s.DIVISION_CODE ?? s.hie_relationship ?? '');
+      // MySQL sync returns division_code, not division_id
+      const divisionId = String(s.division_code ?? s.division_id ?? s.DIVISION_ID ?? s.division_code ?? s.DIVISION_CODE ?? s.hie_relationship ?? '');
       out.push({
         _id: id,
         id,
         code: String(s.code ?? s.SECTION_CODE ?? s.hie_code ?? s.section_code ?? id),
         name: s.name ?? s.section_name ?? s.SECTION_NAME ?? s.hie_relationship ?? `Section ${id}`,
+        division_code: divisionId || '',  // Primary field from MySQL sync
         division_id: divisionId || '',
         divisionId: divisionId || '',
         DIVISION_ID: divisionId || '',
@@ -196,7 +212,7 @@ const ReportGeneration = () => {
     fetchAllSections();
     
     // Set default date range to today
-    const today = new Date().toISOString().split('T')[0];
+    const today = formatDateToYYYYMMDD(new Date());
     setDateRange({
       startDate: today,
       endDate: today
@@ -218,7 +234,7 @@ const ReportGeneration = () => {
 
     switch (timePeriod) {
       case 'daily':
-        startDate = endDate = today.toISOString().split('T')[0];
+        startDate = endDate = formatDateToYYYYMMDD(today);
         break;
       
       case 'weekly':
@@ -226,26 +242,26 @@ const ReportGeneration = () => {
         const dayOfWeek = today.getDay();
         const startOfWeek = new Date(today);
         startOfWeek.setDate(today.getDate() - dayOfWeek);
-        startDate = startOfWeek.toISOString().split('T')[0];
-        endDate = today.toISOString().split('T')[0];
+        startDate = formatDateToYYYYMMDD(startOfWeek);
+        endDate = formatDateToYYYYMMDD(today);
         break;
       
       case 'monthly':
         // Start of current month
         const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-        startDate = startOfMonth.toISOString().split('T')[0];
-        endDate = today.toISOString().split('T')[0];
+        startDate = formatDateToYYYYMMDD(startOfMonth);
+        endDate = formatDateToYYYYMMDD(today);
         break;
       
       case 'annually':
         // Start of current year
         const startOfYear = new Date(today.getFullYear(), 0, 1);
-        startDate = startOfYear.toISOString().split('T')[0];
-        endDate = today.toISOString().split('T')[0];
+        startDate = formatDateToYYYYMMDD(startOfYear);
+        endDate = formatDateToYYYYMMDD(today);
         break;
       
       default:
-        startDate = endDate = today.toISOString().split('T')[0];
+        startDate = endDate = formatDateToYYYYMMDD(today);
     }
 
     setDateRange({ startDate, endDate });
@@ -340,9 +356,9 @@ const ReportGeneration = () => {
   const fetchDivisions = async () => {
     try {
       const token = localStorage.getItem('token');
-      console.log('📥 Fetching HRIS divisions...');
+      console.log('📥 Fetching divisions from MySQL data...');
       
-      const response = await fetch('http://localhost:5000/api/divisions/hris', {
+      const response = await fetch('http://localhost:5000/api/mysql-data/divisions', {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -360,7 +376,7 @@ const ReportGeneration = () => {
 
         // Use normalizeDivisions helper (same as EmployeeManagement)
         const normalized = normalizeDivisions(divisionsArray);
-        console.log(`✅ Loaded ${normalized.length} HRIS divisions`);
+        console.log(`✅ Loaded ${normalized.length} divisions from MySQL data`);
         setDivisions(normalized);
       } else {
         console.error('Failed to fetch divisions:', response.status);
@@ -375,24 +391,14 @@ const ReportGeneration = () => {
   const fetchAllSections = async () => {
     try {
       const token = localStorage.getItem('token');
-      // Prefer HRIS sections (same source as SectionManagement) and fallback to generic /sections
-      let response = await fetch('http://localhost:5000/api/sections/hris', {
+      console.log('📥 Fetching sections from MySQL data...');
+      
+      const response = await fetch('http://localhost:5000/api/mysql-data/sections', {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       });
-
-      if (!response.ok) {
-        // Fallback to legacy endpoint
-        console.warn('HRIS sections endpoint returned non-OK, falling back to /api/sections', response.status);
-        response = await fetch('http://localhost:5000/api/sections', {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-      }
 
       if (response.ok) {
         const data = await response.json();
@@ -408,32 +414,36 @@ const ReportGeneration = () => {
 
         // Use normalizeSections helper (same as EmployeeManagement)
         const normalized = normalizeSections(sectionsArray);
-        console.log(`✅ Loaded ${normalized.length} HRIS sections`);
+        console.log(`✅ Loaded ${normalized.length} sections from MySQL data`);
         console.log('Sample sections with division_id:', normalized.slice(0, 3).map(s => ({
-          section: s.name,
-          section_id: s._id,
-          division_id: s.division_id
+          id: s.id,
+          name: s.name,
+          divisionId: s.divisionId,
+          divisionCode: s.divisionCode
         })));
-
         setAllSections(normalized);
-        setSections(normalized);
       } else {
+        console.error('Failed to fetch sections:', response.status);
         setAllSections([]);
-        setSections([]);
       }
     } catch (err) {
       console.error('Error fetching sections:', err);
       setAllSections([]);
-      setSections([]);
     }
   };
 
   const fetchSubSections = async (sectionId) => {
     try {
       const token = localStorage.getItem('token');
-      console.log(`📥 Fetching sub sections for section: ${sectionId}`);
+      // Strip 'mysql_sec_' prefix if present to get the actual code
+      let cleanSectionId = sectionId;
+      if (typeof sectionId === 'string' && sectionId.startsWith('mysql_sec_')) {
+        cleanSectionId = sectionId.replace('mysql_sec_', '');
+      }
+
+      console.log(`📥 Fetching sub sections for section: ${sectionId} (clean: ${cleanSectionId})`);
       
-      const response = await fetch(`http://localhost:5000/api/mysql-subsections?sectionId=${sectionId}`, {
+      const response = await fetch(`http://localhost:5000/api/mysql-data/subsections?sectionCode=${cleanSectionId}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -500,62 +510,51 @@ const ReportGeneration = () => {
         if (reportScope === 'individual') {
           payload.employee_id = employeeId;
         } else if (reportScope === 'group') {
-          // For group reports, send HRIS division and section NAMES for matching against HRIS employee data
+          // For group reports, send division and section CODES/IDs (MySQL Sync based)
           if (subSectionId !== 'all' && sectionId !== 'all') {
-            // If sub section is selected, send the database ID for querying transfers
+            // If sub section is selected, send the database ID; clear section/division to avoid filtering out transfers
             const selectedSubSection = subSections.find(ss => (ss._id || ss.id) === subSectionId);
             if (selectedSubSection) {
-              // Send the actual database ID (not the name) for querying subsection_transfers table
+              // Send the actual database ID for querying transferred_employees table
               payload.sub_section_id = subSectionId;
-              payload.section_id = selectedSubSection.parentSection?.hie_name || '';
-              payload.division_id = selectedSubSection.parentDivision?.division_name || '';
+              // Clear section/division filters so that transferred employees from ANY section are included
+              payload.section_id = ''; 
+              payload.division_id = '';
               
               console.log('Selected sub section details:', {
                 sub_section_db_id: subSectionId,
-                sub_section_name: selectedSubSection.subSection?.sub_hie_name || selectedSubSection.subSection?.name || '',
-                section_name: payload.section_id,
-                division_name: payload.division_id,
+                sub_section_name: selectedSubSection.subSection?.sub_hie_name || selectedSubSection.subSection?.name || selectedSubSection.sub_name || selectedSubSection.sub_code || '',
                 full_sub_section: selectedSubSection
               });
             }
           } else if (sectionId !== 'all') {
-            // If section is selected, use section's HRIS names
+            // If section is selected, use section's CODE (HIE_CODE) match backend expectation
             const selectedSection = sections.find(s => (s._id || s.id || s.section_id) === sectionId);
             if (selectedSection) {
-              // Use the HRIS section name (HIE_NAME_4 from HRIS) - name field contains the HIE_NAME_4 value
-              payload.section_id = selectedSection.name || selectedSection.section_name || 
-                                  selectedSection.hie_name || selectedSection.SECTION_NAME || '';
-              // Use the HRIS division name (HIE_NAME_3 from HRIS) that this section belongs to
-              payload.division_id = selectedSection.divisionName || selectedSection.division_name || 
-                                   selectedSection.DIVISION_NAME || '';
+              // Use the section CODE
+              payload.section_id = selectedSection.code || selectedSection.hie_code || '';
+              // Use the division CODE
+              payload.division_id = selectedSection.divisionCode || selectedSection.division_code || '';
               
               console.log('🎯 Selected section details:', {
                 section_id: sectionId,
-                section_name: payload.section_id,
-                division_name: payload.division_id,
-                full_section: selectedSection,
-                available_fields: {
-                  name: selectedSection.name,
-                  section_name: selectedSection.section_name,
-                  hie_name: selectedSection.hie_name,
-                  divisionName: selectedSection.divisionName,
-                  division_name: selectedSection.division_name
-                }
+                section_code: payload.section_id,
+                division_code: payload.division_id,
+                full_section: selectedSection
               });
             }
           } else if (divisionId !== 'all') {
-            // If division selected with "All Sections", use division's HRIS name and empty section
+            // If division selected with "All Sections", use division's CODE
             const selectedDivision = divisions.find(d => (d._id || d.id) === divisionId);
             if (selectedDivision) {
-              // Use the HRIS division name (prefer hie_name which is HIE_NAME_3); fall back to hie_relationship if needed
-              // Backend matches against emp.currentwork.HIE_NAME_3, so use hie_name first
-              payload.division_id = selectedDivision.hie_name || selectedDivision.hie_relationship || selectedDivision.name || selectedDivision.DIVISION_NAME || '';
+              // Use the division CODE
+              payload.division_id = selectedDivision.code || selectedDivision.hie_code || '';
               // Empty section means all sections in this division
               payload.section_id = '';
               
               console.log('🎯 Selected division with all sections:', {
                 division_id: divisionId,
-                division_name: payload.division_id,
+                division_code: payload.division_id,
                 section_filter: 'All Sections',
                 full_division: selectedDivision,
                 available_fields: {
@@ -593,11 +592,11 @@ const ReportGeneration = () => {
           if (selectedSubSection) {
             // Send the actual database ID (not the name) for querying subsection_transfers table
             payload.sub_section_id = subSectionId;
-            payload.section_id = selectedSubSection.parentSection?.hie_name || '';
-            payload.division_id = selectedSubSection.parentDivision?.division_name || '';
+            payload.section_id = selectedSubSection.parentSection?.hie_name || selectedSubSection.section_name || '';
+            payload.division_id = selectedSubSection.parentDivision?.division_name || selectedSubSection.division_name || '';
             console.log('🔍 Audit sub section filter:', {
               sub_section_db_id: subSectionId,
-              sub_section_name: selectedSubSection.subSection?.sub_hie_name || selectedSubSection.subSection?.name || '',
+              sub_section_name: selectedSubSection.subSection?.sub_hie_name || selectedSubSection.subSection?.name || selectedSubSection.sub_name || selectedSubSection.sub_code || '',
               section_id: payload.section_id,
               division_id: payload.division_id,
               selectedSubSection
@@ -1331,7 +1330,7 @@ const ReportGeneration = () => {
       else if (startMode === 'year') selectedDate = new Date(year, 0, 1);
       else selectedDate = new Date(year, month, day);
 
-      const dateStr = selectedDate.toISOString().split('T')[0];
+      const dateStr = formatDateToYYYYMMDD(selectedDate);
       setDateRange({ startDate: dateStr, endDate: dateStr });
       setCurrentMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
       setCalendarSelectMode('end');
@@ -1345,7 +1344,7 @@ const ReportGeneration = () => {
       else if (endMode === 'year') selectedDate = new Date(year, 11, 31);
       else selectedDate = new Date(year, month, day);
 
-      const dateStr = selectedDate.toISOString().split('T')[0];
+      const dateStr = formatDateToYYYYMMDD(selectedDate);
 
       if (dateStr < dateRange.startDate) {
         setDateRange({ startDate: dateStr, endDate: dateRange.startDate });
@@ -1373,7 +1372,7 @@ const ReportGeneration = () => {
         selectedDate = new Date(year, month, day);
       }
 
-      const dateStr = selectedDate.toISOString().split('T')[0];
+      const dateStr = formatDateToYYYYMMDD(selectedDate);
 
       // If end date exists and new start date is after end date, update end date to match
       if (dateRange.endDate && dateStr > dateRange.endDate) {
@@ -1414,7 +1413,7 @@ const ReportGeneration = () => {
     if (!day || !dateRange.startDate) return false;
     const year = monthDate.getFullYear();
     const month = monthDate.getMonth();
-    const dateStr = new Date(year, month, day).toISOString().split('T')[0];
+    const dateStr = formatDateToYYYYMMDD(new Date(year, month, day));
     return dateStr === dateRange.startDate;
   };
 
@@ -1423,7 +1422,7 @@ const ReportGeneration = () => {
     if (!day || !dateRange.endDate) return false;
     const year = monthDate.getFullYear();
     const month = monthDate.getMonth();
-    const dateStr = new Date(year, month, day).toISOString().split('T')[0];
+    const dateStr = formatDateToYYYYMMDD(new Date(year, month, day));
     return dateStr === dateRange.endDate;
   };
 
@@ -1456,7 +1455,7 @@ const ReportGeneration = () => {
     if (!day) return false;
     const year = monthDate.getFullYear();
     const month = monthDate.getMonth();
-    const dateStr = new Date(year, month, day).toISOString().split('T')[0];
+    const dateStr = formatDateToYYYYMMDD(new Date(year, month, day));
     return dateStr === dateRange.startDate;
   };
 
@@ -1464,7 +1463,7 @@ const ReportGeneration = () => {
     if (!day) return false;
     const year = monthDate.getFullYear();
     const month = monthDate.getMonth();
-    const dateStr = new Date(year, month, day).toISOString().split('T')[0];
+    const dateStr = formatDateToYYYYMMDD(new Date(year, month, day));
     return dateStr === dateRange.endDate;
   };
 
@@ -1472,7 +1471,7 @@ const ReportGeneration = () => {
     if (!day || !dateRange.startDate || !dateRange.endDate) return false;
     const year = monthDate.getFullYear();
     const month = monthDate.getMonth();
-    const dateStr = new Date(year, month, day).toISOString().split('T')[0];
+    const dateStr = formatDateToYYYYMMDD(new Date(year, month, day));
     return dateStr >= dateRange.startDate && dateStr <= dateRange.endDate;
   };
 
@@ -1480,7 +1479,7 @@ const ReportGeneration = () => {
     if (!day || !dateRange.endDate) return false;
     const year = monthDate.getFullYear();
     const month = monthDate.getMonth();
-    const dateStr = new Date(year, month, day).toISOString().split('T')[0];
+    const dateStr = formatDateToYYYYMMDD(new Date(year, month, day));
     return dateStr > dateRange.endDate;
   };
 
@@ -1488,7 +1487,7 @@ const ReportGeneration = () => {
     if (!day || !dateRange.startDate) return false;
     const year = monthDate.getFullYear();
     const month = monthDate.getMonth();
-    const dateStr = new Date(year, month, day).toISOString().split('T')[0];
+    const dateStr = formatDateToYYYYMMDD(new Date(year, month, day));
     return dateStr < dateRange.startDate;
   };
 
@@ -1641,11 +1640,14 @@ const ReportGeneration = () => {
                       disabled={sectionId === 'all' || divisionId === 'all'}
                     >
                       <option value="all">{t('allSubSectionsLabel')}</option>
-                      {(sectionId !== 'all' && divisionId !== 'all') && (Array.isArray(subSections) ? subSections : []).map(sub => (
-                        <option key={sub._id || sub.id} value={sub._id || sub.id}>
-                          {sub.subSection?.sub_hie_name || sub.subSection?.name || sub.subSection?.hie_name || 'Unnamed'}
-                        </option>
-                      ))}
+                      {(sectionId !== 'all' && divisionId !== 'all') && (Array.isArray(subSections) ? subSections : []).map(sub => {
+                        const subName = sub.subSection?.sub_hie_name || sub.subSection?.name || sub.subSection?.hie_name || sub.sub_name || sub.sub_hie_name || sub.sub_section_name || sub.sub_code || 'Unnamed';
+                        return (
+                          <option key={sub._id || sub.id} value={sub._id || sub.id}>
+                            {subName}
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
                 </div>
@@ -1695,448 +1697,189 @@ const ReportGeneration = () => {
               )}
             </div>
 
-            {/* Section 3: Date Selection */}
+            {/* Section 3: Date Selection (Dual Calendar Layout) */}
             {reportGrouping !== 'designation' && (
               <div className="form-section-group date-range-section">
-                {/* Selection Mode Chooser */}
-                <div style={{
-                  marginBottom: '24px',
-                  padding: '20px',
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                  borderRadius: '12px',
-                  color: '#fff'
-                }}>
-                  <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 600 }}>
-                    <i className="bi bi-calendar-range" style={{ marginRight: '8px' }}></i>
-                    Select Report Time Period
-                  </h3>
-                  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectionMode('single-date')}
-                      style={{
-                        padding: '12px 20px',
-                        borderRadius: '8px',
-                        border: 'none',
-                        background: selectionMode === 'single-date' ? '#fff' : 'rgba(255,255,255,0.2)',
-                        color: selectionMode === 'single-date' ? '#667eea' : '#fff',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
-                      }}
-                    >
-                      <i className="bi bi-calendar-day" style={{ marginRight: '6px' }}></i>
-                      Single Date
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSelectionMode('date-range')}
-                      style={{
-                        padding: '12px 20px',
-                        borderRadius: '8px',
-                        border: 'none',
-                        background: selectionMode === 'date-range' ? '#fff' : 'rgba(255,255,255,0.2)',
-                        color: selectionMode === 'date-range' ? '#667eea' : '#fff',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
-                      }}
-                    >
-                      <i className="bi bi-calendar-range" style={{ marginRight: '6px' }}></i>
-                      Date Range
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSelectionMode('single-month')}
-                      style={{
-                        padding: '12px 20px',
-                        borderRadius: '8px',
-                        border: 'none',
-                        background: selectionMode === 'single-month' ? '#fff' : 'rgba(255,255,255,0.2)',
-                        color: selectionMode === 'single-month' ? '#667eea' : '#fff',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
-                      }}
-                    >
-                      <i className="bi bi-calendar-month" style={{ marginRight: '6px' }}></i>
-                      Single Month
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSelectionMode('single-year')}
-                      style={{
-                        padding: '12px 20px',
-                        borderRadius: '8px',
-                        border: 'none',
-                        background: selectionMode === 'single-year' ? '#fff' : 'rgba(255,255,255,0.2)',
-                        color: selectionMode === 'single-year' ? '#667eea' : '#fff',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
-                      }}
-                    >
-                      <i className="bi bi-calendar4-range" style={{ marginRight: '6px' }}></i>
-                      Single Year
-                    </button>
-                  </div>
-                </div>
-
-                {/* Single Date Selection */}
-                {selectionMode === 'single-date' && (
-                  <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                    <h4 style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: 600, color: '#475569' }}>
-                      Select a Single Date
-                    </h4>
-                    <input
-                      type="date"
-                      value={dateRange.startDate}
-                      onChange={(e) => setDateRange({ startDate: e.target.value, endDate: e.target.value })}
-                      style={{
-                        width: '100%',
-                        maxWidth: '400px',
-                        padding: '12px',
-                        borderRadius: '8px',
-                        border: '2px solid #e2e8f0',
-                        fontSize: '14px',
-                        fontWeight: 500,
-                        color: '#1e293b',
-                        background: '#fff'
-                      }}
-                    />
-                  </div>
-                )}
-
-                {/* Date Range Selection */}
-                {selectionMode === 'date-range' && (
-                  <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                    <h4 style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: 600, color: '#475569' }}>
-                      Select Date Range
-                    </h4>
-                    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                      <div style={{ flex: '1', minWidth: '200px' }}>
-                        <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
-                          Start Date
-                        </label>
-                        <input
-                          type="date"
-                          value={dateRange.startDate}
+                <div style={{ padding: '20px', background: '#fff', borderRadius: '10px', border: '1px solid #e2e8f0', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                  
+                  {/* Header with From/To inputs */}
+                  <div style={{ marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
+                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#334155' }}>Select Dates</h3>
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>From</label>
+                        <input 
+                          type="date" 
+                          value={dateRange.startDate} 
                           onChange={(e) => setDateRange(prev => ({ ...prev, startDate: e.target.value }))}
-                          style={{
-                            width: '100%',
-                            padding: '12px',
-                            borderRadius: '8px',
-                            border: '2px solid #e2e8f0',
-                            fontSize: '14px',
-                            fontWeight: 500,
-                            color: '#1e293b',
-                            background: '#fff'
-                          }}
+                          style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 14, background: '#fff' }}
                         />
                       </div>
-                      <div style={{ flex: '1', minWidth: '200px' }}>
-                        <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
-                          End Date
-                        </label>
-                        <input
-                          type="date"
-                          value={dateRange.endDate}
+                      <div>
+                        <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>To</label>
+                        <input 
+                          type="date" 
+                          value={dateRange.endDate} 
                           onChange={(e) => setDateRange(prev => ({ ...prev, endDate: e.target.value }))}
-                          style={{
-                            width: '100%',
-                            padding: '12px',
-                            borderRadius: '8px',
-                            border: '2px solid #e2e8f0',
-                            fontSize: '14px',
-                            fontWeight: 500,
-                            color: '#1e293b',
-                            background: '#fff'
-                          }}
+                          style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 14, background: '#fff' }}
                         />
                       </div>
                     </div>
                   </div>
-                )}
 
-                {/* Single Month Selection */}
-                {selectionMode === 'single-month' && (
-                  <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                    <h4 style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: 600, color: '#475569' }}>
-                      Select Year and Month
-                    </h4>
+                  {/* Main Content: Sidebar + Dual Calendars */}
+                  <div style={{ display: 'flex', gap: 20 }}>
                     
-                    {/* Year Selection Buttons */}
-                    <div style={{ marginBottom: '20px' }}>
-                      <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '12px' }}>
-                        <i className="bi bi-calendar4-range" style={{ marginRight: '6px' }}></i>
-                        Select Year
-                      </label>
-                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                        {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - 5 + i).map(year => (
-                          <button
-                            key={year}
-                            type="button"
-                            onClick={() => {
-                              setSelectedYear(year);
-                              const startOfMonth = new Date(year, selectedMonth, 1);
-                              const endOfMonth = new Date(year, selectedMonth + 1, 0);
-                              setDateRange({
-                                startDate: startOfMonth.toISOString().split('T')[0],
-                                endDate: endOfMonth.toISOString().split('T')[0]
-                              });
-                            }}
-                            style={{
-                              padding: '10px 16px',
-                              borderRadius: '8px',
-                              border: selectedYear === year ? '2px solid #667eea' : '1px solid #e2e8f0',
-                              background: selectedYear === year ? '#eef2ff' : '#fff',
-                              color: selectedYear === year ? '#667eea' : '#475569',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              transition: 'all 0.2s'
-                            }}
-                          >
-                            {year}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Month Selection Buttons */}
-                    <div>
-                      <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '12px' }}>
-                        <i className="bi bi-calendar-month" style={{ marginRight: '6px' }}></i>
-                        Select Month
-                      </label>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: '8px' }}>
-                        {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((monthName, idx) => (
-                          <button
-                            key={idx}
-                            type="button"
-                            onClick={() => {
-                              setSelectedMonth(idx);
-                              const startOfMonth = new Date(selectedYear, idx, 1);
-                              const endOfMonth = new Date(selectedYear, idx + 1, 0);
-                              setDateRange({
-                                startDate: startOfMonth.toISOString().split('T')[0],
-                                endDate: endOfMonth.toISOString().split('T')[0]
-                              });
-                            }}
-                            style={{
-                              padding: '10px',
-                              borderRadius: '8px',
-                              border: selectedMonth === idx ? '2px solid #667eea' : '1px solid #e2e8f0',
-                              background: selectedMonth === idx ? '#eef2ff' : '#fff',
-                              color: selectedMonth === idx ? '#667eea' : '#475569',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              transition: 'all 0.2s'
-                            }}
-                          >
-                            {monthName}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Selected Period Display */}
-                    {dateRange.startDate && dateRange.endDate && (
-                      <div style={{
-                        marginTop: '20px',
-                        padding: '12px 16px',
-                        background: '#eef2ff',
-                        borderRadius: '8px',
-                        border: '1px solid #c7d2fe',
-                        textAlign: 'center'
-                      }}>
-                        <span style={{ fontSize: '14px', fontWeight: 600, color: '#667eea' }}>
-                          <i className="bi bi-check-circle-fill" style={{ marginRight: '6px' }}></i>
-                          Selected: {new Date(dateRange.startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Single Year Selection */}
-                {selectionMode === 'single-year' && (
-                  <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                    <h4 style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: 600, color: '#475569' }}>
-                      <i className="bi bi-calendar4-range" style={{ marginRight: '6px' }}></i>
-                      Select Year
-                    </h4>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                      {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - 5 + i).map(year => (
+                    {/* Left Sidebar - Presets */}
+                    <div style={{ minWidth: 120, borderRight: '1px solid #e2e8f0', paddingRight: 16 }}>
+                      {[
+                        { label: 'Custom', action: () => {} },
+                        { label: 'Today', action: () => { const t = formatDateToYYYYMMDD(new Date()); setDateRange({ startDate: t, endDate: t }); } },
+                        { label: 'Yesterday', action: () => { const y = new Date(); y.setDate(y.getDate() - 1); const d = formatDateToYYYYMMDD(y); setDateRange({ startDate: d, endDate: d }); } },
+                        { label: 'This Week', action: () => { const today = new Date(); const first = today.getDate() - today.getDay(); const start = new Date(today.setDate(first)); setDateRange({ startDate: formatDateToYYYYMMDD(start), endDate: formatDateToYYYYMMDD(new Date()) }); } },
+                        { label: 'Last Week', action: () => { const today = new Date(); const first = today.getDate() - today.getDay() - 7; const start = new Date(today.setDate(first)); const end = new Date(today.setDate(first + 6)); setDateRange({ startDate: formatDateToYYYYMMDD(start), endDate: formatDateToYYYYMMDD(end) }); } },
+                        { label: 'This Month', action: () => { const today = new Date(); const start = new Date(today.getFullYear(), today.getMonth(), 1); const end = new Date(today.getFullYear(), today.getMonth() + 1, 0); setDateRange({ startDate: formatDateToYYYYMMDD(start), endDate: formatDateToYYYYMMDD(end) }); } },
+                        { label: 'Last Month', action: () => { const today = new Date(); const start = new Date(today.getFullYear(), today.getMonth() - 1, 1); const end = new Date(today.getFullYear(), today.getMonth(), 0); setDateRange({ startDate: formatDateToYYYYMMDD(start), endDate: formatDateToYYYYMMDD(end) }); } },
+                        { label: 'This Year', action: () => { const y = new Date().getFullYear(); setDateRange({ startDate: `${y}-01-01`, endDate: `${y}-12-31` }); } },
+                        { label: 'Last Year', action: () => { const y = new Date().getFullYear() - 1; setDateRange({ startDate: `${y}-01-01`, endDate: `${y}-12-31` }); } }
+                      ].map((preset, idx) => (
                         <button
-                          key={year}
+                          key={idx}
                           type="button"
-                          onClick={() => {
-                            setSelectedYear(year);
-                            const startOfYear = new Date(year, 0, 1);
-                            const endOfYear = new Date(year, 11, 31);
-                            setDateRange({
-                              startDate: startOfYear.toISOString().split('T')[0],
-                              endDate: endOfYear.toISOString().split('T')[0]
-                            });
-                          }}
+                          onClick={preset.action}
                           style={{
-                            padding: '12px 20px',
-                            borderRadius: '8px',
-                            border: selectedYear === year ? '2px solid #667eea' : '1px solid #e2e8f0',
-                            background: selectedYear === year ? '#eef2ff' : '#fff',
-                            color: selectedYear === year ? '#667eea' : '#475569',
-                            fontWeight: 600,
-                            fontSize: '15px',
+                            display: 'block',
+                            width: '100%',
+                            padding: '8px 12px',
+                            marginBottom: 4,
+                            textAlign: 'left',
+                            background: idx === 0 ? '#f0f9ff' : 'transparent',
+                            border: 'none',
+                            borderRadius: 6,
+                            fontSize: 14,
+                            fontWeight: idx === 0 ? 600 : 500,
+                            color: '#334155',
                             cursor: 'pointer',
-                            transition: 'all 0.2s'
+                            transition: 'background 0.2s'
                           }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = '#f0f9ff'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = idx === 0 ? '#f0f9ff' : 'transparent'}
                         >
-                          {year}
+                          {preset.label}
                         </button>
                       ))}
                     </div>
 
-                    {/* Selected Period Display */}
-                    {dateRange.startDate && dateRange.endDate && (
-                      <div style={{
-                        marginTop: '20px',
-                        padding: '12px 16px',
-                        background: '#eef2ff',
-                        borderRadius: '8px',
-                        border: '1px solid #c7d2fe',
-                        textAlign: 'center'
-                      }}>
-                        <span style={{ fontSize: '14px', fontWeight: 600, color: '#667eea' }}>
-                          <i className="bi bi-check-circle-fill" style={{ marginRight: '6px' }}></i>
-                          Selected: {selectedYear} (Full Year)
-                        </span>
+                    {/* Right Side - Dual Calendar Views */}
+                    <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 }}>
+                      
+                      {/* First Calendar */}
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                          <button type="button" onClick={() => setCurrentMonth(new Date(currentMonth.setMonth(currentMonth.getMonth() - 1)))} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 18 }}>‹</button>
+                          <span style={{ fontSize: 14, fontWeight: 600, color: '#334155' }}>{currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
+                          <button type="button" onClick={() => setCurrentMonth(new Date(currentMonth.setMonth(currentMonth.getMonth() + 1)))} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 18 }}>›</button>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, textAlign: 'center' }}>
+                          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                            <div key={day} style={{ fontSize: 11, fontWeight: 600, color: '#64748b', padding: '4px 0' }}>{day}</div>
+                          ))}
+                          {generateCalendarDays(currentMonth).map((day, idx) => {
+                            const dayDate = day ? formatDateToYYYYMMDD(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day)) : null;
+                            const isSelected = dayDate && ((dateRange.startDate === dayDate) || (dateRange.endDate === dayDate));
+                            const isInRange = dayDate && dateRange.startDate && dateRange.endDate && dayDate >= dateRange.startDate && dayDate <= dateRange.endDate;
+                            return (
+                              <div
+                                key={idx}
+                                onClick={() => day && handleCalendarDateClick(day, currentMonth)}
+                                style={{
+                                  padding: '6px',
+                                  borderRadius: 6,
+                                  fontSize: 13,
+                                  cursor: day ? 'pointer' : 'default',
+                                  background: isSelected ? '#0ea5e9' : isInRange ? '#e0f2fe' : 'transparent',
+                                  color: isSelected ? '#fff' : day ? '#334155' : '#cbd5e1',
+                                  fontWeight: isSelected ? 600 : 400
+                                }}
+                              >
+                                {day || ''}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    )}
+
+                      {/* Second Calendar */}
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                          <button type="button" onClick={() => setEndMonth(new Date(endMonth.setMonth(endMonth.getMonth() - 1)))} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 18 }}>‹</button>
+                          <span style={{ fontSize: 14, fontWeight: 600, color: '#334155' }}>{endMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
+                          <button type="button" onClick={() => setEndMonth(new Date(endMonth.setMonth(endMonth.getMonth() + 1)))} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 18 }}>›</button>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, textAlign: 'center' }}>
+                          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                            <div key={day} style={{ fontSize: 11, fontWeight: 600, color: '#64748b', padding: '4px 0' }}>{day}</div>
+                          ))}
+                          {generateCalendarDays(endMonth).map((day, idx) => {
+                            const dayDate = day ? formatDateToYYYYMMDD(new Date(endMonth.getFullYear(), endMonth.getMonth(), day)) : null;
+                            const isSelected = dayDate && ((dateRange.startDate === dayDate) || (dateRange.endDate === dayDate));
+                            const isInRange = dayDate && dateRange.startDate && dateRange.endDate && dayDate >= dateRange.startDate && dayDate <= dateRange.endDate;
+                            return (
+                              <div
+                                key={idx}
+                                onClick={() => day && handleCalendarDateClick(day, endMonth)}
+                                style={{
+                                  padding: '6px',
+                                  borderRadius: 6,
+                                  fontSize: 13,
+                                  cursor: day ? 'pointer' : 'default',
+                                  background: isSelected ? '#0ea5e9' : isInRange ? '#e0f2fe' : 'transparent',
+                                  color: isSelected ? '#fff' : day ? '#334155' : '#cbd5e1',
+                                  fontWeight: isSelected ? 600 : 400
+                                }}
+                              >
+                                {day || ''}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                    </div>
                   </div>
-                )}
 
-                {/* Quick Date Selection Buttons */}
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '16px' }}>
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      setSelectionMode('single-date');
-                      const today = new Date().toISOString().split('T')[0];
-                      setDateRange({ startDate: today, endDate: today });
-                    }}
-                    style={{
-                      padding: '8px 16px',
-                      borderRadius: '6px',
-                      border: '1px solid #e2e8f0',
-                      background: '#fff',
-                      color: '#475569',
-                      fontSize: '13px',
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    <i className="bi bi-calendar-day" style={{ marginRight: '4px' }}></i> Today
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      setSelectionMode('single-month');
-                      const today = new Date();
-                      setSelectedYear(today.getFullYear());
-                      setSelectedMonth(today.getMonth());
-                      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-                      const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-                      setDateRange({ 
-                        startDate: startOfMonth.toISOString().split('T')[0], 
-                        endDate: endOfMonth.toISOString().split('T')[0] 
-                      });
-                    }}
-                    style={{
-                      padding: '8px 16px',
-                      borderRadius: '6px',
-                      border: '1px solid #e2e8f0',
-                      background: '#fff',
-                      color: '#475569',
-                      fontSize: '13px',
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    <i className="bi bi-calendar-month" style={{ marginRight: '4px' }}></i> This Month
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      setSelectionMode('single-month');
-                      const today = new Date();
-                      const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-                      setSelectedYear(lastMonth.getFullYear());
-                      setSelectedMonth(lastMonth.getMonth());
-                      const startOfMonth = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1);
-                      const endOfMonth = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 0);
-                      setDateRange({ 
-                        startDate: startOfMonth.toISOString().split('T')[0], 
-                        endDate: endOfMonth.toISOString().split('T')[0] 
-                      });
-                    }}
-                    style={{
-                      padding: '8px 16px',
-                      borderRadius: '6px',
-                      border: '1px solid #e2e8f0',
-                      background: '#fff',
-                      color: '#475569',
-                      fontSize: '13px',
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    <i className="bi bi-calendar2-minus" style={{ marginRight: '4px' }}></i> Last Month
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      setSelectionMode('single-year');
-                      const year = new Date().getFullYear();
-                      setSelectedYear(year);
-                      const startOfYear = new Date(year, 0, 1);
-                      const endOfYear = new Date(year, 11, 31);
-                      setDateRange({
-                        startDate: startOfYear.toISOString().split('T')[0],
-                        endDate: endOfYear.toISOString().split('T')[0]
-                      });
-                    }}
-                    style={{
-                      padding: '8px 16px',
-                      borderRadius: '6px',
-                      border: '1px solid #e2e8f0',
-                      background: '#fff',
-                      color: '#475569',
-                      fontSize: '13px',
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    <i className="bi bi-calendar4-range" style={{ marginRight: '4px' }}></i> This Year
-                  </button>
+                  {/* Footer - Cancel and Apply buttons */}
+                  <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end', gap: 12, paddingTop: 16, borderTop: '1px solid #e2e8f0' }}>
+                    <button 
+                      type="button" 
+                      onClick={() => setDateRange({ startDate: '', endDate: '' })}
+                      style={{ padding: '8px 20px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', fontSize: 14, fontWeight: 500, cursor: 'pointer', color: '#334155' }}
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      type="submit" 
+                      disabled={loading || !hasGeneratePermissionForType(reportType)}
+                      style={{ padding: '10px 24px', borderRadius: 6, border: 'none', background: loading ? '#94a3b8' : '#14b8a6', fontSize: 14, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}
+                    >
+                      {loading ? (
+                        <>
+                          <i className="bi bi-hourglass-split spin"></i>
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <i className="bi bi-play-circle"></i>
+                          Apply and Generate
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Hidden native date inputs for form validation */}
+                  <input type="hidden" id="startDate" value={dateRange.startDate} required />
+                  <input type="hidden" id="endDate" value={dateRange.endDate} required />
                 </div>
-
-                {/* Hidden native date inputs for form validation */}
-                <input
-                  type="hidden"
-                  id="startDate"
-                  value={dateRange.startDate}
-                  required
-                />
-                <input
-                  type="hidden"
-                  id="endDate"
-                  value={dateRange.endDate}
-                  required
-                />
               </div>
             )}
 
@@ -2213,7 +1956,7 @@ const ReportGeneration = () => {
                             const month = parseInt(e.target.value, 10);
                             const year = new Date(dateRange.startDate || new Date()).getFullYear();
                             const startOfMonth = new Date(year, month, 1);
-                            const newStart = startOfMonth.toISOString().split('T')[0];
+                            const newStart = formatDateToYYYYMMDD(startOfMonth);
                             setCurrentMonth(startOfMonth);
                             setDateRange(prev => ({
                               ...prev,
@@ -2242,7 +1985,7 @@ const ReportGeneration = () => {
                             const year = parseInt(e.target.value, 10);
                             const month = new Date(dateRange.startDate || new Date()).getMonth();
                             const startOfMonth = new Date(year, month, 1);
-                            const newStart = startOfMonth.toISOString().split('T')[0];
+                            const newStart = formatDateToYYYYMMDD(startOfMonth);
                             setCurrentMonth(startOfMonth);
                             setDateRange(prev => ({
                               ...prev,
@@ -2265,7 +2008,7 @@ const ReportGeneration = () => {
                         onChange={(e) => {
                           const year = parseInt(e.target.value, 10);
                           const startOfYear = new Date(year, 0, 1);
-                          const newStart = startOfYear.toISOString().split('T')[0];
+                          const newStart = formatDateToYYYYMMDD(startOfYear);
                           setDateRange(prev => ({
                             ...prev,
                             startDate: newStart,
@@ -2338,7 +2081,7 @@ const ReportGeneration = () => {
                             const month = parseInt(e.target.value, 10);
                             const year = new Date(dateRange.endDate || new Date()).getFullYear();
                             const endOfMonth = new Date(year, month + 1, 0);
-                            const newEnd = endOfMonth.toISOString().split('T')[0];
+                            const newEnd = formatDateToYYYYMMDD(endOfMonth);
                             setEndMonth(endOfMonth);
                             setDateRange(prev => ({ ...prev, endDate: newEnd, startDate: prev.startDate && prev.startDate > newEnd ? newEnd : prev.startDate }));
                           }}
@@ -2363,7 +2106,7 @@ const ReportGeneration = () => {
                             const year = parseInt(e.target.value, 10);
                             const month = new Date(dateRange.endDate || new Date()).getMonth();
                             const endOfMonth = new Date(year, month + 1, 0);
-                            const newEnd = endOfMonth.toISOString().split('T')[0];
+                            const newEnd = formatDateToYYYYMMDD(endOfMonth);
                             setEndMonth(endOfMonth);
                             setDateRange(prev => ({ ...prev, endDate: newEnd, startDate: prev.startDate && prev.startDate > newEnd ? newEnd : prev.startDate }));
                           }}
@@ -2382,7 +2125,7 @@ const ReportGeneration = () => {
                         onChange={(e) => {
                           const year = parseInt(e.target.value, 10);
                           const endOfYear = new Date(year, 11, 31);
-                          setDateRange(prev => ({ ...prev, endDate: endOfYear.toISOString().split('T')[0] }));
+                          setDateRange(prev => ({ ...prev, endDate: formatDateToYYYYMMDD(endOfYear) }));
                         }}
                         style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '2px solid #e2e8f0', background: '#fff' }}
                       >
@@ -2468,34 +2211,7 @@ const ReportGeneration = () => {
                   </div>
                 </div>
 
-                {/* Selected Date Range Display */}
-                <div className="selected-date-display">
-                  <div className="date-display-item">
-                    <span className="date-label"><i className="bi bi-calendar-check"></i> Start Date</span>
-                    <span className={`date-value ${dateRange.startDate ? 'selected' : 'placeholder'}`}>
-                      {dateRange.startDate ? (
-                        startMode === 'date' ?
-                          new Date(dateRange.startDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
-                          : startMode === 'month' ? new Date(dateRange.startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-                          : new Date(dateRange.startDate + 'T00:00:00').getFullYear()
-                      ) : 'Click a date'}
-                    </span>
-                  </div>
-                  <div className="date-range-arrow">
-                    <i className="bi bi-arrow-right"></i>
-                  </div>
-                  <div className="date-display-item">
-                    <span className="date-label"><i className="bi bi-calendar-check"></i> End Date</span>
-                    <span className={`date-value ${dateRange.endDate ? 'selected' : 'placeholder'}`}>
-                      {dateRange.endDate ? (
-                        endMode === 'date' ?
-                          new Date(dateRange.endDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
-                          : endMode === 'month' ? new Date(dateRange.endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-                          : new Date(dateRange.endDate + 'T00:00:00').getFullYear()
-                      ) : 'Click another date'}
-                    </span>
-                  </div>
-                </div>
+
 
                 {/* Selection Mode Indicator
                 <div className="selection-mode-indicator">
@@ -2658,8 +2374,8 @@ const ReportGeneration = () => {
               </div>
             
 
-            {/* Generate Report Button */}
-            <div className="form-actions" style={{ marginTop: '2rem', display: 'flex', justifyContent: 'center' }}>
+            {/* Generate Report Button - Hidden (now combined with Apply button in date selector) */}
+            <div className="form-actions" style={{ marginTop: '2rem', display: 'none', justifyContent: 'center' }}>
               <button
                 type="submit"
                 disabled={loading || !hasGeneratePermissionForType(reportType)}
@@ -2914,7 +2630,7 @@ const ReportGeneration = () => {
           {employeeId && !employeeInfo && reportData && reportData.data && reportData.data.length === 0 && (
             <div style={{ margin: '8px 0 18px', display: 'flex', justifyContent: 'center' }}>
               <div style={{ background: '#fff6f6', border: '1px solid #fde2e2', padding: '10px 14px', borderRadius: 8, color: '#c53030', minWidth: 360, textAlign: 'center' }}>
-                No employee found for the entered ID in the selected division/section.
+                No employee found with the entered ID.
               </div>
             </div>
           )}

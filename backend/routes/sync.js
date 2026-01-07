@@ -13,6 +13,9 @@ const {
   triggerDivisionsSync,
   triggerSectionsSync,
   triggerEmployeesSync,
+  triggerEmpIndexSync,
+  triggerSubSectionsSync,
+  triggerAttendanceSync,
   getSyncedDivisions,
   getSyncedSections,
   getSyncedEmployees,
@@ -46,6 +49,21 @@ router.post('/trigger/sections', authorize('super_admin', 'admin'), triggerSecti
 // @desc    Trigger employees sync only
 // @access  Private (super_admin, admin)
 router.post('/trigger/employees', authorize('super_admin', 'admin'), triggerEmployeesSync);
+
+// @route   POST /api/sync/trigger/emp-index
+// @desc    Trigger emp_index_list sync only
+// @access  Private (super_admin, admin)
+router.post('/trigger/emp-index', authorize('super_admin', 'admin'), triggerEmpIndexSync);
+
+// @route   POST /api/sync/trigger/subsections
+// @desc    Trigger sub_sections sync only
+// @access  Private (super_admin, admin)
+router.post('/trigger/subsections', authorize('super_admin', 'admin'), triggerSubSectionsSync);
+
+// @route   POST /api/sync/trigger/attendance
+// @desc    Trigger attendance sync only
+// @access  Private (super_admin, admin)
+router.post('/trigger/attendance', authorize('super_admin', 'admin'), triggerAttendanceSync);
 
 // @route   GET /api/sync/divisions
 // @desc    Get synced divisions from MySQL

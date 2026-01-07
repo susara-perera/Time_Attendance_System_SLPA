@@ -1,4 +1,5 @@
 const { createMySQLConnection } = require('../config/mysql');
+const { getSubSectionsFromMySQL } = require('../services/mysqlDataService');
 const AuditLog = require('../models/AuditLog');
 
 // Map DB row -> API shape compatible with existing frontend usage
@@ -6,23 +7,59 @@ function mapRow(row) {
   return {
     _id: String(row.id),
     parentDivision: {
-      id: String(row.division_id),
+      // division_id might not exist in schema, fallback to code
+      id: String(row.division_id || row.division_code || ''),
       division_code: row.division_code || '',
       division_name: row.division_name || ''
     },
     parentSection: {
-      id: String(row.section_id),
+      // section_id might not exist in schema, fallback to code
+      id: String(row.section_id || row.section_code || ''),
       hie_code: row.section_code || '',
       hie_name: row.section_name || ''
     },
     subSection: {
-      sub_hie_name: row.sub_name,
-      sub_hie_code: row.sub_code
+      // Support both schema naming conventions
+      sub_hie_name: row.sub_name || row.sub_section_name,
+      sub_hie_code: row.sub_code || row.sub_section_code
     },
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
 }
+
+// @desc    Get all subsections from MySQL (for mysqlData routes)
+// @route   GET /api/mysql-data/subsections
+// @access  Public (no auth for data fetching)
+const getMySQLSubSections = async (req, res) => {
+  try {
+    const {
+      sectionCode,
+      divisionCode,
+      page = 1,
+      limit = 1000
+    } = req.query;
+
+    const filters = { sectionCode, divisionCode };
+    const subsections = await getSubSectionsFromMySQL(filters);
+
+    res.status(200).json({
+      success: true,
+      count: subsections.length,
+      data: subsections,
+      source: 'MySQL Sync',
+      message: 'Data fetched from synced MySQL tables'
+    });
+
+  } catch (error) {
+    console.error('[MySQL SubSection Controller] Get subsections error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch subsections from MySQL',
+      error: error.message
+    });
+  }
+};
 
 // GET /api/mysql-subsections
 exports.list = async (req, res, next) => {
@@ -34,7 +71,9 @@ exports.list = async (req, res, next) => {
     let sql = 'SELECT * FROM sub_sections';
     const params = [];
     if (sectionId && sectionId !== 'all') {
-      sql += ' WHERE section_id = ?';
+      // Use section_code instead of section_id to match table schema
+      // Frontend now sends section code as the ID
+      sql += ' WHERE section_code = ?';
       params.push(String(sectionId));
     }
     sql += ' ORDER BY sub_name ASC';
@@ -210,6 +249,16 @@ exports.remove = async (req, res, next) => {
     const [existingRows] = await conn.execute('SELECT * FROM sub_sections WHERE id = ? LIMIT 1', [String(id)]);
     const existing = Array.isArray(existingRows) && existingRows[0] ? existingRows[0] : null;
     
+    // Check if there are any transferred employees in this sub-section
+    const [transferCheck] = await conn.execute('SELECT COUNT(*) as count FROM transferred_employees WHERE sub_section_id = ? AND transferred_status = TRUE', [String(id)]);
+    const transferredCount = transferCheck[0]?.count || 0;
+    if (transferredCount > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Cannot delete sub-section that has ${transferredCount} transferred employee(s). Please recall all transfers first.` 
+      });
+    }
+    
     const [result] = await conn.execute('DELETE FROM sub_sections WHERE id = ?', [String(id)]);
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'Sub-section not found' });
@@ -248,3 +297,6 @@ exports.remove = async (req, res, next) => {
     if (conn) await conn.end();
   }
 };
+
+// Export the new function for mysqlData routes
+exports.getMySQLSubSections = getMySQLSubSections;

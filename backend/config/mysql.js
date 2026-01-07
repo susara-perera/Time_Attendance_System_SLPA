@@ -187,6 +187,37 @@ async function ensureMySQLSchema() {
     await conn.execute(ddlMoneyAllowanceEmployees);
     console.log('🛠️  Ensured MySQL table exists: money_allowance_employees');
 
+    // Create transferred_employees table for sub-section transfers
+    const ddlTransferredEmployees = `
+      CREATE TABLE IF NOT EXISTS transferred_employees (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        employee_id VARCHAR(50) NOT NULL COMMENT 'Employee ID from HRIS',
+        employee_name VARCHAR(255) COMMENT 'Employee full name',
+        division_code VARCHAR(50) COMMENT 'Division code',
+        division_name VARCHAR(255) COMMENT 'Division name',
+        section_code VARCHAR(50) COMMENT 'Section code',
+        section_name VARCHAR(255) COMMENT 'Section name',
+        sub_section_id INT NOT NULL COMMENT 'FK to sub_sections.id',
+        sub_hie_code VARCHAR(50) COMMENT 'Sub-section code',
+        sub_hie_name VARCHAR(255) COMMENT 'Sub-section name',
+        transferred_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'When employee was transferred',
+        transferred_by VARCHAR(100) COMMENT 'User ID who performed transfer',
+        recalled_at DATETIME NULL COMMENT 'When transfer was recalled',
+        recalled_by VARCHAR(100) COMMENT 'User ID who recalled transfer',
+        transferred_status BOOLEAN NOT NULL DEFAULT TRUE COMMENT 'TRUE=currently transferred, FALSE=recalled',
+        employee_data JSON COMMENT 'Full employee object from HRIS',
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_employee_id (employee_id),
+        INDEX idx_sub_section_id (sub_section_id),
+        INDEX idx_transferred_status (transferred_status),
+        INDEX idx_employee_sub (employee_id, sub_section_id),
+        UNIQUE KEY uk_employee_subsection (employee_id, sub_section_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Employee transfers to sub-sections with status tracking';
+    `;
+    await conn.execute(ddlTransferredEmployees);
+    console.log('🛠️  Ensured MySQL table exists: transferred_employees');
+
     // Create sync tables for HRIS data
     const fs = require('fs');
     const path = require('path');

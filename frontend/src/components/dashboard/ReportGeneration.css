@@ -2032,78 +2032,7 @@
   border: 1px solid #e2e8f0;
 }
 
-/* Selected Date Display */
-.selected-date-display {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1.5rem;
-  margin-bottom: 1.25rem;
-  padding: 1rem;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-}
-
-.date-display-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.date-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #64748b;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.date-label i {
-  font-size: 0.85rem;
-  color: #3b82f6;
-}
-
-.date-value {
-  font-size: 1rem;
-  font-weight: 600;
-  color: #1e293b;
-  padding: 0.5rem 1rem;
-  background: #f1f5f9;
-  border-radius: 8px;
-  min-width: 180px;
-  text-align: center;
-}
-
-.date-value.selected {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  color: white;
-}
-
-.date-value.placeholder {
-  color: #94a3b8;
-  font-weight: 500;
-  font-style: italic;
-}
-
-.date-range-arrow {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  background: #e2e8f0;
-  border-radius: 50%;
-  color: #64748b;
-}
-
-.date-range-arrow i {
-  font-size: 1.25rem;
-}
+/* Selected date display styles removed (moved to simplified date selector) */
 
 /* Selection Mode Indicator */
 .selection-mode-indicator {
@@ -2367,16 +2296,7 @@
 
 /* Responsive Calendar */
 @media (max-width: 576px) {
-  .selected-date-display {
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-  
-  .date-range-arrow {
-    transform: rotate(90deg);
-    width: 32px;
-    height: 32px;
-  }
+  /* Responsive calendar rules */
   
   .date-value {
     min-width: 160px;

@@ -84,6 +84,7 @@ CREATE TABLE `employees_sync` (
   `EMP_PHONE` VARCHAR(20) NULL COMMENT 'Phone number',
   `EMP_MOBILE` VARCHAR(20) NULL COMMENT 'Mobile number',
   `EMP_ADDRESS` TEXT NULL COMMENT 'Address',
+  `EMP_GENDER` VARCHAR(20) NULL COMMENT 'Gender',
   
   -- Employment details
   `EMP_STATUS` VARCHAR(50) NULL COMMENT 'Employment status',

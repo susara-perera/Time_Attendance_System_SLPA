@@ -63,6 +63,7 @@ const syncDivisions = async (triggeredBy = 'system') => {
   let recordsUpdated = 0;
   let recordsFailed = 0;
   let recordsSynced = 0;
+  const newRecords = []; // Track newly added records
 
   try {
     console.log('🔄 [SYNC] Starting divisions sync...');
@@ -101,13 +102,19 @@ const syncDivisions = async (triggeredBy = 'system') => {
         });
 
         if (existing) {
-          // Update existing
-          await existing.update(divisionData);
+          // Skip existing (don't update)
           recordsUpdated++;
         } else {
-          // Create new
-          await DivisionSync.create(divisionData);
+          // Create new only
+          const newDivision = await DivisionSync.create(divisionData);
           recordsAdded++;
+          newRecords.push({
+            HIE_CODE: newDivision.HIE_CODE,
+            HIE_NAME: newDivision.HIE_NAME,
+            HIE_NAME_SINHALA: newDivision.HIE_NAME_SINHALA,
+            STATUS: newDivision.STATUS,
+            synced_at: newDivision.synced_at
+          });
         }
 
         recordsSynced++;
@@ -137,7 +144,7 @@ const syncDivisions = async (triggeredBy = 'system') => {
     }
 
     console.log(`✅ [SYNC] Divisions sync completed in ${duration}s`);
-    console.log(`   📊 Added: ${recordsAdded}, Updated: ${recordsUpdated}, Failed: ${recordsFailed}`);
+    console.log(`   📊 Added: ${recordsAdded}, Skipped (existing): ${recordsUpdated}, Failed: ${recordsFailed}`);
 
     return {
       success: true,
@@ -145,7 +152,8 @@ const syncDivisions = async (triggeredBy = 'system') => {
       recordsAdded,
       recordsUpdated,
       recordsFailed,
-      duration
+      duration,
+      newRecords // Return list of newly added records
     };
 
   } catch (error) {
@@ -185,6 +193,7 @@ const syncSections = async (triggeredBy = 'system') => {
   let recordsUpdated = 0;
   let recordsFailed = 0;
   let recordsSynced = 0;
+  const newRecords = []; // Track newly added records
 
   try {
     console.log('🔄 [SYNC] Starting sections sync...');
@@ -227,13 +236,20 @@ const syncSections = async (triggeredBy = 'system') => {
         });
 
         if (existing) {
-          // Update existing
-          await existing.update(sectionData);
+          // Skip existing (don't update)
           recordsUpdated++;
         } else {
-          // Create new
-          await SectionSync.create(sectionData);
+          // Create new only
+          const newSection = await SectionSync.create(sectionData);
           recordsAdded++;
+          newRecords.push({
+            HIE_CODE: newSection.HIE_CODE,
+            HIE_NAME_4: newSection.HIE_NAME_4,
+            HIE_NAME_SINHALA: newSection.HIE_NAME_SINHALA,
+            HIE_RELATIONSHIP: newSection.HIE_RELATIONSHIP,
+            STATUS: newSection.STATUS,
+            synced_at: newSection.synced_at
+          });
         }
 
         recordsSynced++;
@@ -263,7 +279,7 @@ const syncSections = async (triggeredBy = 'system') => {
     }
 
     console.log(`✅ [SYNC] Sections sync completed in ${duration}s`);
-    console.log(`   📊 Added: ${recordsAdded}, Updated: ${recordsUpdated}, Failed: ${recordsFailed}`);
+    console.log(`   📊 Added: ${recordsAdded}, Skipped (existing): ${recordsUpdated}, Failed: ${recordsFailed}`);
 
     return {
       success: true,
@@ -271,7 +287,8 @@ const syncSections = async (triggeredBy = 'system') => {
       recordsAdded,
       recordsUpdated,
       recordsFailed,
-      duration
+      duration,
+      newRecords // Return list of newly added records
     };
 
   } catch (error) {
@@ -311,6 +328,7 @@ const syncEmployees = async (triggeredBy = 'system') => {
   let recordsUpdated = 0;
   let recordsFailed = 0;
   let recordsSynced = 0;
+  const newRecords = []; // Track newly added records
 
   try {
     console.log('🔄 [SYNC] Starting employees sync...');
@@ -355,6 +373,7 @@ const syncEmployees = async (triggeredBy = 'system') => {
           EMP_PHONE: employee.PER_TELEPHONE || employee.EMP_PHONE || null,
           EMP_MOBILE: employee.PER_MOBILE || employee.EMP_MOBILE || null,
           EMP_ADDRESS: address || employee.EMP_ADDRESS || null,
+          EMP_GENDER: employee.GENDER || employee.SEX || employee.gender || null,
           
           // Employment details
           EMP_STATUS: employee.EMP_STATUS || 'ACTIVE', // Defaulting to ACTIVE since we filtered by ACTIVE_HRM_FLG=1
@@ -392,13 +411,22 @@ const syncEmployees = async (triggeredBy = 'system') => {
         });
 
         if (existing) {
-          // Update existing
-          await existing.update(employeeData);
+          // Skip existing (don't update)
           recordsUpdated++;
         } else {
-          // Create new
-          await EmployeeSync.create(employeeData);
+          // Create new only
+          const newEmployee = await EmployeeSync.create(employeeData);
           recordsAdded++;
+          newRecords.push({
+            EMP_NO: newEmployee.EMP_NO,
+            EMP_NAME: newEmployee.EMP_NAME,
+            EMP_NIC: newEmployee.EMP_NIC,
+            EMP_DESIGNATION: newEmployee.EMP_DESIGNATION,
+            DIV_NAME: newEmployee.DIV_NAME,
+            SEC_NAME: newEmployee.SEC_NAME,
+            EMP_STATUS: newEmployee.EMP_STATUS,
+            synced_at: newEmployee.synced_at
+          });
         }
 
         recordsSynced++;
@@ -429,7 +457,7 @@ const syncEmployees = async (triggeredBy = 'system') => {
     }
 
     console.log(`✅ [SYNC] Employees sync completed in ${duration}s`);
-    console.log(`   📊 Added: ${recordsAdded}, Updated: ${recordsUpdated}, Failed: ${recordsFailed}`);
+    console.log(`   📊 Added: ${recordsAdded}, Skipped (existing): ${recordsUpdated}, Failed: ${recordsFailed}`);
 
     return {
       success: true,
@@ -437,7 +465,8 @@ const syncEmployees = async (triggeredBy = 'system') => {
       recordsAdded,
       recordsUpdated,
       recordsFailed,
-      duration
+      duration,
+      newRecords // Return list of newly added records
     };
 
   } catch (error) {
@@ -511,6 +540,17 @@ const performFullSync = async (triggeredBy = 'system') => {
     } catch (err) {
       console.error('⚠️ [SYNC] Failed to sync attendance data:', err.message);
       results.attendance = { success: false, error: err.message };
+    }
+
+    // Sync emp_index_list (combines divisions, sections, subsections, and active employees)
+    try {
+      const { syncEmpIndex } = require('./empIndexSyncService');
+      console.log('🔄 [SYNC] Syncing emp_index_list (hierarchical employee index)...');
+      results.empIndex = await syncEmpIndex();
+      console.log('✅ [SYNC] emp_index_list synced');
+    } catch (err) {
+      console.error('⚠️ [SYNC] Failed to sync emp_index_list:', err.message);
+      results.empIndex = { success: false, error: err.message };
     }
 
     const duration = Math.floor((Date.now() - startTime) / 1000);

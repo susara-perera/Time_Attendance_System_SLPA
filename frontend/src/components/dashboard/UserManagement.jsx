@@ -17,11 +17,14 @@ const UserManagement = () => {
     password: '',
     confirmPassword: '',
     division: '',
-    section: ''
+    section: '',
+    subsection: ''
   });
   const [divisions, setDivisions] = useState([]);
   const [sections, setSections] = useState([]);
   const [availableSections, setAvailableSections] = useState([]);
+  const [subsections, setSubsections] = useState([]);
+  const [availableSubsections, setAvailableSubsections] = useState([]);
   const canViewUsers = usePermission('users', 'read');
   const canCreateUser = usePermission('users', 'create');
   const canUpdateUser = usePermission('users', 'update');
@@ -117,26 +120,14 @@ const UserManagement = () => {
           setUsers([]);
         }
         
-        // Fetch divisions from HRIS (same as EmployeeManagement)
+        // Fetch divisions from MySQL (faster and more reliable)
         try {
-          // Try primary HRIS endpoint first
-          let divisionsResponse = await fetch(`${API_BASE_URL}/divisions/hris`, {
+          const divisionsResponse = await fetch(`${API_BASE_URL}/mysql-data/divisions`, {
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
             }
           });
-          
-          // If primary fails, try cache fallback
-          if (!divisionsResponse.ok) {
-            console.log('Primary divisions endpoint failed, trying cache...');
-            divisionsResponse = await fetch(`${API_BASE_URL}/hris-cache/divisions`, {
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-              }
-            });
-          }
           
           if (divisionsResponse.ok) {
             const divisionsData = await divisionsResponse.json();
@@ -169,26 +160,14 @@ const UserManagement = () => {
           setDivisions([]);
         }
 
-        // Fetch sections from HRIS (same as EmployeeManagement)
+        // Fetch sections from MySQL (faster and more reliable)
         try {
-          // Try primary HRIS endpoint first
-          let sectionsResponse = await fetch(`${API_BASE_URL}/sections/hris`, {
+          const sectionsResponse = await fetch(`${API_BASE_URL}/mysql-data/sections`, {
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
             }
           });
-          
-          // If primary fails, try cache fallback
-          if (!sectionsResponse.ok) {
-            console.log('Primary sections endpoint failed, trying cache...');
-            sectionsResponse = await fetch(`${API_BASE_URL}/hris-cache/sections`, {
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-              }
-            });
-          }
           
           if (sectionsResponse.ok) {
             const sectionsData = await sectionsResponse.json();
@@ -226,6 +205,51 @@ const UserManagement = () => {
           console.error('Error fetching sections:', sectionError);
           setSections([]);
         }
+
+        // Fetch subsections from MySQL
+        try {
+          const subsectionsResponse = await fetch(`${API_BASE_URL}/mysql-data/subsections`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (subsectionsResponse.ok) {
+            const subsectionsData = await subsectionsResponse.json();
+            console.log('Subsections API Response:', subsectionsData); // Debug log
+            
+            // Handle different response structures and normalize
+            const rawSubsections = subsectionsData.data || subsectionsData || [];
+            console.log('Raw subsections:', rawSubsections.length); // Debug log
+            
+            // Normalize subsections to consistent format
+            const normalizedSubsections = rawSubsections.map(sub => ({
+              _id: sub._id || sub.id || sub.sub_code,
+              id: sub._id || sub.id || sub.sub_code,
+              code: sub.subSection?.sub_hie_code || sub.sub_code || sub.code || sub._id,
+              name: sub.subSection?.sub_hie_name || sub.sub_name || sub.name || `Subsection ${sub.code}`,
+              sectionId: sub.parentSection?.id || sub.section_id || sub.section_code || '',
+              sectionCode: sub.parentSection?.hie_code || sub.section_code || '',
+              sectionName: sub.parentSection?.hie_name || sub.section_name || '',
+              divisionId: sub.parentDivision?.id || sub.division_id || sub.division_code || '',
+              divisionCode: sub.parentDivision?.division_code || sub.division_code || '',
+              divisionName: sub.parentDivision?.division_name || sub.division_name || '',
+              isActive: sub.isActive !== false
+            })).sort((a, b) => a.name.localeCompare(b.name));
+            
+            console.log('Normalized subsections:', normalizedSubsections); // Debug log
+            setSubsections(normalizedSubsections);
+          } else {
+            console.error('Failed to fetch subsections, status:', subsectionsResponse.status);
+            const errorText = await subsectionsResponse.text();
+            console.error('Subsections error response:', errorText);
+            setSubsections([]);
+          }
+        } catch (subsectionError) {
+          console.error('Error fetching subsections:', subsectionError);
+          setSubsections([]);
+        }
         
         setLoading(false);
         
@@ -262,6 +286,29 @@ const UserManagement = () => {
     setAvailableSections(filteredSections);
   }, [formData.division, sections]);
 
+  // Filter subsections based on selected section
+  useEffect(() => {
+    if (!formData.section) {
+      setAvailableSubsections([]);
+      return;
+    }
+
+    // Filter subsections that belong to the selected section
+    const filteredSubsections = subsections.filter(subsection => {
+      const selectedSectionId = String(formData.section || '');
+      const subsectionSectionId = String(subsection.sectionId || subsection.sectionCode || '');
+      const subsectionSectionCode = String(subsection.sectionCode || '');
+      
+      // Match by section ID or code
+      return subsectionSectionId === selectedSectionId || 
+             subsectionSectionCode === selectedSectionId;
+    });
+
+    console.log('Selected Section:', formData.section);
+    console.log('Filtered Subsections:', filteredSubsections);
+    setAvailableSubsections(filteredSubsections);
+  }, [formData.section, subsections]);
+
   // Update available sections when editing a user
   useEffect(() => {
     if (showAddModal && editingUser && formData.division) {
@@ -288,7 +335,8 @@ const UserManagement = () => {
       password: '',
       confirmPassword: '',
       division: '',
-      section: ''
+      section: '',
+      subsection: ''
     });
     setEditingUser(null);
     setShowAddModal(true);
@@ -802,6 +850,34 @@ const UserManagement = () => {
                       </div>
                     </div>
                   </div>
+
+                  {/* Subsection Dropdown */}
+                  {formData.section && availableSubsections.length > 0 && (
+                    <div className="user-form-grid single" style={{ marginTop: '20px' }}>
+                      <div className="user-form-group">
+                        <label className="user-form-label">
+                          <i className="bi bi-diagram-3"></i>
+                          Sub-Section
+                        </label>
+                        <div className="user-input-wrapper">
+                          <i className="bi bi-diagram-3 user-input-icon"></i>
+                          <select
+                            name="subsection"
+                            className="user-form-select"
+                            value={formData.subsection}
+                            onChange={handleInputChange}
+                          >
+                            <option value="">Select Sub-Section (Optional)</option>
+                            {availableSubsections.map(subsection => (
+                              <option key={subsection._id || subsection.id} value={subsection.code}>
+                                {subsection.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 
                 {/* Security Section */}

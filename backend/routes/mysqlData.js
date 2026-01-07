@@ -19,6 +19,10 @@ const {
 } = require('../controllers/mysqlSectionController');
 
 const {
+  getMySQLSubSections
+} = require('../controllers/mysqlSubSectionController');
+
+const {
   getMySQLEmployees,
   getMySQLEmployeeByNumber
 } = require('../controllers/mysqlEmployeeController');
@@ -30,6 +34,9 @@ router.get('/divisions/:code', getMySQLDivisionByCode);
 // Sections
 router.get('/sections', getMySQLSections);
 router.get('/sections/:code', getMySQLSectionByCode);
+
+// Subsections
+router.get('/subsections', getMySQLSubSections);
 
 // Employees
 router.get('/employees', getMySQLEmployees);

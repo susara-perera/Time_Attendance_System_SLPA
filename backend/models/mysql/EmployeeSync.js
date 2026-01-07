@@ -58,6 +58,11 @@ module.exports = (sequelize) => {
       allowNull: true,
       comment: 'Address'
     },
+    EMP_GENDER: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      comment: 'Gender'
+    },
     // Employment details
     EMP_STATUS: {
       type: DataTypes.STRING(50),

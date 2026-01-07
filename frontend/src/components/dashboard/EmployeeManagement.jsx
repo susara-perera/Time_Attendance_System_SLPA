@@ -29,20 +29,26 @@ const EmployeeManagement = () => {
   const { t } = useLanguage();
 
   // Helpers: normalize backend data into a consistent shape
+  // NOTE: For MySQL Sync data, we use HIE_CODE/code as the primary 'id' 
+  // to ensure consistency between Divisions, Sections, and Employees.
   const normalizeDivisions = (data = []) => {
     const out = [];
     const seen = new Set();
     data.forEach((d) => {
-      const id = String(d._id ?? d.id ?? d.DIVISION_ID ?? d.code ?? d.hie_code ?? d.DIVISION_CODE ?? '');
+      // Prioritize Code as ID for MySQL sync alignment
+      const rawCode = d.HIE_CODE ?? d.code ?? d.DIVISION_CODE ?? d.hie_code ?? '';
+      const id = String(rawCode || d._id || d.id || d.DIVISION_ID || '');
+      
       if (!id) return;
       if (seen.has(id)) return;
       seen.add(id);
       out.push({
         id,
-        code: String(d.code ?? d.DIVISION_CODE ?? d.hie_code ?? d._id ?? d.id ?? id),
+        code: String(rawCode || id),
         name: d.name ?? d.DIVISION_NAME ?? d.hie_name ?? d.hie_relationship ?? 'Unknown Division',
         def_level: d.def_level ?? d.DEF_LEVEL,
         hie_relationship: d.hie_relationship,
+        employeeCount: Number(d.employeeCount || d.count || 0),
         isActive: d.isActive ?? d.active ?? true,
       });
     });
@@ -53,17 +59,23 @@ const EmployeeManagement = () => {
     const out = [];
     const seen = new Set();
     data.forEach((s) => {
-      const id = String(s._id ?? s.id ?? s.SECTION_ID ?? s.code ?? s.hie_code ?? s.SECTION_CODE ?? s.section_code ?? '');
+      // Prioritize Code as ID for MySQL sync alignment
+      const rawCode = s.HIE_CODE ?? s.code ?? s.SECTION_CODE ?? s.hie_code ?? '';
+      const id = String(rawCode || s._id || s.id || s.SECTION_ID || s.section_code || '');
+      
       if (!id) return;
       if (seen.has(id)) return;
       seen.add(id);
-      const divisionId = String(s.division_id ?? s.DIVISION_ID ?? s.division_code ?? s.DIVISION_CODE ?? s.hie_relationship ?? '');
+
+      // Map relation to Division Code
+      const divisionId = String(s.HIE_RELATIONSHIP ?? s.division_code ?? s.division_id ?? s.DIVISION_ID ?? s.DIVISION_CODE ?? '');
+      
       out.push({
         id,
-        code: String(s.code ?? s.SECTION_CODE ?? s.hie_code ?? s.section_code ?? id),
+        code: String(rawCode || id),
         name: s.name ?? s.section_name ?? s.SECTION_NAME ?? s.hie_relationship ?? `Section ${id}`,
         divisionId: divisionId || '',
-        divisionCode: String(s.division_code ?? s.DIVISION_CODE ?? ''),
+        divisionCode: divisionId || String(s.division_code ?? s.DIVISION_CODE ?? ''),
         divisionName: s.division_name ?? s.DIVISION_NAME ?? '',
         def_level: s.def_level ?? s.DEF_LEVEL,
         isActive: s.isActive ?? s.active ?? true,
@@ -84,7 +96,7 @@ const EmployeeManagement = () => {
     const out = [];
     const seen = new Set();
     data.forEach((e) => {
-      const empNumber = String(e.EMP_NUMBER ?? e.empNumber ?? e.id ?? '');
+      const empNumber = String(e.EMP_NUMBER ?? e.empNumber ?? e.EMP_NO ?? e.id ?? '');
       if (!empNumber) return;
       if (seen.has(empNumber)) return;
       seen.add(empNumber);
@@ -92,22 +104,22 @@ const EmployeeManagement = () => {
       const hie4 = e.HIE_NAME_4 ?? e.hie_name_4 ?? e?.currentwork?.HIE_NAME_4 ?? e?.currentwork?.hie_name_4;
       out.push({
         empNumber,
-        fullName: e.FULLNAME ?? e.fullName ?? e.name ?? 'Unknown',
+        fullName: e.EMP_NAME ?? e.FULLNAME ?? e.fullName ?? e.name ?? 'Unknown',
         callingName: e.CALLING_NAME ?? e.calling_name ?? e.preferredName ?? '',
-        designation: e.DESIGNATION ?? e.designation ?? '',
-        nic: String(e.NIC ?? e.nic ?? ''),
-        // Support both HRIS and employees_sync fields (DIV_CODE / SEC_CODE)
-        divisionId: String(e.DIVISION_ID ?? e.division_id ?? e.DIVISION_CODE ?? e.division_code ?? e.DIV_CODE ?? ''),
-        divisionCode: String(e.DIVISION_CODE ?? e.division_code ?? e.DIV_CODE ?? ''),
-        divisionName: e.DIVISION_NAME ?? e.division_name ?? e.DIV_NAME ?? hie3 ?? '',
-        sectionId: String(e.SECTION_ID ?? e.section_id ?? e.SECTION_CODE ?? e.section_code ?? e.SEC_CODE ?? ''),
-        sectionCode: String(e.SECTION_CODE ?? e.section_code ?? e.SEC_CODE ?? ''),
-        sectionName: e.SECTION_NAME ?? e.section_name ?? e.SEC_NAME ?? hie4 ?? '',
-        gender: e.GENDER ?? e.gender ?? '',
-        status: e.STATUS ?? e.status ?? 'ACTIVE',
+        designation: e.EMP_DESIGNATION ?? e.DESIGNATION ?? e.designation ?? '',
+        nic: String(e.EMP_NIC ?? e.NIC ?? e.nic ?? ''),
+        // Support employees_sync fields (DIV_CODE / SEC_CODE) directly
+        divisionId: String(e.DIV_CODE ?? e.DIVISION_ID ?? e.division_id ?? e.DIVISION_CODE ?? e.division_code ?? ''),
+        divisionCode: String(e.DIV_CODE ?? e.DIVISION_CODE ?? e.division_code ?? ''),
+        divisionName: e.DIV_NAME ?? e.DIVISION_NAME ?? e.division_name ?? hie3 ?? '',
+        sectionId: String(e.SEC_CODE ?? e.SECTION_ID ?? e.section_id ?? e.SECTION_CODE ?? e.section_code ?? ''),
+        sectionCode: String(e.SEC_CODE ?? e.SECTION_CODE ?? e.section_code ?? ''),
+        sectionName: e.SEC_NAME ?? e.SECTION_NAME ?? e.section_name ?? hie4 ?? '',
+        gender: e.EMP_GENDER ?? e.GENDER ?? e.gender ?? '',
+        status: e.EMP_STATUS ?? e.STATUS ?? e.status ?? 'ACTIVE',
         isActive: e.isActive ?? e.IS_ACTIVE ?? (e.STATUS === 'ACTIVE' || e.status === 'ACTIVE'),
         dateOfBirth: e.DATE_OF_BIRTH ?? e.date_of_birth ?? e.dob ?? '',
-        dateOfJoining: e.DATE_OF_JOINING ?? e.date_of_joining ?? e.doj ?? '',
+        dateOfJoining: e.EMP_DATE_JOINED ?? e.DATE_OF_JOINING ?? e.date_of_joining ?? e.doj ?? '',
         divisionHierarchyName: hie3 ?? '',
         sectionHierarchyName: hie4 ?? '',
       });
@@ -148,6 +160,27 @@ const EmployeeManagement = () => {
     return { codeToId, nameToId, idToName };
   };
 
+  // Return total configured employees for currently selected division (using division.employeeCount when available)
+  const getDivisionTotalCount = () => {
+    if (!selectedEmployeeDivision || selectedEmployeeDivision === 'all') return allEmployees?.length || employees?.length || 0;
+    const key = selectedEmployeeDivision;
+    if (key.startsWith('id:')) {
+      const id = key.slice(3);
+      const div = divisions.find(d => String(d.id) === String(id));
+      if (div) return Number(div.employeeCount || 0);
+    }
+    if (key.startsWith('name:')) {
+      const name = key.slice(5);
+      const div = divisions.find(d => d.name === name);
+      if (div) return Number(div.employeeCount || 0);
+    }
+    // Fallback: try to parse name from the key
+    const maybeName = key.replace(/^name:/, '');
+    const div = divisions.find(d => d.name === maybeName);
+    if (div) return Number(div.employeeCount || 0);
+    return allEmployees?.length || employees?.length || 0;
+  };
+
   const getEmployeeDivisionDisplay = (e) => (
     e.divisionHierarchyName || e.divisionName || String(e.divisionId || e.divisionCode || 'Unknown Division')
   );
@@ -172,20 +205,19 @@ const EmployeeManagement = () => {
     }
 
     if (divisions && divisions.length) {
+      // Prefer authoritative counts on divisions (employeeCount) when available.
       const counts = new Map();
       allEmployees.forEach(e => {
         const key = getEmployeeDivisionKey(e, maps);
         counts.set(key, (counts.get(key) || 0) + 1);
       });
-      console.log('Division counts:', Array.from(counts.entries()));
+      console.log('Division counts (derived):', Array.from(counts.entries()));
 
       const result = divisions.map(d => {
         const key = `id:${String(d.id)}`;
-        return {
-          key,
-          name: d.name,
-          count: counts.get(key) || 0,
-        };
+        // Use division.employeeCount if provided by API, otherwise fallback to derived counts
+        const total = Number(d.employeeCount ?? counts.get(key) ?? 0);
+        return { key, name: d.name, count: total };
       });
 
       // Also include any divisions derived from employees that aren't in the canonical list
@@ -276,8 +308,9 @@ const EmployeeManagement = () => {
       console.log('📍 Current timestamp:', new Date().toLocaleTimeString());
 
       const endpoints = [
-        { key: 'sections', url: `${API_BASE_URL}/sections/hris`, fallbackUrl: `${API_BASE_URL}/hris-cache/sections` },
-        { key: 'divisions', url: `${API_BASE_URL}/divisions/hris`, fallbackUrl: `${API_BASE_URL}/hris-cache/divisions` },
+        { key: 'sections', url: `${API_BASE_URL}/mysql-data/sections` },
+        // Request division employee counts so the UI can show filtered/total correctly
+        { key: 'divisions', url: `${API_BASE_URL}/mysql-data/divisions?includeEmployeeCount=true` },
         // Use MySQL-backed subsections endpoint (MongoDB subsections route disabled on server)
         { key: 'subsections', url: `${API_BASE_URL}/mysql-subsections` },
       ];
@@ -671,7 +704,7 @@ const EmployeeManagement = () => {
       </div> 
 
       {/* Active Filters Display - Moved before filter section */}
-      {(selectedEmployeeDivision !== 'all' || selectedSection !== 'all' || selectedSubSection !== 'all' || selectedEmployeeStatus !== 'all') && (
+      {(selectedEmployeeDivision !== 'all' || selectedSection !== 'all' || selectedSubSection !== 'all') && (
         <div style={{
           background: 'linear-gradient(135deg, #667eea15 0%, #764ba215 100%)',
           border: '2px solid #667eea',
@@ -730,25 +763,6 @@ const EmployeeManagement = () => {
                   </span>
                 </>
               )}
-              {selectedEmployeeStatus !== 'all' && (
-                <>
-                  <i className="bi bi-chevron-right" style={{ color: '#667eea' }}></i>
-                  <span style={{
-                    background: selectedEmployeeStatus === 'active' ? '#28a745' : '#dc3545',
-                    color: 'white',
-                    padding: '4px 12px',
-                    borderRadius: '20px',
-                    fontSize: '13px',
-                    fontWeight: '500',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}>
-                    <i className={`bi bi-${selectedEmployeeStatus === 'active' ? 'check-circle-fill' : 'x-circle-fill'}`}></i>
-                    {selectedEmployeeStatus === 'active' ? (t('activeEmployeesLabel') || 'Active') : (t('inactiveEmployeesLabel') || 'Inactive')}
-                  </span>
-                </>
-              )}
             </div>
           </div>
           <div style={{
@@ -760,7 +774,11 @@ const EmployeeManagement = () => {
             fontSize: '14px',
             border: '2px solid #667eea'
           }}>
-            {employees.length} of {allEmployees.length} employees
+            {selectedEmployeeDivision && selectedEmployeeDivision !== 'all' ? (
+              `${employees.length} of ${getDivisionTotalCount()} employees`
+            ) : (
+              `${employees.length} employees`
+            )}
           </div>
         </div>
       )}
@@ -795,7 +813,7 @@ const EmployeeManagement = () => {
               <option value="all">{t('allDivisionsLabel')}</option>
               {!loading && getEmployeeDivisions().map(division => (
                 <option key={division.key} value={division.key}>
-                  {division.name} ({division.count})
+                  {division.name}
                 </option>
               ))}
             </select>
@@ -887,36 +905,7 @@ const EmployeeManagement = () => {
               </select>
           </div>
 
-          {/* Employee Status Filter */}
-          <div style={{ flex: '1', minWidth: '200px' }}>
-            <label htmlFor="employee-status-select" style={{ 
-              fontWeight: '600', 
-              color: '#495057',
-              fontSize: '12px',
-              display: 'block',
-              marginBottom: '4px'
-            }}>
-              Active/Inactive
-            </label>
-            <select 
-              id="employee-status-select"
-              className="form-select" 
-              value={selectedEmployeeStatus} 
-              onChange={(e) => setSelectedEmployeeStatus(e.target.value)}
-              style={{ 
-                padding: '8px 10px',
-                fontSize: '13px',
-                border: '1px solid #dee2e6',
-                borderRadius: '4px'
-              }}
-              disabled={loading}
-            >
-              <option value="all">All</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
-          </div>
-
+                   
           {/* Search Bar */}
           <div style={{ flex: '1.5', minWidth: '250px' }}>
             <label htmlFor="employee-search" style={{ 

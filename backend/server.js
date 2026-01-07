@@ -15,6 +15,17 @@ const { testMySQLConnection, ensureMySQLSchema } = require('./config/mysql');
 const app = express();
 
 // Ensure MongoDB is connected for auth, roles, and other Mongoose models
+// Moved after server start to allow testing before MongoDB connection
+// connectDB()
+//   .then(() => {
+//     console.log('✅ MongoDB connection established. Proceeding to seed roles...');
+//     return seedRoles();
+//   })
+//   .catch(err => {
+//     console.error('❌ Failed to connect to MongoDB at startup:', err?.message || err);
+//   });
+
+// Ensure MongoDB is connected for auth, roles, and other Mongoose models
 connectDB()
   .then(() => {
     console.log('✅ MongoDB connection established. Proceeding to seed roles...');
@@ -22,6 +33,7 @@ connectDB()
   })
   .catch(err => {
     console.error('❌ Failed to connect to MongoDB at startup:', err?.message || err);
+    process.exit(1); // Exit if MongoDB fails
   });
 
 // Seed default roles if missing
@@ -196,6 +208,8 @@ app.use('/api/mysql-subsections', require('./routes/mysqlSubSection'));
 app.use('/api/hris-cache', require('./routes/hrisCache'));
 // MySQL-based subsection transfer endpoints
 app.use('/api/mysql-subsections', require('./routes/mysqlSubSectionTransfer'));
+// MySQL Activity routes (recent activities with auto cleanup)
+app.use('/api/mysql-activities', require('./routes/mysqlActivity'));
 // (MongoDB cache route disabled) app.use('/api/mongodb-cache', require('./routes/mongodbCache'));
 app.use('/api/hris', require('./routes/hris'));
 // HRIS Sync routes
@@ -282,10 +296,10 @@ process.on('SIGTERM', () => {
   process.exit(0);
 });
 
-process.on('SIGINT', () => {
-  console.log('SIGINT received. Shutting down gracefully...');
-  process.exit(0);
-});
+// process.on('SIGINT', () => {
+//   console.log('SIGINT received. Shutting down gracefully...');
+//   process.exit(0);
+// });
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (err, promise) => {
@@ -300,6 +314,17 @@ process.on('uncaughtException', (err) => {
 });
 
 const PORT = process.env.PORT || 5000;
+
+// Ensure MongoDB is connected for auth, roles, and other Mongoose models
+connectDB()
+  .then(() => {
+    console.log('✅ MongoDB connection established. Proceeding to seed roles...');
+    return seedRoles();
+  })
+  .catch(err => {
+    console.error('❌ Failed to connect to MongoDB at startup:', err?.message || err);
+    process.exit(1); // Exit if MongoDB fails
+  });
 
 const server = app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);

@@ -14,6 +14,10 @@ const {
   getSyncStatus
 } = require('../services/hrisSyncService');
 
+const { syncEmpIndex } = require('../services/empIndexSyncService');
+const { syncSubSections } = require('../services/subSectionSyncService');
+const { syncAttendance } = require('../services/attendanceSyncService');
+
 const {
   getSchedulerStatus,
   triggerManualSync,
@@ -162,6 +166,88 @@ const triggerEmployeesSync = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to sync employees',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Trigger emp_index_list sync only
+ * @route   POST /api/sync/trigger/emp-index
+ * @access  Private (super_admin, admin)
+ */
+const triggerEmpIndexSync = async (req, res) => {
+  try {
+    const triggeredBy = req.user?.id || req.user?._id || 'manual';
+    
+    const result = await syncEmpIndex(triggeredBy);
+
+    res.status(200).json({
+      success: true,
+      message: 'Employee index sync completed',
+      data: result
+    });
+
+  } catch (error) {
+    console.error('Trigger emp index sync error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to sync employee index',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Trigger sub_sections sync only
+ * @route   POST /api/sync/trigger/subsections
+ * @access  Private (super_admin, admin)
+ */
+const triggerSubSectionsSync = async (req, res) => {
+  try {
+    const triggeredBy = req.user?.id || req.user?._id || 'manual';
+    
+    const result = await syncSubSections(triggeredBy);
+
+    res.status(200).json({
+      success: true,
+      message: 'Sub-sections sync completed',
+      data: result
+    });
+
+  } catch (error) {
+    console.error('Trigger sub-sections sync error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to sync sub-sections',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Trigger attendance sync only
+ * @route   POST /api/sync/trigger/attendance
+ * @access  Private (super_admin, admin)
+ */
+const triggerAttendanceSync = async (req, res) => {
+  try {
+    const triggeredBy = req.user?.id || req.user?._id || 'manual';
+    const { startDate, endDate } = req.body;
+    
+    const result = await syncAttendance(startDate, endDate, triggeredBy);
+
+    res.status(200).json({
+      success: true,
+      message: 'Attendance sync completed',
+      data: result
+    });
+
+  } catch (error) {
+    console.error('Trigger attendance sync error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to sync attendance',
       error: error.message
     });
   }
@@ -394,6 +480,9 @@ module.exports = {
   triggerDivisionsSync,
   triggerSectionsSync,
   triggerEmployeesSync,
+  triggerEmpIndexSync,
+  triggerSubSectionsSync,
+  triggerAttendanceSync,
   getSyncedDivisions,
   getSyncedSections,
   getSyncedEmployees,

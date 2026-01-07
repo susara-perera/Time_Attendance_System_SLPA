@@ -1,19 +1,20 @@
 /**
  * HRIS Sync Scheduler Service
  * 
- * Schedules automatic synchronization of HRIS data to MySQL database
+ * Schedules automatic synchronization of employee index to MySQL database
  * Default schedule: Daily at 12:00 PM
+ * NOTE: Only emp_index_list syncs automatically. Other tables sync manually only.
  */
 
 const cron = require('node-cron');
-const { performFullSync, getSyncStatus } = require('./hrisSyncService');
+const { syncEmpIndex } = require('./empIndexSyncService');
 
 let syncTask = null;
 let isInitialized = false;
 let lastSyncResult = null;
 
 /**
- * Initialize scheduler
+ * Initialize scheduler for emp_index_list only
  * @param {string} cronExpression - Cron expression (default: '0 12 * * *' = daily at 12 PM)
  */
 const initializeScheduler = (cronExpression = '0 12 * * *') => {
@@ -28,12 +29,13 @@ const initializeScheduler = (cronExpression = '0 12 * * *') => {
       throw new Error('Invalid cron expression');
     }
 
-    console.log('🕐 [SCHEDULER] Initializing HRIS sync scheduler...');
+    console.log('🕐 [SCHEDULER] Initializing Employee Index sync scheduler...');
     console.log(`   Schedule: ${cronExpression} (${getCronDescription(cronExpression)})`);
+    console.log('   NOTE: Only emp_index_list syncs automatically');
 
-    // Create scheduled task
+    // Create scheduled task - only sync emp_index_list
     syncTask = cron.schedule(cronExpression, async () => {
-      console.log('⏰ [SCHEDULER] Triggered scheduled HRIS sync');
+      console.log('⏰ [SCHEDULER] Triggered scheduled Employee Index sync');
       await runScheduledSync();
     }, {
       scheduled: true,
@@ -41,7 +43,7 @@ const initializeScheduler = (cronExpression = '0 12 * * *') => {
     });
 
     isInitialized = true;
-    console.log('✅ [SCHEDULER] HRIS sync scheduler initialized successfully');
+    console.log('✅ [SCHEDULER] Employee Index sync scheduler initialized successfully');
 
     // Optionally run initial sync on startup (uncomment if needed)
     // setTimeout(() => {
@@ -55,14 +57,14 @@ const initializeScheduler = (cronExpression = '0 12 * * *') => {
 };
 
 /**
- * Run scheduled sync
+ * Run scheduled sync - only emp_index_list
  */
 const runScheduledSync = async () => {
   try {
-    console.log('🔄 [SCHEDULER] Starting scheduled HRIS sync...');
+    console.log('🔄 [SCHEDULER] Starting scheduled Employee Index sync...');
     const startTime = new Date();
 
-    const result = await performFullSync('scheduled');
+    const result = await syncEmpIndex('scheduled');
 
     const endTime = new Date();
     const duration = Math.floor((endTime - startTime) / 1000);
@@ -73,12 +75,10 @@ const runScheduledSync = async () => {
       duration
     };
 
-    if (result.overall.success) {
+    if (result.success) {
       console.log('✅ [SCHEDULER] Scheduled sync completed successfully');
       console.log(`   Duration: ${duration}s`);
-      console.log(`   Divisions: ${result.divisions?.recordsSynced || 0} synced`);
-      console.log(`   Sections: ${result.sections?.recordsSynced || 0} synced`);
-      console.log(`   Employees: ${result.employees?.recordsSynced || 0} synced`);
+      console.log(`   Employee Index: ${result.inserted || 0} new, ${result.updated || 0} skipped`);
     } else {
       console.error('❌ [SCHEDULER] Scheduled sync completed with errors');
     }
@@ -88,10 +88,8 @@ const runScheduledSync = async () => {
   } catch (error) {
     console.error('❌ [SCHEDULER] Scheduled sync failed:', error.message);
     lastSyncResult = {
-      overall: {
-        success: false,
-        error: error.message
-      },
+      success: false,
+      error: error.message,
       timestamp: new Date()
     };
     return lastSyncResult;
@@ -104,7 +102,7 @@ const runScheduledSync = async () => {
 const stopScheduler = () => {
   if (syncTask) {
     syncTask.stop();
-    console.log('🛑 [SCHEDULER] HRIS sync scheduler stopped');
+    console.log('🛑 [SCHEDULER] Employee Index sync scheduler stopped');
     isInitialized = false;
   }
 };
@@ -115,7 +113,7 @@ const stopScheduler = () => {
 const startScheduler = () => {
   if (syncTask) {
     syncTask.start();
-    console.log('▶️  [SCHEDULER] HRIS sync scheduler started');
+    console.log('▶️  [SCHEDULER] Employee Index sync scheduler started');
     isInitialized = true;
   }
 };
@@ -124,21 +122,20 @@ const startScheduler = () => {
  * Get scheduler status
  */
 const getSchedulerStatus = async () => {
-  const syncStatus = await getSyncStatus(5);
-
   return {
     isRunning: isInitialized && syncTask !== null,
     lastSyncResult,
-    ...syncStatus
+    type: 'emp_index_list_only',
+    note: 'Only employee index syncs automatically. Other tables sync manually.'
   };
 };
 
 /**
- * Manually trigger sync
+ * Manually trigger emp_index sync
  */
 const triggerManualSync = async (triggeredBy = 'manual') => {
-  console.log(`🔧 [SCHEDULER] Manual sync triggered by: ${triggeredBy}`);
-  return await performFullSync(triggeredBy);
+  console.log(`🔧 [SCHEDULER] Manual Employee Index sync triggered by: ${triggeredBy}`);
+  return await syncEmpIndex(triggeredBy);
 };
 
 /**

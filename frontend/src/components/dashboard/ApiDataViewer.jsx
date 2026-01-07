@@ -684,10 +684,10 @@ const ApiDataViewer = () => {
                 onChange={handleEmployeeDivisionChange}
                 style={{ width: 'auto', minWidth: '200px' }}
               >
-                <option value="all">All Divisions ({allEmployees.length} employees)</option>
+                <option value="all">All Divisions</option>
                 {getEmployeeDivisions().map(division => (
                   <option key={division.key} value={division.key}>
-                    {division.name} ({division.count} employees)
+                    {division.name}
                   </option>
                 ))}
               </select>

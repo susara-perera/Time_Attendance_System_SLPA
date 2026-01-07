@@ -37,20 +37,18 @@ const syncAttendanceData = async (startDate, endDate, triggeredBy = 'system') =>
 
     // Step 1: Get all attendance records from MySQL attendance table (punch times)
     console.log('📊 Step 1: Fetching punch data from MySQL attendance table...');
-    const [mysqlAttendance] = await sequelize.query(`
-      SELECT 
+    // Note: some source attendance tables only store date_ and time_ (no employee_name or other fields).
+    // We aggregate by employee_ID and date and rely on employees_sync for names and org info.
+    const mysqlAttendance = await sequelize.query(`
+      SELECT
         employee_ID,
-        employee_name,
         DATE(date_) as attendance_date,
-        MIN(event_time) as first_punch,
-        MAX(event_time) as last_punch,
-        COUNT(*) as punch_count,
-        division_name,
-        section_name,
-        designation
+        MIN(time_) as first_punch,
+        MAX(time_) as last_punch,
+        COUNT(*) as punch_count
       FROM attendance
       WHERE DATE(date_) BETWEEN ? AND ?
-      GROUP BY employee_ID, employee_name, DATE(date_), division_name, section_name, designation
+      GROUP BY employee_ID, DATE(date_)
       ORDER BY employee_ID, attendance_date
     `, {
       replacements: [startDate, endDate],
@@ -60,19 +58,19 @@ const syncAttendanceData = async (startDate, endDate, triggeredBy = 'system') =>
 
     // Step 2: Get employee details from employees_sync
     console.log('📊 Step 2: Fetching employee details from employees_sync...');
-    const [employees] = await sequelize.query(`
+    const employees = await sequelize.query(`
       SELECT 
         EMP_NO,
         EMP_NAME,
-        DESIG_NAME,
-        DESIG_CODE,
+        EMP_DESIGNATION AS DESIG_NAME,
+        NULL AS DESIG_CODE,
         DIV_CODE,
         DIV_NAME,
         SEC_CODE,
         SEC_NAME,
-        ACTIVE_HRM_FLG
+        IS_ACTIVE AS ACTIVE_HRM_FLG
       FROM employees_sync
-      WHERE ACTIVE_HRM_FLG = 1
+      WHERE IS_ACTIVE = 1
     `, {
       type: sequelize.QueryTypes.SELECT
     });
@@ -86,14 +84,23 @@ const syncAttendanceData = async (startDate, endDate, triggeredBy = 'system') =>
 
     // Step 3: Get MongoDB attendance data (for status and calculated fields)
     console.log('📊 Step 3: Fetching attendance status from MongoDB...');
-    const mongoAttendance = await Attendance.find({
-      date: {
-        $gte: new Date(`${startDate}T00:00:00`),
-        $lte: new Date(`${endDate}T23:59:59`)
-      }
-    })
-    .populate('user', 'employeeId')
-    .lean();
+    let mongoAttendance = [];
+    try {
+      mongoAttendance = await Attendance.find({
+        date: {
+          $gte: new Date(`${startDate}T00:00:00`),
+          $lte: new Date(`${endDate}T23:59:59`)
+        }
+      })
+      .populate('user', 'employeeId')
+      .lean();
+
+      console.log(`   ✅ Loaded ${mongoAttendance.length} MongoDB attendance records\n`);
+    } catch (mongoErr) {
+      console.warn('⚠️ [ATTENDANCE SYNC] Could not fetch MongoDB attendance data:', mongoErr.message);
+      console.warn('⚠️ Proceeding without MongoDB attendance details (check-in/out, status will default)\n');
+      mongoAttendance = [];
+    }
 
     // Create MongoDB attendance lookup map
     const mongoAttendanceMap = new Map();
@@ -103,7 +110,6 @@ const syncAttendanceData = async (startDate, endDate, triggeredBy = 'system') =>
         mongoAttendanceMap.set(key, att);
       }
     });
-    console.log(`   ✅ Loaded ${mongoAttendance.length} MongoDB attendance records\n`);
 
     // Step 4: Process and sync each attendance record
     console.log('📊 Step 4: Processing and syncing attendance data...\n');
@@ -430,11 +436,24 @@ const syncYesterday = async (triggeredBy = 'cron') => {
   return await syncAttendanceData(yesterday, yesterday, triggeredBy);
 };
 
+/**
+ * Main sync function wrapper for API calls
+ */
+const syncAttendance = async (startDate, endDate, triggeredBy = 'system') => {
+  // Default to last 7 days if no dates provided
+  if (!startDate || !endDate) {
+    return await syncLastNDays(7, triggeredBy);
+  }
+  
+  return await syncAttendanceData(startDate, endDate, triggeredBy);
+};
+
 module.exports = {
   syncAttendanceData,
   syncLastNDays,
   syncCurrentMonth,
   syncYesterday,
+  syncAttendance,
   updateDailyStatistics,
   invalidateReportCache
 };
