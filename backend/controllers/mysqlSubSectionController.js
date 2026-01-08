@@ -76,10 +76,22 @@ exports.list = async (req, res, next) => {
       sql += ' WHERE section_code = ?';
       params.push(String(sectionId));
     }
-    sql += ' ORDER BY sub_name ASC';
-
+    // Avoid ordering by DB column names that may differ between schemas
+    // (some deployments use `sub_name`, others use `sub_section_name`).
+    // Fetch rows and perform stable ordering in JavaScript after mapping.
     const [rows] = await conn.execute(sql, params);
-    return res.json({ success: true, data: rows.map(mapRow) });
+    const mapped = rows.map(mapRow);
+
+    // Sort by subSection.sub_hie_name (case-insensitive), fallback to empty string
+    mapped.sort((a, b) => {
+      const na = (a?.subSection?.sub_hie_name || '').toString().toLowerCase();
+      const nb = (b?.subSection?.sub_hie_name || '').toString().toLowerCase();
+      if (na < nb) return -1;
+      if (na > nb) return 1;
+      return 0;
+    });
+
+    return res.json({ success: true, data: mapped });
   } catch (err) {
     console.error('[MySQL] list subsections failed:', err);
     next(err);
@@ -116,18 +128,18 @@ exports.create = async (req, res, next) => {
 
     conn = await createMySQLConnection();
     const sql = `INSERT INTO sub_sections
-      (division_id, division_code, division_name, section_id, section_code, section_name, sub_name, sub_code)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+      (division_code, division_name, section_code, section_name, sub_section_name, sub_section_code)
+      VALUES (?, ?, ?, ?, ?, ?)`;
     const params = [
-      payload.division_id, payload.division_code, payload.division_name,
-      payload.section_id, payload.section_code, payload.section_name,
+      payload.division_code, payload.division_name,
+      payload.section_code, payload.section_name,
       payload.sub_name, payload.sub_code
     ];
 
     await conn.execute(sql, params);
 
     // Fetch created row id
-    const [row] = await conn.execute('SELECT * FROM sub_sections WHERE section_id = ? AND sub_code = ? LIMIT 1', [payload.section_id, payload.sub_code]);
+    const [row] = await conn.execute('SELECT * FROM sub_sections WHERE section_code = ? AND sub_section_code = ? LIMIT 1', [payload.section_code, payload.sub_code]);
     const created = Array.isArray(row) && row[0] ? mapRow(row[0]) : null;
 
     // Log audit trail for MySQL sub-section creation
@@ -187,8 +199,8 @@ exports.update = async (req, res, next) => {
 
     const setParts = [];
     const params = [];
-    if (newName) { setParts.push('sub_name = ?'); params.push(newName); }
-    if (newCode) { setParts.push('sub_code = ?'); params.push(newCode); }
+    if (newName) { setParts.push('sub_section_name = ?'); params.push(newName); }
+    if (newCode) { setParts.push('sub_section_code = ?'); params.push(newCode); }
     params.push(String(id));
 
     const sql = `UPDATE sub_sections SET ${setParts.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`;
