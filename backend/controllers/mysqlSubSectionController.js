@@ -71,10 +71,12 @@ exports.list = async (req, res, next) => {
     let sql = 'SELECT * FROM sub_sections';
     const params = [];
     if (sectionId && sectionId !== 'all') {
-      // Use section_code instead of section_id to match table schema
-      // Frontend now sends section code as the ID
+      // Strip mysql_sec_ prefix if present (frontend may send prefixed IDs)
+      const cleanSectionId = String(sectionId).replace(/^mysql_sec_/i, '');
+      
+      // Use section_code to match table schema
       sql += ' WHERE section_code = ?';
-      params.push(String(sectionId));
+      params.push(cleanSectionId);
     }
     // Avoid ordering by DB column names that may differ between schemas
     // (some deployments use `sub_name`, others use `sub_section_name`).
@@ -115,12 +117,16 @@ exports.create = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Sub-section name and code are required.' });
     }
 
+    // Strip mysql_div_ and mysql_sec_ prefixes if present
+    const cleanDivisionId = String(parentDivision.id).replace(/^mysql_div_/i, '');
+    const cleanSectionId = String(parentSection.id).replace(/^mysql_sec_/i, '');
+
     const payload = {
-      division_id: String(parentDivision.id),
-      division_code: parentDivision.division_code || parentDivision.code || null,
+      division_id: cleanDivisionId,
+      division_code: parentDivision.division_code || parentDivision.code || cleanDivisionId,
       division_name: parentDivision.division_name || parentDivision.name || null,
-      section_id: String(parentSection.id),
-      section_code: parentSection.hie_code || parentSection.code || null,
+      section_id: cleanSectionId,
+      section_code: parentSection.hie_code || parentSection.code || cleanSectionId,
       section_name: parentSection.hie_name || parentSection.name || null,
       sub_name: String(nameValue).trim(),
       sub_code: String(codeValue).trim().toUpperCase()
@@ -312,3 +318,21 @@ exports.remove = async (req, res, next) => {
 
 // Export the new function for mysqlData routes
 exports.getMySQLSubSections = getMySQLSubSections;
+
+// Debug: return raw rows from `sub_sections` table (no mapping)
+// @route GET /api/mysql-data/subsections/raw
+const getRawMySQLSubSections = async (req, res) => {
+  let conn;
+  try {
+    conn = await createMySQLConnection();
+    const [rows] = await conn.execute('SELECT * FROM sub_sections LIMIT 1000');
+    return res.json({ success: true, count: Array.isArray(rows) ? rows.length : 0, data: rows });
+  } catch (err) {
+    console.error('[MySQL Debug] failed to fetch raw sub_sections:', err);
+    return res.status(500).json({ success: false, message: 'Failed to fetch raw sub_sections', error: err.message });
+  } finally {
+    if (conn) await conn.end();
+  }
+};
+
+exports.getRawMySQLSubSections = getRawMySQLSubSections;

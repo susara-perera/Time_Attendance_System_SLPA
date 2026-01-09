@@ -205,20 +205,21 @@ const getSubSectionsFromMySQL = async (filters = {}) => {
     const replacements = {};
 
     // Section filter
-    if (filters.sectionCode) {
+    if (filters.sectionCode !== undefined && filters.sectionCode !== null) {
       whereClause = `WHERE section_code = :sectionCode`;
-      replacements.sectionCode = filters.sectionCode;
+      // Ensure sectionCode is passed as string to handle numeric codes
+      replacements.sectionCode = String(filters.sectionCode);
     }
 
     // Division filter (if provided)
-    if (filters.divisionCode) {
+    if (filters.divisionCode !== undefined && filters.divisionCode !== null) {
       whereClause += whereClause ? ' AND ' : 'WHERE ';
       whereClause += `division_code = :divisionCode`;
-      replacements.divisionCode = filters.divisionCode;
+      replacements.divisionCode = String(filters.divisionCode);
     }
 
     const [subsections] = await sequelize.query(
-      `SELECT * FROM sub_sections ${whereClause} ORDER BY sub_name ASC`,
+      `SELECT * FROM sub_sections ${whereClause}`,
       {
         replacements,
         nest: false,
@@ -226,19 +227,32 @@ const getSubSectionsFromMySQL = async (filters = {}) => {
       }
     );
 
-    return subsections.map(sub => ({
+    // Normalize and map
+    const mapped = subsections.map(sub => ({
       _id: String(sub.id),
       id: sub.id,
-      sub_name: sub.sub_name,
-      sub_code: sub.sub_code,
-      section_code: sub.section_code,
-      division_code: sub.division_code,
-      section_name: sub.section_name,
-      division_name: sub.division_name,
+      sub_name: sub.sub_name || sub.sub_section_name || sub.sub_name || '',
+      sub_section_name: sub.sub_section_name || sub.sub_name || '',
+      sub_code: sub.sub_code || sub.sub_section_code || '',
+      section_code: sub.section_code || sub.section_code || '',
+      division_code: sub.division_code || sub.division_code || '',
+      section_name: sub.section_name || sub.sub_section_name || '',
+      division_name: sub.division_name || sub.division_name || '',
       created_at: sub.created_at,
       updated_at: sub.updated_at,
       source: 'MySQL'
     }));
+
+    // Sort client-side to avoid schema-dependent ORDER BY clauses
+    mapped.sort((a, b) => {
+      const na = (a.sub_name || a.sub_section_name || '').toString().toLowerCase();
+      const nb = (b.sub_name || b.sub_section_name || '').toString().toLowerCase();
+      if (na < nb) return -1;
+      if (na > nb) return 1;
+      return 0;
+    });
+
+    return mapped;
 
   } catch (error) {
     console.error('❌ [MySQL] Error fetching subsections:', error.message);

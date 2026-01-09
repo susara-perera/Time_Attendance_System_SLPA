@@ -382,28 +382,6 @@ const DashboardStats = ({ onQuickAction }) => {
 
       {/* Stats Cards Grid */}
       <div className="stats-cards-grid">
-        {/* Total Employees */}
-        <div className="stat-card stat-card-primary" style={{ '--delay': '0.1s' }}>
-          <div className="stat-card-bg">
-            <div className="stat-card-pattern"></div>
-          </div>
-          <div className="stat-card-content">
-            <div className="stat-icon">
-              <i className="bi bi-people-fill"></i>
-            </div>
-            <div className="stat-info">
-              <h3 className="stat-value">{animatedStats.totalEmployees || 0}</h3>
-              <p className="stat-label">Total Employees</p>
-            </div>
-          </div>
-          <div className="stat-card-footer">
-            <span className="stat-trend trend-neutral">
-              <i className="bi bi-dash"></i> All registered
-            </span>
-          </div>
-          <div className="stat-card-glow"></div>
-        </div>
-
         {/* Active Employees */}
         <div className="stat-card stat-card-success" style={{ '--delay': '0.2s' }}>
           <div className="stat-card-bg">
@@ -426,30 +404,8 @@ const DashboardStats = ({ onQuickAction }) => {
           <div className="stat-card-glow"></div>
         </div>
 
-        {/* Inactive Employees */}
-        <div className="stat-card stat-card-danger" style={{ '--delay': '0.3s' }}>
-          <div className="stat-card-bg">
-            <div className="stat-card-pattern"></div>
-          </div>
-          <div className="stat-card-content">
-            <div className="stat-icon">
-              <i className="bi bi-person-dash-fill"></i>
-            </div>
-            <div className="stat-info">
-              <h3 className="stat-value">{animatedStats.inactiveEmployees || 0}</h3>
-              <p className="stat-label">Inactive Employees</p>
-            </div>
-          </div>
-          <div className="stat-card-footer">
-            <span className="stat-trend trend-down">
-              <i className="bi bi-x-circle"></i> {activeEmployeeCount + inactiveEmployeeCount > 0 ? Math.round((inactiveEmployeeCount / (activeEmployeeCount + inactiveEmployeeCount)) * 100) : 0}% of total
-            </span>
-          </div>
-          <div className="stat-card-glow"></div>
-        </div>
-
         {/* Total Divisions */}
-        <div className="stat-card stat-card-warning" style={{ '--delay': '0.4s' }}>
+        <div className="stat-card stat-card-warning" style={{ '--delay': '0.3s' }}>
           <div className="stat-card-bg">
             <div className="stat-card-pattern"></div>
           </div>

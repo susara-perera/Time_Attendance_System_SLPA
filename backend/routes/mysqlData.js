@@ -22,6 +22,8 @@ const {
   getMySQLSubSections
 } = require('../controllers/mysqlSubSectionController');
 
+const { getRawMySQLSubSections } = require('../controllers/mysqlSubSectionController');
+
 const {
   getMySQLEmployees,
   getMySQLEmployeeByNumber
@@ -37,6 +39,8 @@ router.get('/sections/:code', getMySQLSectionByCode);
 
 // Subsections
 router.get('/subsections', getMySQLSubSections);
+// Raw debug subsections (returns raw DB rows)
+router.get('/subsections/raw', getRawMySQLSubSections);
 
 // Employees
 router.get('/employees', getMySQLEmployees);

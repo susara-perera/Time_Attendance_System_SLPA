@@ -8,6 +8,7 @@ import { useLanguage } from '../../context/LanguageContext';
 
 const ReportGeneration = () => {
   const { t } = useLanguage();
+  const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
   
   // Helper function to format date without timezone issues
   const formatDateToYYYYMMDD = (date) => {
@@ -358,7 +359,7 @@ const ReportGeneration = () => {
       const token = localStorage.getItem('token');
       console.log('📥 Fetching divisions from MySQL data...');
       
-      const response = await fetch('http://localhost:5000/api/mysql-data/divisions', {
+      const response = await fetch(`${API_BASE_URL}/mysql-data/divisions?includeEmployeeCount=true`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -393,7 +394,7 @@ const ReportGeneration = () => {
       const token = localStorage.getItem('token');
       console.log('📥 Fetching sections from MySQL data...');
       
-      const response = await fetch('http://localhost:5000/api/mysql-data/sections', {
+      const response = await fetch(`${API_BASE_URL}/mysql-data/sections`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -443,7 +444,7 @@ const ReportGeneration = () => {
 
       console.log(`📥 Fetching sub sections for section: ${sectionId} (clean: ${cleanSectionId})`);
       
-      const response = await fetch(`http://localhost:5000/api/mysql-data/subsections?sectionCode=${cleanSectionId}`, {
+      const response = await fetch(`${API_BASE_URL}/mysql-subsections?sectionId=${encodeURIComponent(cleanSectionId)}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -468,6 +469,40 @@ const ReportGeneration = () => {
     } catch (err) {
       console.error('Error fetching sub sections:', err);
       setSubSections([]);
+    }
+  };
+
+  // Fetch a small preview list of employees matching the filters (used to validate group filters)
+  const fetchFilteredEmployeesPreview = async (payload, token) => {
+    try {
+      let employeesUrl = '';
+      if (payload.sub_section_id) {
+        employeesUrl = `${API_BASE_URL}/mysql-subsections/transferred/${encodeURIComponent(payload.sub_section_id)}`;
+      } else if (payload.section_id) {
+        employeesUrl = `${API_BASE_URL}/mysql-data/employees?sectionCode=${encodeURIComponent(payload.section_id)}&limit=1000`;
+      } else if (payload.division_id) {
+        employeesUrl = `${API_BASE_URL}/mysql-data/employees?divisionCode=${encodeURIComponent(payload.division_id)}&limit=1000`;
+      }
+
+      if (!employeesUrl) return null;
+
+      const resp = await fetch(employeesUrl, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      let arr = [];
+      if (Array.isArray(data)) arr = data;
+      else if (data.data && Array.isArray(data.data)) arr = data.data;
+      else if (data.data && data.data.data && Array.isArray(data.data.data)) arr = data.data.data;
+      return arr;
+    } catch (err) {
+      console.warn('Error fetching filtered employees preview:', err);
+      return null;
     }
   };
 
@@ -510,32 +545,31 @@ const ReportGeneration = () => {
         if (reportScope === 'individual') {
           payload.employee_id = employeeId;
         } else if (reportScope === 'group') {
-          // For group reports, send division and section CODES/IDs (MySQL Sync based)
+          // For group reports, derive concrete identifiers expected by the backend (emp_index_list uses
+          // division_id=HIE_CODE, section_id=HIE_CODE, sub_section_id=sub_sections.id)
           if (subSectionId !== 'all' && sectionId !== 'all') {
-            // If sub section is selected, send the database ID; clear section/division to avoid filtering out transfers
-            const selectedSubSection = subSections.find(ss => (ss._id || ss.id) === subSectionId);
+            const selectedSubSection = subSections.find(ss => (ss._id || ss.id || ss.sub_section_id) === subSectionId);
             if (selectedSubSection) {
-              // Send the actual database ID for querying transferred_employees table
-              payload.sub_section_id = subSectionId;
-              // Clear section/division filters so that transferred employees from ANY section are included
-              payload.section_id = ''; 
+              // Use the database id for sub sections (this matches emp_index_list.sub_section_id)
+              payload.sub_section_id = selectedSubSection.sub_section_id || selectedSubSection.id || selectedSubSection._id || subSectionId;
+              // Clear section/division to include transferred employees across sections/divisions
+              payload.section_id = '';
               payload.division_id = '';
-              
+
               console.log('Selected sub section details:', {
-                sub_section_db_id: subSectionId,
-                sub_section_name: selectedSubSection.subSection?.sub_hie_name || selectedSubSection.subSection?.name || selectedSubSection.sub_name || selectedSubSection.sub_code || '',
+                sub_section_db_id: payload.sub_section_id,
+                sub_section_name: selectedSubSection.subSection?.sub_hie_name || selectedSubSection.subSection?.name || selectedSubSection.sub_name || selectedSubSection.sub_code || selectedSubSection.sub_section_name || selectedSubSection.name || '',
                 full_sub_section: selectedSubSection
               });
             }
           } else if (sectionId !== 'all') {
-            // If section is selected, use section's CODE (HIE_CODE) match backend expectation
-            const selectedSection = sections.find(s => (s._id || s.id || s.section_id) === sectionId);
+            const selectedSection = sections.find(s => (s._id || s.id || s.section_id || s.code) === sectionId);
             if (selectedSection) {
-              // Use the section CODE
-              payload.section_id = selectedSection.code || selectedSection.hie_code || '';
-              // Use the division CODE
-              payload.division_id = selectedSection.divisionCode || selectedSection.division_code || '';
-              
+              // For emp_index_list we use HIE_CODE for section_id
+              payload.section_id = selectedSection.code || selectedSection.hie_code || selectedSection.section_code || selectedSection.section_id || selectedSection.id || '';
+              // Division may be a code as well
+              payload.division_id = selectedSection.divisionCode || selectedSection.division_code || selectedSection.division_id || selectedSection.divisionId || '';
+
               console.log('🎯 Selected section details:', {
                 section_id: sectionId,
                 section_code: payload.section_id,
@@ -544,36 +578,43 @@ const ReportGeneration = () => {
               });
             }
           } else if (divisionId !== 'all') {
-            // If division selected with "All Sections", use division's CODE
             const selectedDivision = divisions.find(d => (d._id || d.id) === divisionId);
             if (selectedDivision) {
-              // Use the division CODE
-              payload.division_id = selectedDivision.code || selectedDivision.hie_code || '';
-              // Empty section means all sections in this division
+              // Use the division HIE code as division_id
+              payload.division_id = selectedDivision.code || selectedDivision.hie_code || selectedDivision.division_id || selectedDivision.id || '';
               payload.section_id = '';
-              
+
               console.log('🎯 Selected division with all sections:', {
                 division_id: divisionId,
                 division_code: payload.division_id,
                 section_filter: 'All Sections',
-                full_division: selectedDivision,
-                available_fields: {
-                  hie_relationship: selectedDivision.hie_relationship,
-                  hie_name: selectedDivision.hie_name,
-                  name: selectedDivision.name,
-                  DIVISION_NAME: selectedDivision.DIVISION_NAME
-                }
+                full_division: selectedDivision
               });
             }
           } else {
             payload.division_id = '';
             payload.section_id = '';
           }
-          
+
           console.log('Sending group report filters:', {
             division_name: payload.division_id,
-            section_name: payload.section_id
+            section_name: payload.section_id,
+            sub_section_id: payload.sub_section_id
           });
+
+          // Verify filtered employees for group report (preview)
+          const empPreview = await fetchFilteredEmployeesPreview(payload, token);
+          if (Array.isArray(empPreview)) {
+            console.log(`✅ Found ${empPreview.length} employees matching filters`);
+            if (empPreview.length === 0) {
+              setError('No employees found for selected filters. Please check your division/section/sub-section selection.');
+              setLoading(false);
+              return;
+            }
+            payload.preview_employee_count = empPreview.length;
+          } else {
+            console.warn('Failed to verify filtered employees (preview unavailable)');
+          }
         }
       } else if (reportType === 'audit') {
         // Use MySQL API for audit reports

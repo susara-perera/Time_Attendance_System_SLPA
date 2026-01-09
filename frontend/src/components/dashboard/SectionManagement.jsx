@@ -171,7 +171,11 @@ const SectionManagement = () => {
     setSubSectionsLoading(prev => ({ ...prev, [sectionId]: true }));
     setSubSectionsError(prev => ({ ...prev, [sectionId]: '' }));
     try {
-  const resp = await fetch(`${API_BASE_URL}/mysql-subsections?sectionId=${encodeURIComponent(sectionId)}`, {
+      // Find the section to get its code
+      const section = sections.find(s => s._id === sectionId);
+      const sectionCode = section?.code || sectionId;
+      
+      const resp = await fetch(`${API_BASE_URL}/mysql-subsections?sectionId=${encodeURIComponent(sectionCode)}`, {
         headers: { 'Authorization': `Bearer ${token}` },
         credentials: 'include'
       });
@@ -1421,15 +1425,18 @@ const SectionManagement = () => {
         return sid && String(sid) === String(parent._id);
       });
 
+      const sectionCode = rawSection?.hie_code || rawSection?.SECTION_CODE || rawSection?.code || parent.code || '';
+      const divisionCode = rawDivision?.DIVISION_CODE || rawDivision?.division_code || division.code || parent.divisionCode || '';
+      
       const payload = {
         parentDivision: {
-          id: division._id || divId || '',
-          division_code: rawDivision?.DIVISION_CODE || rawDivision?.division_code || division.code || parent.divisionCode || '',
+          id: divisionCode, // Use code instead of _id with mysql prefix
+          division_code: divisionCode,
           division_name: rawDivision?.DIVISION_NAME || rawDivision?.division_name || division.name || (typeof parent.division === 'object' ? parent.division?.name : ''),
         },
         parentSection: {
-          id: parent._id,
-          hie_code: rawSection?.hie_code || rawSection?.SECTION_CODE || rawSection?.code || parent.code || '',
+          id: sectionCode, // Use code instead of _id with mysql prefix
+          hie_code: sectionCode,
           hie_name: rawSection?.hie_name || rawSection?.SECTION_NAME || rawSection?.name || parent.name || '',
         },
         subSection: {
