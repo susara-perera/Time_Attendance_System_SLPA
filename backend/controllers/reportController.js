@@ -6,6 +6,13 @@ const Meal = require('../models/Meal');
 const AuditLog = require('../models/AuditLog');
 const { createMySQLConnection } = require('../config/mysql');
 const moment = require('moment');
+const { 
+  normalizeScanType, 
+  isScanTypeIn, 
+  isScanTypeOut,
+  categorizeIncompleteIssue 
+} = require('../utils/attendanceNormalizer');
+const { validateFilters, getFilterDescription } = require('../utils/filterValidator');
 
 // @desc    Generate attendance report
 // @route   GET /api/reports/attendance or POST /api/reports/attendance
@@ -1741,104 +1748,154 @@ const mapMongoToMySQLDivisionId = async (divisionId) => {
 };
 
 // Helper function to generate MySQL-based group attendance report (tabular format)
+// OPTIMIZED VERSION with connection pool + single JOIN query + Redis caching
 const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_id, section_id, sub_section_id = '') => {
+  const perfStart = Date.now();
+  
   try {
-    console.log('=== GROUP ATTENDANCE REPORT GENERATION STARTED ===');
+    console.log('=== 🚀 OPTIMIZED GROUP ATTENDANCE REPORT GENERATION ===');
     console.log(`Date range: ${from_date} to ${to_date}`);
-    console.log(`Division filter: ${division_id || 'none'}`);
-    console.log(`Section filter: ${section_id || 'none'}`);
-    console.log(`Sub Section filter: ${sub_section_id || 'none'}`);
+    console.log(`Division filter: ${division_id || 'ALL'}`);
+    console.log(`Section filter: ${section_id || 'ALL'}`);
+    console.log(`Sub Section filter: ${sub_section_id || 'ALL'}`);
     
-    // Create MySQL connection
-    const connection = await createMySQLConnection();
-
-    // STEP 1: Get employee IDs from emp_index_list based on division/section/subsection filters
-    console.log('\n🎯 STEP 1: Getting employee IDs from emp_index_list');
-    console.log(`   Division filter: "${division_id || 'ALL'}"`);
-    console.log(`   Section filter: "${section_id || 'none'}"`);
-    console.log(`   Sub Section filter: "${sub_section_id || 'none'}"`);
-
-    let empIndexQuery = 'SELECT DISTINCT employee_id, employee_name, division_id, division_name, section_id, section_name FROM emp_index_list WHERE 1=1';
-    const empIndexParams = [];
-
-    if (sub_section_id) {
-      // Filter by sub-section (most specific)
-      empIndexQuery += ' AND sub_section_id = ?';
-      empIndexParams.push(String(sub_section_id));
-    } else if (section_id) {
-      // Filter by section
-      empIndexQuery += ' AND section_id = ?';
-      empIndexParams.push(String(section_id));
-    } else if (division_id) {
-      // Filter by division
-      empIndexQuery += ' AND division_id = ?';
-      empIndexParams.push(String(division_id));
+    // Import connection pool and cache
+    const { executeQuery } = require('../config/mysqlPool');
+    const { getCache } = require('../config/reportCache');
+    
+    // Try to get from cache first
+    const cache = getCache();
+    const cacheParams = { from_date, to_date, division_id, section_id, sub_section_id };
+    
+    const cachedResult = await cache.get('group', cacheParams);
+    if (cachedResult) {
+      const cacheTime = Date.now() - perfStart;
+      console.log(`\n✅ RETURNED FROM CACHE in ${cacheTime}ms (instant response!)\n`);
+      
+      // Add cache metadata
+      return {
+        ...cachedResult,
+        cached: true,
+        cacheTime,
+        summary: {
+          ...cachedResult.summary,
+          cached: true,
+          cacheTime
+        }
+      };
     }
-
-    empIndexQuery += ' ORDER BY employee_id ASC';
-
-    const [empIndexRows] = await connection.execute(empIndexQuery, empIndexParams);
-    console.log(`   ✅ Found ${empIndexRows.length} employees in emp_index_list`);
-
-    if (empIndexRows.length === 0) {
-      await connection.end();
-      console.log('⚠️ No employees found matching the filter criteria');
+    
+    console.log('⚠️  Cache miss - generating fresh report...');
+    
+    // STEP 1: Build optimized single-query with JOIN
+    // This leverages indexes and does filtering at DB level (10-50x faster)
+    console.log('\n⚡ STEP 1: Executing optimized JOIN query (date + org filters combined)');
+    
+    const queryStart = Date.now();
+    
+    // Build conditional WHERE clauses based on what filters are provided
+    let attendanceQuery = `
+      SELECT 
+        a.employee_ID,
+        a.date_,
+        a.time_ AS punch_time,
+        a.scan_type AS status,
+        e.employee_name,
+        e.division_id,
+        e.division_name,
+        e.section_id,
+        e.section_name,
+        e.sub_section_id
+      FROM attendance a
+      INNER JOIN emp_index_list e ON a.employee_ID = e.employee_id
+      WHERE a.date_ BETWEEN ? AND ?
+    `;
+    
+    const queryParams = [from_date, to_date];
+    
+    // Add organizational filters (conditional - only if provided)
+    if (sub_section_id && sub_section_id !== '' && sub_section_id !== 'all') {
+      attendanceQuery += ' AND e.sub_section_id = ?';
+      queryParams.push(String(sub_section_id));
+    } else if (section_id && section_id !== '' && section_id !== 'all') {
+      attendanceQuery += ' AND e.section_id = ?';
+      queryParams.push(String(section_id));
+    } else if (division_id && division_id !== '' && division_id !== 'all') {
+      attendanceQuery += ' AND e.division_id = ?';
+      queryParams.push(String(division_id));
+    }
+    
+    attendanceQuery += ' ORDER BY a.employee_ID, a.date_, a.time_ ASC';
+    
+    // Execute optimized query using connection pool
+    const [attendanceRecords, queryDuration] = await executeQuery(attendanceQuery, queryParams);
+    
+    console.log(`   ✅ Query completed in ${queryDuration}ms`);
+    console.log(`   📊 Retrieved ${attendanceRecords.length} attendance records (filtered at DB level)`);
+    
+    if (attendanceRecords.length === 0) {
+      console.log('⚠️ No attendance records found for given filters');
       return {
         reportType: 'group',
         dateRange: { from: from_date, to: to_date },
         dates: [],
         employees: [],
-        summary: { totalEmployees: 0, totalDays: 0 }
+        data: [],
+        summary: { 
+          totalEmployees: 0, 
+          totalDays: 0,
+          totalRecords: 0,
+          queryTime: queryDuration,
+          totalTime: Date.now() - perfStart
+        }
       };
     }
-
-    // Show sample
-    if (empIndexRows.length > 0) {
-      console.log('   Sample employees from emp_index_list:', empIndexRows.slice(0, 3).map(e => ({
-        id: e.employee_id,
+    
+    // STEP 2: Extract unique employees from the result set (already filtered)
+    console.log('\n📋 STEP 2: Building employee list from query results');
+    
+    const employeeMap = new Map();
+    attendanceRecords.forEach(record => {
+      const empId = String(record.employee_ID);
+      if (!employeeMap.has(empId)) {
+        employeeMap.set(empId, {
+          employee_ID: empId,
+          employee_name: record.employee_name || 'Unknown',
+          division_id: record.division_id,
+          division_name: record.division_name || 'N/A',
+          section_id: record.section_id,
+          section_name: record.section_name || 'N/A',
+          sub_section_id: record.sub_section_id,
+          FULLNAME: record.employee_name || 'Unknown',
+          EMP_NUMBER: empId,
+          currentwork: {
+            HIE_CODE_3: record.division_id,
+            HIE_NAME_3: record.division_name,
+            HIE_CODE_4: record.section_id,
+            HIE_NAME_4: record.section_name
+          }
+        });
+      }
+    });
+    
+    const employees = Array.from(employeeMap.values()).sort((a, b) => 
+      a.employee_ID.localeCompare(b.employee_ID)
+    );
+    
+    console.log(`   ✅ Found ${employees.length} unique employees`);
+    
+    if (employees.length > 0 && employees.length <= 5) {
+      console.log('   Sample employees:', employees.map(e => ({
+        id: e.employee_ID,
         name: e.employee_name,
         division: e.division_name,
         section: e.section_name
       })));
     }
-
-    const filteredEmployeeIds = empIndexRows.map(row => String(row.employee_id));
-
-    // STEP 2: Get attendance records for these employees
-    console.log('\n🔗 STEP 2: Getting attendance for filtered employees');
     
-    const attendanceSql = `
-      SELECT employee_ID, date_, time_ AS punch_time, scan_type AS status, fingerprint_id AS remarks
-      FROM attendance
-      WHERE employee_ID IN (${filteredEmployeeIds.map(() => '?').join(',')})
-        AND date_ BETWEEN ? AND ?
-      ORDER BY employee_ID, date_, time_ ASC
-    `;
-    const attendanceParams = [...filteredEmployeeIds, from_date, to_date];
-    const [attendanceRecords] = await connection.execute(attendanceSql, attendanceParams);
-    console.log(`   ✅ Found ${attendanceRecords.length} attendance records`);
-
-    // STEP 3: Build employee list with their details from emp_index_list
-    console.log('\n📋 STEP 3: Building employee list');
-    let employees = empIndexRows.map(emp => ({
-      employee_ID: String(emp.employee_id),
-      employee_name: emp.employee_name,
-      division_name: emp.division_name,
-      section_name: emp.section_name,
-      FULLNAME: emp.employee_name,
-      EMP_NUMBER: String(emp.employee_id),
-      currentwork: {
-        HIE_CODE_3: emp.division_id,
-        HIE_NAME_3: emp.division_name,
-        HIE_CODE_4: emp.section_id,
-        HIE_NAME_4: emp.section_name
-      }
-    }));
-
-    console.log(`   ✅ ${employees.length} employees ready for report`);
-    console.log(`Processing report for ${employees.length} employees`);
-
-    // Generate date range
+    // STEP 3: Generate date range
+    console.log('\n📅 STEP 3: Generating date range');
+    
     const dateRange = [];
     const startDate = moment(from_date);
     const endDate = moment(to_date);
@@ -1848,46 +1905,50 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
       dateRange.push(currentDate.format('YYYY-MM-DD'));
       currentDate.add(1, 'day');
     }
-
-    // Use the attendance records we already fetched (attendanceRecords variable from STEP 2)
-    console.log(`   📝 Total attendance records: ${attendanceRecords.length}`);
-
-    // Create attendance map for quick lookup
-    const attendanceMap = {};
+    
+    console.log(`   ✅ Generated ${dateRange.length} days`);
+    
+    // STEP 4: Build attendance map (optimized with Map instead of plain object)
+    console.log('\n🗂️ STEP 4: Building attendance lookup map');
+    
+    const attendanceMap = new Map();
+    
     attendanceRecords.forEach(record => {
       const dateKey = moment(record.date_).format('YYYY-MM-DD');
       const employeeKey = String(record.employee_ID);
+      const mapKey = `${employeeKey}:${dateKey}`;
       
-      if (!attendanceMap[employeeKey]) {
-        attendanceMap[employeeKey] = {};
-      }
-      if (!attendanceMap[employeeKey][dateKey]) {
-        attendanceMap[employeeKey][dateKey] = [];
+      if (!attendanceMap.has(mapKey)) {
+        attendanceMap.set(mapKey, []);
       }
       
-      attendanceMap[employeeKey][dateKey].push({
+      attendanceMap.get(mapKey).push({
         time: record.punch_time,
         scan_type: record.status
       });
     });
-
-    // Generate report data in tabular format
+    
+    console.log(`   ✅ Mapped ${attendanceMap.size} employee-date combinations`);
+    
+    // STEP 5: Generate report data in tabular format
+    console.log('\n📊 STEP 5: Generating report data structure');
+    
     const reportData = employees.map(employee => {
       const employeeAttendance = {
         employeeId: employee.employee_ID,
-        employeeName: employee.employee_name || 'Unknown',
-        division: employee.division_name || 'N/A',
-        section: employee.section_name || 'N/A',
+        employeeName: employee.employee_name,
+        division: employee.division_name,
+        section: employee.section_name,
         dailyAttendance: {}
       };
 
-      // Add daily attendance data
+      // Add daily attendance data for each date in range
       dateRange.forEach(date => {
-        const employeeKey = employee.employee_ID;
-        const dayRecords = attendanceMap[employeeKey] && attendanceMap[employeeKey][date];
+        const mapKey = `${employee.employee_ID}:${date}`;
+        const dayRecords = attendanceMap.get(mapKey);
         
         if (dayRecords && dayRecords.length > 0) {
-          // Build punches list from dayRecords with proper format for frontend
+          // Build punches list with proper format for frontend
           const punches = dayRecords.map(r => ({ 
             time_: r.time,
             time: r.time, 
@@ -1895,71 +1956,63 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
             type: (r.scan_type || '').toUpperCase(),
             eventDescription: r.scan_type === 'IN' ? 'Check In' : 'Check Out'
           }));
+          
+          // Sort by time
           punches.sort((a, b) => (a.time || '').localeCompare(b.time || ''));
 
-          // Find earliest IN and latest OUT for backward-compatible fields
-          const inRecord = dayRecords.find(r => r.scan_type && r.scan_type.toUpperCase() === 'IN');
-          let outRecord = [...dayRecords].reverse().find(r => r.scan_type && r.scan_type.toUpperCase() === 'OUT');
-          if (!outRecord) outRecord = dayRecords[dayRecords.length - 1];
-
-          const rawIn = inRecord && inRecord.time ? inRecord.time : null;
-          const rawOut = outRecord && outRecord.time ? outRecord.time : null;
-
-          // Compute working hours using moment when possible
-          let workingHours = 0;
-          try {
-            if (rawIn && rawOut) {
-              const ci = moment(rawIn, 'HH:mm:ss');
-              const co = moment(rawOut, 'HH:mm:ss');
-              if (ci.isValid() && co.isValid()) {
-                workingHours = Number(co.diff(ci, 'hours', true).toFixed(2));
-              }
-            }
-          } catch (e) {
-            workingHours = 0;
-          }
-
-          // Return punches array directly for this date
           employeeAttendance.dailyAttendance[date] = punches;
         } else {
-          // Return empty array for absent days
+          // Empty array for absent days
           employeeAttendance.dailyAttendance[date] = [];
         }
       });
 
       return employeeAttendance;
     });
-
-    await connection.end();
-
-    console.log(`\n📊 REPORT GENERATION SUMMARY:`);
-    console.log(`   ✅ Generated successfully!`);
+    
+    const totalTime = Date.now() - perfStart;
+    
+    console.log(`\n✅ REPORT GENERATION COMPLETE!`);
+    console.log(`   ⏱️ Total time: ${totalTime}ms (Query: ${queryDuration}ms, Processing: ${totalTime - queryDuration}ms)`);
     console.log(`   📅 Date range: ${from_date} to ${to_date} (${dateRange.length} days)`);
-    console.log(`   👥 Total employees: ${reportData.length}`);
-    console.log(`   📍 Division: ${employees[0]?.division_name || 'All Divisions'}`);
-    console.log(`   📂 Section: ${employees[0]?.section_name || 'All Sections'}`);
-    console.log(`   📝 Total attendance records: ${attendanceRecords.length}\n`);
+    console.log(`   👥 Employees: ${reportData.length}`);
+    console.log(`   📝 Attendance records: ${attendanceRecords.length}`);
+    console.log(`   📍 Division: ${employees[0]?.division_name || 'All'}`);
+    console.log(`   📂 Section: ${employees[0]?.section_name || 'All'}`);
+    console.log(`   🚀 Performance: ${(attendanceRecords.length / (totalTime / 1000)).toFixed(0)} records/sec\n`);
 
-    return {
+    const result = {
       reportType: 'group',
       dateRange: {
         from: from_date,
         to: to_date
       },
       dates: dateRange,
-      data: reportData, // Changed from 'employees' to 'data' to match frontend expectations
-      employees: reportData, // Keep for backward compatibility
+      data: reportData,
+      employees: reportData, // Backward compatibility
       summary: {
         totalEmployees: employees.length,
         totalDays: dateRange.length,
         totalRecords: attendanceRecords.length,
         divisionInfo: employees[0]?.division_name || null,
-        sectionInfo: employees[0]?.section_name || null
+        sectionInfo: employees[0]?.section_name || null,
+        queryTime: queryDuration,
+        processingTime: totalTime - queryDuration,
+        totalTime: totalTime,
+        cached: false
       }
     };
+    
+    // Store in cache for future requests (async, non-blocking)
+    cache.set('group', cacheParams, result).catch(err => {
+      console.warn('⚠️  Failed to cache result:', err.message);
+    });
+    
+    return result;
 
   } catch (error) {
-    console.error('Error generating MySQL group attendance report:', error);
+    const totalTime = Date.now() - perfStart;
+    console.error(`❌ Error generating group attendance report (${totalTime}ms):`, error);
     throw error;
   }
 };
@@ -2169,8 +2222,7 @@ module.exports = {
       console.log(`Section filter: ${section_id || 'All'}`);
       console.log(`Sub Section filter: ${sub_section_id || 'All'}`);
 
-      // Connect to MySQL
-      const { createMySQLConnection } = require('../config/mysql');
+      // Connect to MySQL (using imported function from top of file)
       const connection = await createMySQLConnection();
       console.log('✅ MySQL Connected successfully');
 
@@ -2303,6 +2355,7 @@ module.exports = {
         
         // First, let's see what scan types we actually have
         const scanTypeSample = new Set();
+        const checkOutOnlyRecords = [];
         
         employees.forEach(emp => {
           const empId = emp.EMP_NUMBER;
@@ -2310,36 +2363,42 @@ module.exports = {
           
           empRecords.forEach(record => {
             const punchData = record.punches.split('|')[0].split(':');
-            const scanType = punchData[1];
-            scanTypeSample.add(scanType);
+            const rawScanType = punchData[1];
+            scanTypeSample.add(rawScanType);
             
-            // In this attendance system:
-            // '08' = Check In
-            // '46' = Check Out
-            // Single punch records with '08' mean employee forgot to check out
-            const isCheckIn = scanType === '08';
+            // Use the new normalizer to categorize incomplete punch types
+            const normalizedScanType = normalizeScanType(rawScanType);
+            const issueCategory = categorizeIncompleteIssue(normalizedScanType);
             
-            if (isCheckIn) {
-              checkInOnlyRecords.push({
-                employeeId: empId,
-                employeeName: emp.FULLNAME || 'Unknown',
-                designation: emp.currentwork?.designation || 'Unassigned',
-                divisionName: emp.currentwork?.HIE_NAME_3 || '',
-                sectionName: emp.currentwork?.HIE_NAME_3 || '',
-                eventDate: record.date_,
-                eventTime: punchData[0],
-                scanType: scanType,
-                punchType: 'Check In Only'
-              });
+            // Track both check-in only and check-out only records
+            const recordData = {
+              employeeId: empId,
+              employeeName: emp.FULLNAME || 'Unknown',
+              designation: emp.currentwork?.designation || 'Unassigned',
+              divisionName: emp.currentwork?.HIE_NAME_3 || '',
+              sectionName: emp.currentwork?.HIE_NAME_3 || '',
+              eventDate: record.date_,
+              eventTime: punchData[0],
+              scanType: normalizedScanType,
+              rawScanType: rawScanType,
+              punchType: issueCategory.displayLabel,
+              severity: issueCategory.severity
+            };
+            
+            if (isScanTypeIn(rawScanType)) {
+              checkInOnlyRecords.push(recordData);
+            } else if (isScanTypeOut(rawScanType)) {
+              checkOutOnlyRecords.push(recordData);
             }
           });
         });
         
         console.log(`📊 Unique scan types found in data:`, Array.from(scanTypeSample));
         console.log(`✅ Found ${checkInOnlyRecords.length} Check In Only records (missing check out)`);
+        console.log(`✅ Found ${checkOutOnlyRecords.length} Check Out Only records (missing check in)`);
         
         if (checkInOnlyRecords.length > 0) {
-          console.log(`📋 Sample check-in records:`, checkInOnlyRecords.slice(0, 3).map(r => ({
+          console.log(`📋 Sample check-in only records:`, checkInOnlyRecords.slice(0, 3).map(r => ({
             empId: r.employeeId,
             date: r.eventDate,
             time: r.eventTime,
@@ -2347,17 +2406,42 @@ module.exports = {
           })));
         }
         
-        reportData = [{
-          groupName: 'F1 - Check In Only (Missing Check Out)',
-          groupType: 'Punch Type',
-          employees: checkInOnlyRecords.sort((a, b) => {
-            const desigCompare = a.designation.localeCompare(b.designation);
-            if (desigCompare !== 0) return desigCompare;
-            return new Date(b.eventDate) - new Date(a.eventDate);
-          }),
-          count: checkInOnlyRecords.length,
-          totalIssues: checkInOnlyRecords.length
-        }];
+        // Build report data with separate groups for each issue type
+        const reportGroups = [];
+        
+        if (checkInOnlyRecords.length > 0) {
+          reportGroups.push({
+            groupName: 'F1 - Check In Only (Missing Check Out)',
+            groupType: 'Punch Type',
+            issueType: 'CHECK_IN_ONLY',
+            severity: 'HIGH',
+            employees: checkInOnlyRecords.sort((a, b) => {
+              const desigCompare = a.designation.localeCompare(b.designation);
+              if (desigCompare !== 0) return desigCompare;
+              return new Date(b.eventDate) - new Date(a.eventDate);
+            }),
+            count: checkInOnlyRecords.length,
+            totalIssues: checkInOnlyRecords.length
+          });
+        }
+        
+        if (checkOutOnlyRecords.length > 0) {
+          reportGroups.push({
+            groupName: 'F2 - Check Out Only (Missing Check In)',
+            groupType: 'Punch Type',
+            issueType: 'CHECK_OUT_ONLY',
+            severity: 'MEDIUM',
+            employees: checkOutOnlyRecords.sort((a, b) => {
+              const desigCompare = a.designation.localeCompare(b.designation);
+              if (desigCompare !== 0) return desigCompare;
+              return new Date(b.eventDate) - new Date(a.eventDate);
+            }),
+            count: checkOutOnlyRecords.length,
+            totalIssues: checkOutOnlyRecords.length
+          });
+        }
+        
+        reportData = reportGroups;
         
       } else {
         // No grouping: Flat list

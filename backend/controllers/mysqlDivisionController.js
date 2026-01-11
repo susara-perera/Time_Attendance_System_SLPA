@@ -1,7 +1,8 @@
 /**
- * MySQL Division Controller - Uses synced MySQL data instead of HRIS API
+ * MySQL Division Controller - Uses cached data with fallback to MySQL
  */
 
+const cacheDataService = require('../services/cacheDataService');
 const {
   getDivisionsFromMySQL,
   getDivisionFromMySQL,
@@ -21,7 +22,9 @@ const getMySQLDivisions = async (req, res) => {
     } = req.query;
 
     const filters = { search, status };
-    const divisions = await getDivisionsFromMySQL(filters);
+    
+    // Try cache first, fallback to MySQL
+    const divisions = await cacheDataService.getDivisions(filters);
 
     // Add employee counts if requested
     if (req.query.includeEmployeeCount === 'true') {
@@ -34,15 +37,15 @@ const getMySQLDivisions = async (req, res) => {
       success: true,
       count: divisions.length,
       data: divisions,
-      source: 'MySQL Sync',
-      message: 'Data fetched from synced MySQL tables (faster than HRIS API)'
+      source: 'Cache + MySQL',
+      message: 'Data fetched from cache with MySQL fallback (blazing fast!)'
     });
 
   } catch (error) {
     console.error('[MySQL Division Controller] Get divisions error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch divisions from MySQL',
+      message: 'Failed to fetch divisions',
       error: error.message
     });
   }
@@ -54,7 +57,9 @@ const getMySQLDivisions = async (req, res) => {
 const getMySQLDivisionByCode = async (req, res) => {
   try {
     const { code } = req.params;
-    const division = await getDivisionFromMySQL(code);
+
+    // Try cache first
+    const division = await cacheDataService.getDivisionByCode(code);
 
     if (!division) {
       return res.status(404).json({
@@ -69,7 +74,7 @@ const getMySQLDivisionByCode = async (req, res) => {
     res.status(200).json({
       success: true,
       data: division,
-      source: 'MySQL Sync'
+      source: 'Cache + MySQL'
     });
 
   } catch (error) {

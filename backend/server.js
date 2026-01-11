@@ -88,6 +88,14 @@ const { initializeScheduler } = require('./services/hrisSyncScheduler');
 console.log('🕐 Initializing HRIS sync scheduler (daily at 12 PM)...');
 initializeScheduler('0 12 * * *'); // Daily at 12 PM
 
+// Initialize Redis cache for reports (non-blocking, graceful fallback)
+const { getCache } = require('./config/reportCache');
+const cache = getCache();
+cache.connect().catch(err => {
+  console.warn('⚠️  Redis cache initialization failed:', err.message);
+  console.log('📌 Reports will work without caching (slower first-time generation)');
+});
+
 console.log('✅ System ready - Using MySQL sync tables for data access');
 console.log('🚀 Users can now login');
 
@@ -202,6 +210,8 @@ app.use('/api/mysql', require('./routes/mysql'));
 app.use('/api/roles', require('./routes/role'));
 app.use('/api/permissions', require('./routes/permission'));
 app.use('/api/dashboard', require('./routes/dashboard'));
+// Cache management routes (Redis caching for reports)
+app.use('/api/cache', require('./routes/cache'));
 // (MongoDB subsections disabled) Remove legacy Mongo subsections route
 // app.use('/api/subsections', require('./routes/subSection'));
 app.use('/api/mysql-subsections', require('./routes/mysqlSubSection'));

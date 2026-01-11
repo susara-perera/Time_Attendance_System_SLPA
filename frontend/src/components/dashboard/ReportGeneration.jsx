@@ -617,6 +617,13 @@ const ReportGeneration = () => {
           }
         }
       } else if (reportType === 'audit') {
+        // Validate dates for audit report
+        if (!dateRange.startDate || !dateRange.endDate) {
+          setError('Audit reports require both start and end dates. Please select dates.');
+          setLoading(false);
+          return;
+        }
+
         // Use MySQL API for audit reports
         apiUrl = 'http://localhost:5000/api/reports/mysql/audit';
         payload = {
@@ -669,9 +676,12 @@ const ReportGeneration = () => {
           payload.section_id = '';
         }
         
-        console.log('Sending audit report filters:', {
-          division_name: payload.division_id,
-          section_name: payload.section_id
+        console.log('🔍 Sending audit report request:', {
+          from_date: payload.from_date,
+          to_date: payload.to_date,
+          grouping: payload.grouping,
+          division_id: payload.division_id,
+          section_id: payload.section_id
         });
       } else if (reportType === 'meal') {
         // Use MySQL API for meal reports from attendance table (GROUP SCOPE ONLY)
@@ -1738,8 +1748,8 @@ const ReportGeneration = () => {
               )}
             </div>
 
-            {/* Section 3: Date Selection (Dual Calendar Layout) */}
-            {reportGrouping !== 'designation' && (
+            {/* Section 3: Date Selection (Dual Calendar Layout) - ALWAYS REQUIRED FOR AUDIT REPORTS */}
+            {reportType === 'audit' || reportGrouping !== 'designation' ? (
               <div className="form-section-group date-range-section">
                 <div style={{ padding: '20px', background: '#fff', borderRadius: '10px', border: '1px solid #e2e8f0', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
                   
@@ -1922,7 +1932,7 @@ const ReportGeneration = () => {
                   <input type="hidden" id="endDate" value={dateRange.endDate} required />
                 </div>
               </div>
-            )}
+            ) : null}
 
             {/* Hidden Calendar Widgets - keeping structure but hiding */}
             <div

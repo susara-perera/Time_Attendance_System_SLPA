@@ -130,8 +130,38 @@ const login = async (req, res) => {
       });
     }
 
-    // Cache initialization is now handled by middleware (ensureCacheInitialized)
-    // No need to check here - if we reach this point, cache is ready
+    // Preload cache on login for fast data access
+    const cachePreloadService = require('../services/cachePreloadService');
+    const cacheDataService = require('../services/cacheDataService');
+    
+    let cacheStatus = { healthy: false, preloaded: false };
+    
+    try {
+      // Check if cache is already warm
+      const isCacheWarm = await cachePreloadService.isCacheWarm();
+      
+      if (!isCacheWarm) {
+        console.log('🔥 Cache is cold - preloading...');
+        // Trigger preload asynchronously (don't block login)
+        cachePreloadService.preloadAll(user._id.toString()).catch(err => {
+          console.error('Background cache preload error:', err);
+        });
+        cacheStatus.preloaded = false;
+        cacheStatus.message = 'Cache is warming up in background';
+      } else {
+        console.log('✅ Cache is already warm');
+        cacheStatus.healthy = true;
+        cacheStatus.preloaded = true;
+      }
+      
+      // Check cache health
+      const health = await cacheDataService.checkHealth();
+      cacheStatus = { ...cacheStatus, ...health };
+      
+    } catch (cacheError) {
+      console.error('Cache initialization error:', cacheError);
+      cacheStatus.error = cacheError.message;
+    }
 
     // Update last login
     user.lastLogin = new Date();
@@ -197,7 +227,8 @@ const login = async (req, res) => {
         section: user.section,
         permissions: effectivePermissions,
         lastLogin: user.lastLogin
-      }
+      },
+      cache: cacheStatus
     });
 
   } catch (error) {

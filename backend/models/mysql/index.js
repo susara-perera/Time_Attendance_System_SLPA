@@ -9,6 +9,12 @@ const SectionSync = require('./SectionSync')(sequelize);
 const EmployeeSync = require('./EmployeeSync')(sequelize);
 const SyncLog = require('./SyncLog')(sequelize);
 
+// Import cache models
+const CacheMetadata = require('./CacheMetadata');
+const CacheIndex = require('./CacheIndex');
+const CacheRelationship = require('./CacheRelationship');
+const CacheSyncLog = require('./CacheSyncLog');
+
 // Define associations
 MySQLUser.belongsTo(MySQLDivision, { 
   foreignKey: 'divisionId', 
@@ -64,5 +70,10 @@ module.exports = {
   DivisionSync,
   SectionSync,
   EmployeeSync,
-  SyncLog
+  SyncLog,
+  // Cache models
+  CacheMetadata,
+  CacheIndex,
+  CacheRelationship,
+  CacheSyncLog
 };

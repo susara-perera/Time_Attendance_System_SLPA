@@ -17,6 +17,8 @@ const {
 const { syncEmpIndex } = require('../services/empIndexSyncService');
 const { syncSubSections } = require('../services/subSectionSyncService');
 const { syncAttendance } = require('../services/attendanceSyncService');
+const { syncAuditData, syncLastNDays: syncAuditLastNDays, getAuditSyncStats } = require('../services/auditSyncService');
+const cachePreloadService = require('../services/cachePreloadService');
 
 const {
   getSchedulerStatus,
@@ -474,6 +476,102 @@ const updateSyncSchedule = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Trigger cache rebuild and preload
+ * @route   POST /api/sync/trigger/cache
+ * @access  Private (super_admin, admin)
+ */
+const triggerCacheSync = async (req, res) => {
+  try {
+    const triggeredBy = req.user?.id || req.user?._id || 'manual';
+    
+    console.log(`🔥 Manual cache rebuild triggered by: ${triggeredBy}`);
+
+    // Invalidate existing cache
+    await cachePreloadService.invalidateAll();
+    
+    // Rebuild cache with fresh data
+    const result = await cachePreloadService.preloadAll(triggeredBy);
+
+    res.status(200).json({
+      success: true,
+      message: 'Cache rebuild completed successfully',
+      data: result
+    });
+
+  } catch (error) {
+    console.error('Trigger cache sync error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to rebuild cache',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Trigger audit data sync (incomplete punches)
+ * @route   POST /api/sync/trigger/audit
+ * @access  Private (super_admin, admin)
+ */
+const triggerAuditSync = async (req, res) => {
+  try {
+    console.log('\n📋 Manual audit sync triggered by:', req.user.email);
+    
+    // Get parameters from request body
+    const filters = {
+      division_id: req.body.division_id,
+      section_id: req.body.section_id,
+      sub_section_id: req.body.sub_section_id
+    };
+    
+    // Remove undefined/null filters
+    Object.keys(filters).forEach(key => {
+      if (!filters[key] || filters[key] === 'all') {
+        delete filters[key];
+      }
+    });
+    
+    let result;
+    
+    // Check if specific date range is provided
+    if (req.body.from_date && req.body.to_date) {
+      console.log(`📅 Syncing specific date range: ${req.body.from_date} to ${req.body.to_date}`);
+      result = await syncAuditData(req.body.from_date, req.body.to_date, filters, `manual_${req.user.email}`);
+    } else {
+      // Default to last N days
+      const days = req.body.days || 30;
+      console.log(`📅 Syncing last ${days} days`);
+      result = await syncAuditLastNDays(days, filters, `manual_${req.user.email}`);
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        recordsSynced: result.recordsSynced,
+        recordsAdded: result.recordsAdded,
+        recordsUpdated: result.recordsUpdated,
+        breakdown: result.breakdown,
+        dateRange: result.dateRange,
+        filters: result.filters || {},
+        duration: result.duration,
+        note: result.dateRange 
+          ? `Synced from ${result.dateRange.start} to ${result.dateRange.end}`
+          : `Synced incomplete punch records to audit_sync table`
+      },
+      message: `Audit sync completed: ${result.recordsSynced} records processed`
+    });
+
+  } catch (error) {
+    console.error('Audit sync error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Audit sync failed',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getSyncStatusHandler,
   triggerFullSync,
@@ -483,6 +581,8 @@ module.exports = {
   triggerEmpIndexSync,
   triggerSubSectionsSync,
   triggerAttendanceSync,
+  triggerCacheSync,
+  triggerAuditSync,
   getSyncedDivisions,
   getSyncedSections,
   getSyncedEmployees,

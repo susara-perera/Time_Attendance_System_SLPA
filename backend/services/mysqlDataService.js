@@ -29,7 +29,7 @@ const getDivisionsFromMySQL = async (filters = {}) => {
     }
 
     const [divisions] = await sequelize.query(
-      `SELECT * FROM divisions_sync ${whereClause} ORDER BY HIE_NAME ASC`,
+      `SELECT * FROM divisions_sync ${whereClause} ORDER BY CAST(HIE_CODE AS UNSIGNED) ASC`,
       {
         replacements,
         nest: false,
@@ -126,7 +126,7 @@ const getSectionsFromMySQL = async (filters = {}) => {
     }
 
     const [sections] = await sequelize.query(
-      `SELECT * FROM sections_sync ${whereClause} ORDER BY HIE_NAME ASC`,
+      `SELECT * FROM sections_sync ${whereClause} ORDER BY CAST(HIE_CODE AS UNSIGNED) ASC`,
       {
         replacements,
         nest: false,
@@ -272,7 +272,7 @@ const getEmployeesFromMySQL = async (filters = {}) => {
     // Use LEFT JOIN to find employees NOT in transferred_employees with TRUE status
     let joinClause = `
       LEFT JOIN transferred_employees te 
-      ON employees_sync.EMP_NO = te.employee_id AND te.transferred_status = TRUE
+      ON employees_sync.EMP_NO COLLATE utf8mb4_unicode_ci = te.employee_id AND te.transferred_status = TRUE
     `;
     whereClause = `WHERE te.id IS NULL`; // Only include employees not transferred
 
@@ -301,7 +301,7 @@ const getEmployeesFromMySQL = async (filters = {}) => {
     }
 
     const [employees] = await sequelize.query(
-      `SELECT employees_sync.* FROM employees_sync ${joinClause} ${whereClause} ORDER BY EMP_NAME ASC`,
+      `SELECT employees_sync.* FROM employees_sync ${joinClause} ${whereClause} ORDER BY CAST(EMP_NO AS UNSIGNED) ASC`,
       {
         replacements,
         nest: false,

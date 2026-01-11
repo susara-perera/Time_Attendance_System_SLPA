@@ -38,6 +38,7 @@ const auditLogSchema = new mongoose.Schema({
       
       // Report actions
       'report_generated', 'report_downloaded', 'report_viewed',
+      'mysql_audit_report_generated', 'mysql_attendance_report_generated', 'mysql_meal_report_generated',
       
       // System actions
       'settings_updated', 'backup_created', 'data_imported', 'data_exported', 'system_maintenance',

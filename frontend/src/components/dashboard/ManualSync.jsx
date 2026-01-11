@@ -49,6 +49,24 @@ const ManualSync = () => {
       icon: 'bi-diagram-2',
       color: 'secondary',
       description: 'Check sub-section status (manually managed)'
+    },
+    {
+      id: 'audit',
+      name: 'Audit Data',
+      endpoint: '/api/sync/trigger/audit',
+      icon: 'bi-exclamation-triangle-fill',
+      color: 'danger',
+      description: 'Pre-process incomplete punch records for ultra-fast audit reports',
+      note: 'Syncs last 30 days of incomplete attendance (check-in/out only)'
+    },
+    {
+      id: 'cache',
+      name: 'Cache System',
+      endpoint: '/api/sync/trigger/cache',
+      icon: 'bi-lightning-charge-fill',
+      color: 'danger',
+      description: 'Rebuild cache and indexes for ultra-fast data access',
+      note: 'Preloads all data into Redis cache with intelligent indexing'
     }
   ];
 

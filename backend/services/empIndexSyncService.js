@@ -30,8 +30,13 @@ const syncEmpIndex = async () => {
     const transferMap = new Map();
     transfers.forEach(t => transferMap.set(String(t.employee_id), String(t.sub_section_id)));
 
-    // Fetch employees
-    const [employees] = await conn.execute('SELECT EMP_NO AS employee_id, EMP_NAME AS employee_name, DIV_CODE AS division_id, SEC_CODE AS section_id FROM employees_sync WHERE IS_ACTIVE = 1');
+    // Fetch employees and SORT BY DIVISION_ID (numerical ascending) for optimal insertion order
+    const [employees] = await conn.execute(`
+      SELECT EMP_NO AS employee_id, EMP_NAME AS employee_name, DIV_CODE AS division_id, SEC_CODE AS section_id 
+      FROM employees_sync 
+      WHERE IS_ACTIVE = 1 
+      ORDER BY CAST(DIV_CODE AS UNSIGNED) ASC, EMP_NO ASC
+    `);
 
     // Build maps for quick lookup
     const divisionMap = new Map();

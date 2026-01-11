@@ -26,7 +26,8 @@ const { getRawMySQLSubSections } = require('../controllers/mysqlSubSectionContro
 
 const {
   getMySQLEmployees,
-  getMySQLEmployeeByNumber
+  getMySQLEmployeeByNumber,
+  getEmployeesByDateFromAttendance
 } = require('../controllers/mysqlEmployeeController');
 
 // Divisions
@@ -45,5 +46,8 @@ router.get('/subsections/raw', getRawMySQLSubSections);
 // Employees
 router.get('/employees', getMySQLEmployees);
 router.get('/employees/:empNo', getMySQLEmployeeByNumber);
+
+// Attendance - Get unique employee IDs by date range
+router.get('/attendance/employees-by-date', getEmployeesByDateFromAttendance);
 
 module.exports = router;

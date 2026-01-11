@@ -16,6 +16,8 @@ const {
   triggerEmpIndexSync,
   triggerSubSectionsSync,
   triggerAttendanceSync,
+  triggerCacheSync,
+  triggerAuditSync,
   getSyncedDivisions,
   getSyncedSections,
   getSyncedEmployees,
@@ -64,6 +66,16 @@ router.post('/trigger/subsections', authorize('super_admin', 'admin'), triggerSu
 // @desc    Trigger attendance sync only
 // @access  Private (super_admin, admin)
 router.post('/trigger/attendance', authorize('super_admin', 'admin'), triggerAttendanceSync);
+
+// @route   POST /api/sync/trigger/cache
+// @desc    Trigger cache rebuild and preload
+// @access  Private (super_admin, admin)
+router.post('/trigger/cache', authorize('super_admin', 'admin'), triggerCacheSync);
+
+// @route   POST /api/sync/trigger/audit
+// @desc    Trigger audit data sync (incomplete punches to audit_sync table)
+// @access  Private (super_admin, admin)
+router.post('/trigger/audit', authorize('super_admin', 'admin'), triggerAuditSync);
 
 // @route   GET /api/sync/divisions
 // @desc    Get synced divisions from MySQL

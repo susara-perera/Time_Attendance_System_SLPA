@@ -75,11 +75,18 @@ const syncDivisions = async (triggeredBy = 'system') => {
     const hierarchy = await readData('company_hierarchy', {});
     
     // Filter divisions (DEF_LEVEL = 3)
-    const divisions = hierarchy.filter(item => 
+    let divisions = hierarchy.filter(item => 
       item.DEF_LEVEL === 3 || item.DEF_LEVEL === '3'
     );
 
-    console.log(`📊 [SYNC] Found ${divisions.length} divisions in HRIS`);
+    // Sort by HIE_CODE in ASCENDING NUMERICAL ORDER for optimal InnoDB insertion
+    divisions.sort((a, b) => {
+      const codeA = parseInt(a.HIE_CODE) || 0;
+      const codeB = parseInt(b.HIE_CODE) || 0;
+      return codeA - codeB;
+    });
+
+    console.log(`📊 [SYNC] Found ${divisions.length} divisions in HRIS (sorted by HIE_CODE)`);
 
     // Sync each division
     for (const division of divisions) {
@@ -205,11 +212,18 @@ const syncSections = async (triggeredBy = 'system') => {
     const hierarchy = await readData('company_hierarchy', {});
     
     // Filter sections (DEF_LEVEL = 4)
-    const sections = hierarchy.filter(item => 
+    let sections = hierarchy.filter(item => 
       item.DEF_LEVEL === 4 || item.DEF_LEVEL === '4'
     );
 
-    console.log(`📊 [SYNC] Found ${sections.length} sections in HRIS`);
+    // Sort by HIE_CODE in ASCENDING NUMERICAL ORDER for optimal InnoDB insertion
+    sections.sort((a, b) => {
+      const codeA = parseInt(a.HIE_CODE) || 0;
+      const codeB = parseInt(b.HIE_CODE) || 0;
+      return codeA - codeB;
+    });
+
+    console.log(`📊 [SYNC] Found ${sections.length} sections in HRIS (sorted by HIE_CODE)`);
 
     // Sync each section
     for (const section of sections) {
@@ -340,9 +354,16 @@ const syncEmployees = async (triggeredBy = 'system') => {
     const employees = await readData('employee', {});
 
     // Filter only active employees (ACTIVE_HRM_FLG=1)
-    const activeEmployees = employees.filter(emp => emp.ACTIVE_HRM_FLG === 1);
+    let activeEmployees = employees.filter(emp => emp.ACTIVE_HRM_FLG === 1);
 
-    console.log(`📊 [SYNC] Found ${employees.length} employees in HRIS (${activeEmployees.length} active)`);
+    // Sort by EMP_NO in ASCENDING ORDER for optimal InnoDB insertion
+    activeEmployees.sort((a, b) => {
+      const empNoA = String(a.EMP_NUMBER || a.EMP_NO || '');
+      const empNoB = String(b.EMP_NUMBER || b.EMP_NO || '');
+      return empNoA.localeCompare(empNoB);
+    });
+
+    console.log(`📊 [SYNC] Found ${employees.length} employees in HRIS (${activeEmployees.length} active, sorted by EMP_NO)`);
 
     // Helper function to extract date
     const parseHrisDate = (dateVal) => {

@@ -58,6 +58,7 @@ const testMySQLConnection = async () => {
 
 module.exports = {
   sequelize,
+  mysqlSequelize: sequelize, // Alias for compatibility
   createMySQLConnection,
   testMySQLConnection,
   ensureMySQLSchema

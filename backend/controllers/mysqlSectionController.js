@@ -1,7 +1,8 @@
 /**
- * MySQL Section Controller - Uses synced MySQL data instead of HRIS API
+ * MySQL Section Controller - Uses cached data with fallback to MySQL
  */
 
+const cacheDataService = require('../services/cacheDataService');
 const {
   getSectionsFromMySQL,
   getSectionFromMySQL,
@@ -22,7 +23,9 @@ const getMySQLSections = async (req, res) => {
     } = req.query;
 
     const filters = { search, divisionCode, status };
-    const sections = await getSectionsFromMySQL(filters);
+    
+    // Try cache first with intelligent fallback
+    const sections = await cacheDataService.getSections(filters);
 
     // Add employee counts if requested
     if (req.query.includeEmployeeCount === 'true') {
@@ -35,8 +38,8 @@ const getMySQLSections = async (req, res) => {
       success: true,
       count: sections.length,
       data: sections,
-      source: 'MySQL Sync',
-      message: 'Data fetched from synced MySQL tables (faster than HRIS API)'
+      source: 'Cache + MySQL',
+      message: 'Data fetched from cache with MySQL fallback (lightning fast!)'
     });
 
   } catch (error) {
@@ -55,7 +58,9 @@ const getMySQLSections = async (req, res) => {
 const getMySQLSectionByCode = async (req, res) => {
   try {
     const { code } = req.params;
-    const section = await getSectionFromMySQL(code);
+    
+    // Try cache first
+    const section = await cacheDataService.getSectionByCode(code);
 
     if (!section) {
       return res.status(404).json({
@@ -70,7 +75,7 @@ const getMySQLSectionByCode = async (req, res) => {
     res.status(200).json({
       success: true,
       data: section,
-      source: 'MySQL Sync'
+      source: 'Cache + MySQL'
     });
 
   } catch (error) {

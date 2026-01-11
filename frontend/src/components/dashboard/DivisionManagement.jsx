@@ -141,7 +141,7 @@ const DivisionManagement = () => {
         employeeCount: d?.employeeCount ?? d?.count ?? undefined,
         createdAt: d?.createdAt ?? d?.created_at ?? d?.CREATED_AT ?? d?.createdOn ?? d?.CREATED_ON ?? d?.synced_at ?? null,
         source: d?.source ?? (successfulUrl?.includes('/mysql-data') ? 'MySQL Sync' : 'HRIS')
-      })).sort((a, b) => a.name.localeCompare(b.name));
+      }));
       setDivisions(normalized);
     } catch (error) {
       console.error('Error fetching divisions:', error);
