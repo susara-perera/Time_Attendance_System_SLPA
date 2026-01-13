@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import './ManualSync.css';
+import PageHeader from './PageHeader';
 
 const ManualSync = () => {
   const [loading, setLoading] = useState({});
@@ -60,6 +61,24 @@ const ManualSync = () => {
       note: 'Syncs last 30 days of incomplete attendance (check-in/out only)'
     },
     {
+      id: 'audit-cache',
+      name: 'Audit Cache',
+      endpoint: '/api/cache/preload/audit',
+      icon: 'bi-folder-symlink',
+      color: 'danger',
+      description: 'Preload audit report cache (indexes & recent audit entries)',
+      note: 'Caches recent audit_sync records for instant audit reporting'
+    },
+    {
+      id: 'attendance-cache',
+      name: 'Attendance Cache',
+      endpoint: '/api/cache/preload/attendance',
+      icon: 'bi-clock-history',
+      color: 'info',
+      description: 'Preload attendance cache (optimized attendance table)',
+      note: 'Builds optimized attendance and warms cache for attendance reports'
+    },
+    {
       id: 'cache',
       name: 'Cache System',
       endpoint: '/api/sync/trigger/cache',
@@ -116,17 +135,12 @@ const ManualSync = () => {
 
   return (
     <div className="manual-sync-container">
-      <div className="page-header-banner">
-        <div className="page-header-content">
-          <div className="page-header-icon">
-            <i className="bi bi-arrow-repeat"></i>
-          </div>
-          <div className="page-header-text">
-            <h1>Manual Data Synchronization</h1>
-            <p>Sync data from HRIS API to local MySQL database. Only new records will be added.</p>
-          </div>
-        </div>
-      </div>
+      {/* Professional Section Header with Logo */}
+      <PageHeader
+        title="Manual Data Synchronization"
+        subtitle="Sync data from HRIS API to local MySQL database. Only new records will be added."
+        icon="bi-arrow-repeat"
+      />
 
       {error && (
         <div className="sync-alert alert-danger">

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import './ReportGeneration.css';
 import { useLanguage } from '../../context/LanguageContext';
+import PageHeader from './PageHeader';
 
 const EmployeeManagement = () => {
   const [divisions, setDivisions] = useState([]);
@@ -694,14 +695,11 @@ const EmployeeManagement = () => {
 
   return (
     <div className="report-generation">
-      <div className="report-header">
-        <div className="header-content header-no-subtitle">
-          <h1>
-            <i className="bi bi-people"></i>
-            {t('employeeManagement')}
-          </h1>
-        </div>
-      </div> 
+      <PageHeader
+        title={t('employeeManagement')}
+        subtitle="View and manage employee records and assignments"
+        icon="bi-people"
+      />
 
       {/* Active Filters Display - Moved before filter section */}
       {(selectedEmployeeDivision !== 'all' || selectedSection !== 'all' || selectedSubSection !== 'all') && (

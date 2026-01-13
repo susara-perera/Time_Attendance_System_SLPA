@@ -6,6 +6,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [rolesList, setRolesList] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [cacheStatus, setCacheStatus] = useState(null);
 
   // Check for existing token on app start
   useEffect(() => {
@@ -257,6 +258,9 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem('token', data.token);
       }
       
+      // Save cache preload status (if returned by server)
+      if (data.cache) setCacheStatus(data.cache);
+
       // Set preliminary user then fetch full profile to populate fields like phone/address
       setUser(data.user);
       try {
@@ -314,7 +318,8 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     loading,
-    isAuthenticated: !!user
+    isAuthenticated: !!user,
+    cacheStatus
   };
   // expose hasPermission helper in context value
   value.hasPermission = hasPermission;

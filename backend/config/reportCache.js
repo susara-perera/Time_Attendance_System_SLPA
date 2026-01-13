@@ -92,8 +92,8 @@ class ReportCache {
   /**
    * Generate cache key from report parameters
    */
-  generateKey(type, params) {
-    const { from_date, to_date, division_id = '', section_id = '', sub_section_id = '', employee_id = '', grouping = '' } = params;
+  generateKey(type, params = {}) {
+    const { from_date = '', to_date = '', division_id = '', section_id = '', sub_section_id = '', employee_id = '', grouping = '' } = params;
     
     if (type === 'individual') {
       return `report:individual:${employee_id}:${from_date}:${to_date}`;
@@ -110,17 +110,25 @@ class ReportCache {
   /**
    * Get cached report
    */
-  async get(type, params) {
+  async get(typeOrKey, params) {
     if (!this.isEnabled || !this.isConnected) return null;
 
     try {
-      const key = this.generateKey(type, params);
+      // Overload: if called with a full cache key string, use it directly
+      let key;
+      if (typeof params === 'undefined' && typeof typeOrKey === 'string' && (typeOrKey.includes(':') || typeOrKey.startsWith('cache:') || typeOrKey.startsWith('report:'))) {
+        key = typeOrKey;
+      } else {
+        key = this.generateKey(typeOrKey, params);
+      }
+
       const cached = await this.client.get(key);
       
       if (cached) {
         this.stats.hits++;
         console.log(`✅ Cache HIT: ${key}`);
-        return JSON.parse(cached);
+        // Return raw cached string - callers should JSON.parse as appropriate
+        return cached;
       }
       
       this.stats.misses++;
@@ -137,14 +145,28 @@ class ReportCache {
   /**
    * Set cached report
    */
-  async set(type, params, data, ttl = null) {
+  async set(typeOrKey, paramsOrData, dataOrTtl, ttl = null) {
     if (!this.isEnabled || !this.isConnected) return false;
 
     try {
-      const key = this.generateKey(type, params);
-      const ttlSeconds = ttl || this.config.defaultTTL;
-      
-      await this.client.setEx(key, ttlSeconds, JSON.stringify(data));
+      let key;
+      let value;
+      let ttlSeconds;
+
+      // Overload: set(cacheKey, data, ttl)
+      if (typeof typeOrKey === 'string' && (typeOrKey.includes(':') || typeOrKey.startsWith('cache:') || typeOrKey.startsWith('report:'))) {
+        key = typeOrKey;
+        value = paramsOrData;
+        ttlSeconds = (typeof dataOrTtl === 'number') ? dataOrTtl : ttl || this.config.defaultTTL;
+      } else {
+        // set(type, params, data, ttl)
+        key = this.generateKey(typeOrKey, paramsOrData);
+        value = dataOrTtl;
+        ttlSeconds = ttl || this.config.defaultTTL;
+      }
+
+      const payload = (typeof value === 'string') ? value : JSON.stringify(value);
+      await this.client.setEx(key, ttlSeconds, payload);
       
       this.stats.sets++;
       console.log(`💾 Cache SET: ${key} (TTL: ${ttlSeconds}s)`);
@@ -160,11 +182,17 @@ class ReportCache {
   /**
    * Clear specific report cache
    */
-  async clear(type, params) {
+  async clear(typeOrKey, params) {
     if (!this.isEnabled || !this.isConnected) return false;
 
     try {
-      const key = this.generateKey(type, params);
+      let key;
+      if (typeof params === 'undefined' && typeof typeOrKey === 'string' && (typeOrKey.includes(':') || typeOrKey.startsWith('cache:') || typeOrKey.startsWith('report:'))) {
+        key = typeOrKey;
+      } else {
+        key = this.generateKey(typeOrKey, params);
+      }
+
       await this.client.del(key);
       
       this.stats.deletes++;

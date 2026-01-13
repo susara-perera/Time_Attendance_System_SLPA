@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import usePermission from '../../hooks/usePermission';
 import { useLanguage } from '../../context/LanguageContext';
+import PageHeader from './PageHeader';
 import './DivisionManagement.css';
 
 const DivisionManagement = () => {
@@ -318,21 +319,11 @@ const DivisionManagement = () => {
   if (!canView) {
     return (
       <div className="division-management">
-        <div style={{
-          background: 'linear-gradient(135deg, #1e40af 0%, #2563eb 50%, #3b82f6 100%)',
-          borderRadius: '20px',
-          padding: '32px 40px',
-          marginBottom: '28px',
-          color: '#fff',
-          position: 'relative',
-          overflow: 'hidden',
-          boxShadow: '0 10px 40px rgba(30, 64, 175, 0.3)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <i className="bi bi-building" style={{ fontSize: '28px' }}></i>
-            <h2 style={{ margin: 0, fontSize: '28px', fontWeight: 700 }}>{t('divisionManagementTitle')}</h2>
-          </div>
-        </div>
+        <PageHeader
+          title={t('divisionManagementTitle')}
+          subtitle="Manage organizational divisions and view division details"
+          icon="bi-building"
+        />
         <div className="professional-card">
           <div className="no-data">
             <p>{t('noPermissionViewDivisions')}</p>
@@ -344,121 +335,76 @@ const DivisionManagement = () => {
 
   return (
     <div className="division-management">
-      {/* Professional Header Banner */}
-      <div style={{
-        background: 'linear-gradient(135deg, #1e40af 0%, #2563eb 50%, #3b82f6 100%)',
-        borderRadius: '20px',
-        padding: '32px 40px',
-        marginBottom: '28px',
-        color: '#fff',
-        position: 'relative',
-        overflow: 'hidden',
-        boxShadow: '0 10px 40px rgba(30, 64, 175, 0.3)'
-      }}>
-        <div style={{ position: 'relative', zIndex: 2 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '8px' }}>
-            <div style={{
-              width: '48px',
-              height: '48px',
-              background: 'rgba(255,255,255,0.2)',
-              borderRadius: '12px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              <i className="bi bi-building" style={{ fontSize: '24px' }}></i>
-            </div>
-            <h2 style={{ margin: 0, fontSize: '28px', fontWeight: 700 }}>{t('divisionManagementTitle')}</h2>
-          </div>
-          <p style={{ margin: 0, opacity: 0.85, fontSize: '15px' }}>
-            Manage organizational divisions and view division details
-          </p>
-        </div>
-        <div style={{
-          position: 'absolute',
-          right: '30px',
-          top: '50%',
-          transform: 'translateY(-50%)',
-          opacity: 0.1,
-          fontSize: '120px'
-        }}>
-          <i className="bi bi-buildings"></i>
-        </div>
-      </div>
+      {/* Professional Header with Logo */}
+      <PageHeader
+        title={t('divisionManagementTitle')}
+        subtitle="Manage organizational divisions and view division details"
+        icon="bi-building"
+      />
 
       {/* Search and Filter Section */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'flex-start',
-        background: '#fff',
-        borderRadius: '16px',
-        boxShadow: '0 2px 12px rgba(102,126,234,0.07)',
-        padding: '28px 32px',
-        marginBottom: '28px',
-        gap: '32px',
-        flexWrap: 'wrap',
-      }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 320 }}>
-          <label htmlFor="divisionSearch" className="form-label m-0" style={{ fontWeight: 600, color: '#374151', fontSize: '16px' }}>
-            {t('divisionSearchLabel')}
-          </label>
+      <div className="dm-controls-section">
+        <div className="dm-controls-inner">
+          <div className="dm-search-group">
+            <label htmlFor="divisionSort" className="dm-label">
+              <i className="bi bi-sort-alpha-down"></i> Sort By:
+            </label>
             <select
               id="divisionSort"
               value={sortOption}
               onChange={(e) => setSortOption(e.target.value)}
-              style={{
-                fontSize: '14px',
-                borderRadius: '8px',
-                border: '2px solid #e0e7ff',
-                background: '#fff',
-                color: '#374151',
-                fontWeight: 600,
-                boxShadow: '0 1px 4px rgba(102,126,234,0.04)',
-                padding: '8px 12px',
-                outline: 'none',
-                marginRight: '8px'
-              }}
+              className="dm-select"
             >
               <option value="name_asc">Name A → Z</option>
               <option value="name_desc">Name Z → A</option>
               <option value="id_asc">ID Small → High</option>
               <option value="id_desc">ID High → Small</option>
             </select>
+          </div>
 
-          <input
-            id="divisionSearch"
-            type="text"
-            className="form-control"
-            placeholder={t('divisionSearchPlaceholder')}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{
-              maxWidth: '360px',
-              fontSize: '15px',
-              borderRadius: '8px',
-              border: '2px solid #e0e7ff',
-              background: '#f8fafc',
-              color: '#374151',
-              fontWeight: 500,
-              boxShadow: '0 1px 4px rgba(102,126,234,0.04)',
-              padding: '10px 18px',
-              outline: 'none',
-              transition: 'border 0.2s',
-            }}
-          />
+          <div className="dm-search-group dm-search-input-group">
+            <i className="bi bi-search dm-search-icon"></i>
+            <input
+              id="divisionSearch"
+              type="text"
+              className="dm-search-input"
+              placeholder={t('divisionSearchPlaceholder')}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+
+          <div className="dm-stats-badge">
+            <i className="bi bi-building"></i>
+            <span>{divisions.length} Divisions</span>
+          </div>
         </div>
       </div>
 
       {/* Professional Divisions Table */}
-      <div className="professional-card">
-        <div className="table-responsive">
-          <table className="professional-table">
+      <div className="dm-table-card">
+        <div className="dm-table-wrapper">
+          <table className="dm-table">
             <thead>
               <tr>
-                <th>Division ID</th>
-                <th>Division</th>
-                <th>Action</th>
+                <th>
+                  <div className="dm-th-content">
+                    <i className="bi bi-hash"></i>
+                    Division ID
+                  </div>
+                </th>
+                <th>
+                  <div className="dm-th-content">
+                    <i className="bi bi-building"></i>
+                    Division Name
+                  </div>
+                </th>
+                <th>
+                  <div className="dm-th-content">
+                    <i className="bi bi-gear"></i>
+                    Action
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -493,78 +439,139 @@ const DivisionManagement = () => {
                   return 0;
                 });
 
-                return sorted.map(division => (
-                <tr key={division._id || division.code || division.name}>
-                  <td><span className="division-code">{division.code}</span></td>
-                  <td className="division-name">{division.name}</td>
+                return sorted.map((division, index) => (
+                <tr key={division._id || division.code || division.name} className="dm-table-row" style={{ '--delay': `${index * 0.03}s` }}>
+                  <td>
+                    <span className="dm-code-badge">{division.code}</span>
+                  </td>
+                  <td>
+                    <div className="dm-name-cell">
+                      <span className="dm-division-name">{division.name}</span>
+                      {division.isActive !== undefined && (
+                        <span className={`dm-status-dot ${division.isActive ? 'active' : 'inactive'}`}></span>
+                      )}
+                    </div>
+                  </td>
                   <td>
                     <button
-                      className="btn-professional btn-info"
+                      className="dm-view-btn"
                       onClick={() => setCurrentDivision(division)}
                       title={t('viewDivisionDetails')}
-                      style={{ padding: '8px 12px', fontSize: '13px', fontWeight: 600, color: '#2563eb', background: '#e0e7ff', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                     >
-                      <i className="bi bi-eye"></i> {t('viewLabel')}
+                      <i className="bi bi-eye"></i>
+                      <span>{t('viewLabel')}</span>
                     </button>
                   </td>
-                  </tr>
+                </tr>
                 ));
               })()}
             </tbody>
           </table>
 
           {divisions.length === 0 && (
-            <div className="no-data">
+            <div className="dm-no-data">
+              <i className="bi bi-folder-x"></i>
               <p>{t('noDivisionsFoundMsg')}</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* View Division Modal */}
+      {/* View Division Modal - Enhanced Design */}
       {currentDivision && (
         <div className="dm-modal-overlay" onClick={() => setCurrentDivision(null)}>
-          <div className="dm-modal-card" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={t('divisionDetailsTitle')}>
-            <div className="dm-modal-header">
-              <div className="dm-modal-title">
-                <i className="bi bi-eye dm-modal-icon" aria-hidden="true"></i>
-                <h3>{t('divisionDetailsTitle') || 'Division Details'}</h3>
+          <div className="dm-modal-container" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={t('divisionDetailsTitle')}>
+            {/* Modal Header */}
+            <div className="dm-modal-header-enhanced">
+              <div className="dm-modal-header-content">
+                <div className="dm-modal-icon-wrapper">
+                  <i className="bi bi-building"></i>
+                </div>
+                <div className="dm-modal-title-section">
+                  <h3>{t('divisionDetailsTitle') || 'Division Details'}</h3>
+                  <span className="dm-modal-subtitle">View division information</span>
+                </div>
               </div>
-              <button className="dm-modal-close" onClick={() => setCurrentDivision(null)} aria-label={t('close')}>
-                <i className="bi bi-x"></i>
+              <button className="dm-modal-close-enhanced" onClick={() => setCurrentDivision(null)} aria-label={t('close')}>
+                <i className="bi bi-x-lg"></i>
               </button>
             </div>
 
-            <div className="dm-modal-body">
-              <div className="dm-field">
-                <strong className="dm-label">id:</strong>
-                <div className="dm-value">{currentDivision._id ?? (currentDivision.id || t('naLabel'))}</div>
+            {/* Modal Body */}
+            <div className="dm-modal-body-enhanced">
+              {/* Division Name Highlight */}
+              <div className="dm-detail-highlight">
+                <div className="dm-detail-highlight-icon">
+                  <i className="bi bi-building-fill"></i>
+                </div>
+                <div className="dm-detail-highlight-content">
+                  <span className="dm-detail-highlight-label">Division Name</span>
+                  <h4 className="dm-detail-highlight-value">{currentDivision.name ?? t('naLabel')}</h4>
+                </div>
               </div>
 
-              <div className="dm-field">
-                <strong className="dm-label">Code:</strong>
-                <div className="dm-value">{currentDivision.code ?? t('naLabel')}</div>
-              </div>
+              {/* Details Grid */}
+              <div className="dm-details-grid">
+                <div className="dm-detail-item">
+                  <div className="dm-detail-icon">
+                    <i className="bi bi-fingerprint"></i>
+                  </div>
+                  <div className="dm-detail-content">
+                    <span className="dm-detail-label">ID</span>
+                    <span className="dm-detail-value">{currentDivision._id ?? (currentDivision.id || t('naLabel'))}</span>
+                  </div>
+                </div>
 
-              <div className="dm-field">
-                <strong className="dm-label">Name:</strong>
-                <div className="dm-value">{currentDivision.name ?? t('naLabel')}</div>
-              </div>
+                <div className="dm-detail-item">
+                  <div className="dm-detail-icon">
+                    <i className="bi bi-upc-scan"></i>
+                  </div>
+                  <div className="dm-detail-content">
+                    <span className="dm-detail-label">Code</span>
+                    <span className="dm-detail-value dm-code">{currentDivision.code ?? t('naLabel')}</span>
+                  </div>
+                </div>
 
-              <div className="dm-field">
-                <strong className="dm-label">Is Active:</strong>
-                <div className="dm-value">{typeof currentDivision.isActive === 'boolean' ? (currentDivision.isActive ? t('yesLabel') || 'Yes' : t('noLabel') || 'No') : t('naLabel')}</div>
-              </div>
+                <div className="dm-detail-item">
+                  <div className="dm-detail-icon">
+                    <i className="bi bi-toggle-on"></i>
+                  </div>
+                  <div className="dm-detail-content">
+                    <span className="dm-detail-label">Status</span>
+                    <span className={`dm-detail-status ${typeof currentDivision.isActive === 'boolean' ? (currentDivision.isActive ? 'active' : 'inactive') : ''}`}>
+                      {typeof currentDivision.isActive === 'boolean' ? (currentDivision.isActive ? 'Active' : 'Inactive') : t('naLabel')}
+                    </span>
+                  </div>
+                </div>
 
-              <div className="dm-field">
-                <strong className="dm-label">Employee Count:</strong>
-                <div className="dm-value">{currentDivision.employeeCount ?? 0}</div>
-              </div>
+                <div className="dm-detail-item">
+                  <div className="dm-detail-icon">
+                    <i className="bi bi-people-fill"></i>
+                  </div>
+                  <div className="dm-detail-content">
+                    <span className="dm-detail-label">Employee Count</span>
+                    <span className="dm-detail-value dm-count">{currentDivision.employeeCount ?? 0}</span>
+                  </div>
+                </div>
 
-              <div className="dm-field">
-                <strong className="dm-label">Created At:</strong>
-                <div className="dm-value">{currentDivision.createdAt ? (parseHrisDate(currentDivision.createdAt) || String(currentDivision.createdAt)) : t('naLabel')}</div>
+                <div className="dm-detail-item dm-detail-full">
+                  <div className="dm-detail-icon">
+                    <i className="bi bi-calendar-check"></i>
+                  </div>
+                  <div className="dm-detail-content">
+                    <span className="dm-detail-label">Created At</span>
+                    <span className="dm-detail-value">{currentDivision.createdAt ? (parseHrisDate(currentDivision.createdAt) || String(currentDivision.createdAt)) : t('naLabel')}</span>
+                  </div>
+                </div>
               </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="dm-modal-footer-enhanced">
+              <button className="dm-btn-close" onClick={() => setCurrentDivision(null)}>
+                <i className="bi bi-x-circle"></i>
+                Close
+              </button>
             </div>
           </div>
         </div>

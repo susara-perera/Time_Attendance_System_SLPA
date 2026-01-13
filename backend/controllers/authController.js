@@ -157,7 +157,27 @@ const login = async (req, res) => {
       // Check cache health
       const health = await cacheDataService.checkHealth();
       cacheStatus = { ...cacheStatus, ...health };
-      
+
+      // Trigger preloads for Attendance and Audit reports (last 180 days) on login
+      try {
+        const preloadDays = 180;
+        console.log(`🔁 Triggering ${preloadDays}-day attendance and audit cache preloads (login)`);
+
+        // Fire-and-forget background preloads so login is not blocked
+        cachePreloadService.preloadAttendance(preloadDays, 'login')
+          .then(result => console.log('Attendance preload started:', result))
+          .catch(err => console.error('Attendance preload error:', err));
+
+        cachePreloadService.preloadAudit(preloadDays, 'login')
+          .then(result => console.log('Audit preload started:', result))
+          .catch(err => console.error('Audit preload error:', err));
+
+        cacheStatus.preloadTrigger = { attendance: true, audit: true, days: preloadDays };
+      } catch (preErr) {
+        console.error('Error triggering login preloads:', preErr);
+        cacheStatus.preloadTrigger = { error: preErr.message };
+      }
+
     } catch (cacheError) {
       console.error('Cache initialization error:', cacheError);
       cacheStatus.error = cacheError.message;

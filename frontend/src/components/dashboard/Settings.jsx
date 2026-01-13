@@ -4,6 +4,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import './settings-theme.css';
 import { useLanguage } from '../../context/LanguageContext';
 import { AuthContext } from '../../context/AuthContext';
+import PageHeader from './PageHeader';
 
 const TOOLTIP = {
   systemName: 'The name displayed across the system.',
@@ -224,7 +225,14 @@ const Settings = () => {
       className="settings-page container-fluid"
       style={{ width: '100%', margin: '6px 0', padding: '12px 12px', boxSizing: 'border-box' }}
     >
-      <div className="row">
+      {/* Professional Section Header with Logo */}
+      <PageHeader
+        title={t('systemSettings')}
+        subtitle="Configure system preferences and user settings"
+        icon="bi-gear-fill"
+      />
+      
+      <div className="row" style={{ marginTop: '20px' }}>
         {/* Sidebar Navigation */}
         <div className="col-12 col-md-3 col-lg-2 mb-4">
           <div className="list-group shadow-sm" style={{ maxWidth: 220 }}>
@@ -268,11 +276,6 @@ const Settings = () => {
 
         {/* Main Content */}
         <div className="col-12 col-md-9 col-lg-10">
-          <div className="card shadow-sm mb-3" style={{ width: '100%' }}>
-            <div className="card-body" style={{ padding: '18px 22px' }}>
-              <h3 className="mb-0"><i className="bi bi-gear me-2"></i>{t('systemSettings')}</h3>
-            </div>
-          </div>
           {/* Subsection buttons are hidden when the user lacks their permissions. */}
           {activeTab === 'general' && (
             <div className="card shadow-sm" style={{ width: '100%' }}>

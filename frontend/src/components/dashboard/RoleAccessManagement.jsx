@@ -4,6 +4,7 @@ import { Form } from 'react-bootstrap';
 import { AuthContext } from '../../context/AuthContext';
 import RoleManagement from './RoleManagement';
 import './RoleAccessManagement.css';
+import PageHeader from './PageHeader';
 
 const RoleAccessManagement = () => {
   const { user, hasPermission } = useContext(AuthContext);
@@ -608,26 +609,26 @@ const RoleAccessManagement = () => {
 
   return (
     <div className="role-access-wrapper">
-          <div className="section-header">
-            <h2>
-              <i className="bi bi-people-fill"></i>
-              Role Access Management
-            </h2>
-            <div className="header-actions">
-              <button
-                className="btn-manage-roles"
-                onClick={() => {
-                  if (!hasViewRolesPermission()) return;
-                  // Use the Dashboard's global navigate event to switch to the Role Management page
-                  window.dispatchEvent(new CustomEvent('navigateTo', { detail: 'role-management' }));
-                }}
-                disabled={!hasViewRolesPermission()}
-                title={!hasViewRolesPermission() ? "You need 'view_roles' or 'roles.read' access to manage roles" : "Manage Roles"}
-              >
-                <i className="bi bi-gear" style={{ marginRight: '6px', fontSize: '1.1rem' }}></i> Manage Roles
-              </button>
-            </div>
-          </div>
+      {/* Professional Section Header with Logo */}
+      <PageHeader
+        title="Role Access Management"
+        subtitle="Configure permissions and access levels for each role"
+        icon="bi-people-fill"
+        actions={
+          <button
+            className="btn-manage-roles"
+            onClick={() => {
+              if (!hasViewRolesPermission()) return;
+              // Use the Dashboard's global navigate event to switch to the Role Management page
+              window.dispatchEvent(new CustomEvent('navigateTo', { detail: 'role-management' }));
+            }}
+            disabled={!hasViewRolesPermission()}
+            title={!hasViewRolesPermission() ? "You need 'view_roles' or 'roles.read' access to manage roles" : "Manage Roles"}
+          >
+            <i className="bi bi-gear" style={{ marginRight: '6px', fontSize: '1.1rem' }}></i> Manage Roles
+          </button>
+        }
+      />
           {hasRoleReadPermission() ? (
             <>
               <div className="stats-section">

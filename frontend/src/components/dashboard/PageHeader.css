@@ -1,0 +1,220 @@
+/* =============================================
+   PAGE HEADER COMPONENT - PROFESSIONAL DESIGN
+   ============================================= */
+
+.page-header-banner {
+  position: relative;
+  background: linear-gradient(135deg, #1e40af 0%, #2563eb 50%, #3b82f6 100%);
+  border-radius: 20px;
+  padding: 28px 32px;
+  margin-bottom: 28px;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(30, 64, 175, 0.3);
+}
+
+.page-header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  z-index: 2;
+}
+
+.page-header-left {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.page-header-icon {
+  width: 56px;
+  height: 56px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  transition: transform 0.3s ease;
+}
+
+.page-header-icon:hover {
+  transform: scale(1.05) rotate(-5deg);
+}
+
+.page-header-icon i {
+  font-size: 1.75rem;
+  color: #fff;
+}
+
+.page-header-text h1 {
+  margin: 0;
+  font-size: 1.75rem;
+  color: #fff;
+  font-weight: 700;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.page-header-text p {
+  margin: 6px 0 0 0;
+  font-size: 0.95rem;
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 400;
+}
+
+.page-header-right {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.page-header-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.page-header-logo {
+  width: 70px;
+  height: 70px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.95);
+  padding: 6px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.page-header-logo:hover {
+  transform: scale(1.05);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+}
+
+.page-header-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 10px;
+}
+
+/* Decorative Elements */
+.page-header-decoration {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.decoration-circle {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.decoration-circle-1 {
+  width: 200px;
+  height: 200px;
+  top: -80px;
+  right: 10%;
+  animation: float 8s ease-in-out infinite;
+}
+
+.decoration-circle-2 {
+  width: 150px;
+  height: 150px;
+  bottom: -60px;
+  right: 25%;
+  animation: float 10s ease-in-out infinite reverse;
+}
+
+.decoration-circle-3 {
+  width: 100px;
+  height: 100px;
+  top: 50%;
+  right: 5%;
+  transform: translateY(-50%);
+  animation: pulse 4s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-20px);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.05;
+    transform: translateY(-50%) scale(1);
+  }
+  50% {
+    opacity: 0.1;
+    transform: translateY(-50%) scale(1.1);
+  }
+}
+
+/* Responsive Design */
+@media (max-width: 992px) {
+  .page-header-banner {
+    padding: 24px;
+  }
+  
+  .page-header-content {
+    flex-direction: column;
+    gap: 20px;
+    text-align: center;
+  }
+  
+  .page-header-left {
+    flex-direction: column;
+  }
+  
+  .page-header-text h1 {
+    font-size: 1.5rem;
+  }
+  
+  .page-header-right {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 576px) {
+  .page-header-banner {
+    padding: 20px;
+    border-radius: 16px;
+  }
+  
+  .page-header-icon {
+    width: 48px;
+    height: 48px;
+  }
+  
+  .page-header-icon i {
+    font-size: 1.4rem;
+  }
+  
+  .page-header-text h1 {
+    font-size: 1.25rem;
+  }
+  
+  .page-header-logo {
+    width: 56px;
+    height: 56px;
+  }
+}
+
+/* Dark Mode Support */
+[data-theme="dark"] .page-header-banner {
+  background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #2563eb 100%);
+}
+
+[data-theme="dark"] .page-header-logo {
+  background: rgba(30, 41, 59, 0.95);
+}

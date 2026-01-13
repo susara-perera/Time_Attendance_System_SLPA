@@ -12,6 +12,8 @@ const { CacheMetadata, CacheIndex, CacheRelationship, CacheSyncLog } = require('
 class CachePreloadService {
   constructor() {
     this.cache = getCache();
+    this.jobs = new Map();
+    this.activeJobId = null;
     this.stats = {
       divisions: { count: 0, indexed: 0 },
       sections: { count: 0, indexed: 0 },
@@ -19,6 +21,137 @@ class CachePreloadService {
       relationships: { count: 0 },
       totalTime: 0
     };
+  }
+
+  _newJobId() {
+    return `preload_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  }
+
+  _createJob({ triggeredBy, steps }) {
+    const id = this._newJobId();
+    const job = {
+      id,
+      status: 'running',
+      triggeredBy,
+      startedAt: new Date().toISOString(),
+      completedAt: null,
+      stepIndex: 0,
+      steps,
+      currentStep: steps[0] || null,
+      percent: 0,
+      message: 'Starting cache activation...'
+    };
+    this.jobs.set(id, job);
+    this.activeJobId = id;
+    return job;
+  }
+
+  _updateJob(id, patch) {
+    const job = this.jobs.get(id);
+    if (!job) return;
+    Object.assign(job, patch);
+  }
+
+  _setJobStep(id, stepIndex, message) {
+    const job = this.jobs.get(id);
+    if (!job) return;
+    const total = job.steps.length || 1;
+    const idx = Math.max(0, Math.min(stepIndex, total - 1));
+    job.stepIndex = idx;
+    job.currentStep = job.steps[idx] || null;
+    job.percent = Math.round((idx / total) * 100);
+    job.message = message || job.message;
+  }
+
+  _finishJob(id, message) {
+    const job = this.jobs.get(id);
+    if (!job) return;
+    job.status = 'completed';
+    job.percent = 100;
+    job.completedAt = new Date().toISOString();
+    job.message = message || 'Cache activation completed.';
+    if (this.activeJobId === id) this.activeJobId = null;
+  }
+
+  _failJob(id, error) {
+    const job = this.jobs.get(id);
+    if (!job) return;
+    job.status = 'failed';
+    job.completedAt = new Date().toISOString();
+    job.message = 'Cache activation failed.';
+    job.error = error ? String(error.message || error) : 'Unknown error';
+    if (this.activeJobId === id) this.activeJobId = null;
+  }
+
+  getPreloadJob(jobId) {
+    return this.jobs.get(jobId) || null;
+  }
+
+  /**
+   * Starts a full-system preload job (divisions/sections/subsections/employees/full attendance).
+   * Returns a job descriptor immediately; work runs in background.
+   */
+  startFullSystemPreloadJob(triggeredBy = 'system') {
+    // If a job is already running, reuse it to avoid multiple heavy preloads.
+    if (this.activeJobId) {
+      const active = this.jobs.get(this.activeJobId);
+      if (active && active.status === 'running') return active;
+    }
+
+    const steps = [
+      'Divisions',
+      'Sections',
+      'Sub Sections',
+      'Employees',
+      'Attendance'
+    ];
+
+    const job = this._createJob({ triggeredBy, steps });
+
+    (async () => {
+      try {
+        // Ensure Redis is connected
+        this._setJobStep(job.id, 0, 'Caching divisions...');
+        if (!this.cache.isConnected) {
+          await this.cache.connect();
+        }
+        await this.preloadDivisions();
+
+        this._setJobStep(job.id, 1, 'Caching sections...');
+        await this.preloadSections();
+
+        this._setJobStep(job.id, 2, 'Caching sub sections...');
+        await this.preloadSubSections();
+
+        this._setJobStep(job.id, 3, 'Caching employees...');
+        await this.preloadEmployees();
+
+        // Attendance (full DB range)
+        this._setJobStep(job.id, 4, 'Activating attendance cache (full database)...');
+        await this.preloadAttendanceFull(triggeredBy, (progress) => {
+          const current = this.jobs.get(job.id);
+          if (!current || current.status !== 'running') return;
+          if (progress && typeof progress.message === 'string') {
+            current.message = progress.message;
+          }
+          if (progress && typeof progress.processed === 'number' && typeof progress.total === 'number') {
+            current.attendance = {
+              processed: progress.processed,
+              total: progress.total,
+              inserted: progress.inserted,
+              updated: progress.updated
+            };
+          }
+        });
+
+        this._finishJob(job.id, 'Cache activation completed. Redirecting...');
+      } catch (err) {
+        console.error('❌ Full-system preload job failed:', err);
+        this._failJob(job.id, err);
+      }
+    })();
+
+    return job;
   }
 
   /**
@@ -314,6 +447,119 @@ class CachePreloadService {
   }
 
   /**
+   * Preload all sub sections with indexes (from MySQL table `sub_sections`).
+   */
+  async preloadSubSections() {
+    try {
+      const [subsections] = await sequelize.query(
+        `SELECT * FROM sub_sections ORDER BY COALESCE(sub_section_name, sub_name) ASC`,
+        { raw: true }
+      );
+
+      if (!subsections || subsections.length === 0) {
+        console.log('⚠️ No sub sections found to preload');
+        return { count: 0, indexed: 0 };
+      }
+
+      console.log(`📦 Loading ${subsections.length} sub sections...`);
+
+      const pipeline = this.cache.client.pipeline();
+      const indexes = [];
+
+      for (const sub of subsections) {
+        const subId = String(sub.id);
+        const cacheKey = `cache:subsection:${subId}`;
+        const subData = {
+          _id: subId,
+          id: sub.id,
+          sub_section_name: sub.sub_section_name || sub.sub_name || '',
+          sub_name: sub.sub_name || sub.sub_section_name || '',
+          sub_section_code: sub.sub_section_code || sub.sub_code || '',
+          sub_code: sub.sub_code || sub.sub_section_code || '',
+          section_code: String(sub.section_code || ''),
+          division_code: String(sub.division_code || ''),
+          created_at: sub.created_at,
+          updated_at: sub.updated_at,
+          source: 'MySQL'
+        };
+
+        pipeline.setex(cacheKey, 3600, JSON.stringify(subData));
+
+        indexes.push({
+          entity_type: 'subsection',
+          entity_id: subId,
+          index_key: 'id',
+          index_value: subId,
+          cache_key: cacheKey
+        });
+
+        if (subData.sub_section_code) {
+          indexes.push({
+            entity_type: 'subsection',
+            entity_id: subId,
+            index_key: 'code',
+            index_value: String(subData.sub_section_code),
+            cache_key: cacheKey
+          });
+        }
+
+        if (subData.section_code) {
+          indexes.push({
+            entity_type: 'subsection',
+            entity_id: subId,
+            index_key: 'section_code',
+            index_value: String(subData.section_code),
+            cache_key: cacheKey
+          });
+        }
+
+        if (subData.division_code) {
+          indexes.push({
+            entity_type: 'subsection',
+            entity_id: subId,
+            index_key: 'division_code',
+            index_value: String(subData.division_code),
+            cache_key: cacheKey
+          });
+        }
+
+        pipeline.zadd('cache:subsections:all', 0, subId);
+      }
+
+      await pipeline.exec();
+
+      await this.cache.set(
+        'cache:subsections:list',
+        JSON.stringify(subsections.map(s => String(s.id))),
+        3600
+      );
+
+      if (indexes.length > 0) {
+        await CacheIndex.bulkCreate(indexes, {
+          updateOnDuplicate: ['index_value', 'cache_key', 'updated_at']
+        });
+      }
+
+      await CacheMetadata.upsert({
+        cache_key: 'cache:subsections:list',
+        entity_type: 'subsection',
+        record_count: subsections.length,
+        data_size_bytes: JSON.stringify(subsections).length,
+        last_sync_at: new Date(),
+        expires_at: new Date(Date.now() + 3600000),
+        is_valid: true
+      });
+
+      console.log(`✅ Loaded ${subsections.length} sub sections with ${indexes.length} indexes`);
+      return { count: subsections.length, indexed: indexes.length };
+
+    } catch (error) {
+      console.error('❌ Sub section preload error:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Preload all employees with indexes
    */
   async preloadEmployees() {
@@ -398,38 +644,24 @@ class CachePreloadService {
             cache_key: cacheKey
           });
         }
-
-        // Add to sets for relationships
-        pipeline.zadd('cache:employees:all', 0, emp.EMP_ID);
-        if (emp.DIVISION_ID) {
-          pipeline.sadd(`cache:division:${emp.DIVISION_ID}:employees`, emp.EMP_ID);
-        }
-        if (emp.SECTION_ID) {
-          pipeline.sadd(`cache:section:${emp.SECTION_ID}:employees`, emp.EMP_ID);
-        }
       }
 
+      // Execute pipeline and indexes (unchanged)
       await pipeline.exec();
 
-      await this.cache.set(
-        'cache:employees:list',
-        JSON.stringify(employees.map(e => e.EMP_ID)),
-        1800
-      );
-
       if (indexes.length > 0) {
-        await CacheIndex.bulkCreate(indexes, {
-          updateOnDuplicate: ['index_value', 'cache_key', 'updated_at']
-        });
+        await CacheIndex.bulkCreate(indexes, { updateOnDuplicate: ['index_value', 'cache_key', 'updated_at'] });
       }
 
+      await this.cache.set('cache:employees:list', JSON.stringify(employees.map(e => e.EMP_ID)), 1800);
+
       await CacheMetadata.upsert({
-        cache_key: 'cache:employees:all',
+        cache_key: 'cache:employees:list',
         entity_type: 'employee',
         record_count: employees.length,
         data_size_bytes: JSON.stringify(employees).length,
         last_sync_at: new Date(),
-        expires_at: new Date(Date.now() + 1800000), // 30 min
+        expires_at: new Date(Date.now() + 1800000),
         is_valid: true
       });
 
@@ -441,6 +673,145 @@ class CachePreloadService {
       throw error;
     }
   }
+
+  /**
+   * Preload attendance-specific data into cache (uses optimized attendance table if available)
+   */
+  async preloadAttendance(days = 7, triggeredBy = 'manual') {
+    try {
+      console.log(`📥 Preloading attendance cache (last ${days} days) ...`);
+
+      // Use optimized attendance sync service to ensure optimized table is up-to-date
+      const optimizedAttendanceService = require('./optimizedAttendanceSyncService');
+      const stats = await optimizedAttendanceService.syncLastDays(days);
+
+      // Store metadata about preload
+      await CacheMetadata.upsert({
+        cache_key: `cache:attendance:last_${days}_days`,
+        entity_type: 'attendance',
+        record_count: stats.recordsInserted + stats.recordsUpdated || 0,
+        data_size_bytes: 0,
+        last_sync_at: new Date(),
+        expires_at: new Date(Date.now() + 3600000),
+        is_valid: true
+      });
+
+      console.log(`✅ Attendance preload completed: ${stats.recordsInserted} inserted, ${stats.recordsUpdated} updated`);
+      return { success: true, stats };
+
+    } catch (error) {
+      console.error('❌ Attendance preload error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Preload attendance cache for the full available database range.
+   * Uses the optimized attendance sync pipeline and reports progress when possible.
+   */
+  async preloadAttendanceFull(triggeredBy = 'manual', onProgress) {
+    try {
+      console.log('📥 Preloading attendance cache (full database range) ...');
+
+      const [rangeRows] = await sequelize.query(
+        `SELECT MIN(DATE(date_)) AS min_date, MAX(DATE(date_)) AS max_date, COUNT(*) AS total_rows FROM attendance`,
+        { raw: true }
+      );
+
+      const range = Array.isArray(rangeRows) ? rangeRows[0] : rangeRows;
+      const minDate = range?.min_date;
+      const maxDate = range?.max_date;
+      const totalRows = Number(range?.total_rows || 0);
+
+      if (!minDate || !maxDate || totalRows === 0) {
+        if (typeof onProgress === 'function') {
+          onProgress({ message: 'No attendance data found to preload.', processed: 0, total: 0, inserted: 0, updated: 0 });
+        }
+        return { success: true, stats: { recordsProcessed: 0, recordsInserted: 0, recordsUpdated: 0 } };
+      }
+
+      const optimizedAttendanceService = require('./optimizedAttendanceSyncService');
+
+      if (typeof onProgress === 'function') {
+        onProgress({ message: `Syncing attendance from ${minDate} to ${maxDate}...`, processed: 0, total: totalRows, inserted: 0, updated: 0 });
+      }
+
+      const stats = await optimizedAttendanceService.syncAttendanceData(
+        String(minDate),
+        String(maxDate),
+        {
+          onProgress: (p) => {
+            if (typeof onProgress !== 'function') return;
+            onProgress({
+              message: p?.message,
+              processed: p?.processed,
+              total: p?.total,
+              inserted: p?.inserted,
+              updated: p?.updated
+            });
+          }
+        }
+      );
+
+      await CacheMetadata.upsert({
+        cache_key: 'cache:attendance:full',
+        entity_type: 'attendance',
+        record_count: (stats.recordsInserted || 0) + (stats.recordsUpdated || 0),
+        data_size_bytes: 0,
+        last_sync_at: new Date(),
+        expires_at: new Date(Date.now() + 3600000),
+        is_valid: true
+      });
+
+      console.log(`✅ Attendance full preload completed: ${stats.recordsInserted} inserted, ${stats.recordsUpdated} updated`);
+      return { success: true, stats };
+
+    } catch (error) {
+      console.error('❌ Attendance full preload error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Preload audit-specific data into cache (sync audit table then build indexes)
+   */
+  async preloadAudit(days = 30, triggeredBy = 'manual') {
+    try {
+      const auditService = require('./auditSyncService');
+      console.log(`📥 Preloading audit cache (last ${days} days) ...`);
+
+      const result = await auditService.syncLastNDays(days, {}, triggeredBy);
+
+      // Optionally build Redis indexes for quick lookups (e.g., by date, issue_type)
+      const [auditRows] = await sequelize.query(
+        `SELECT employee_id, event_date, issue_type FROM audit_sync WHERE event_date BETWEEN DATE_SUB(CURDATE(), INTERVAL ? DAY) AND CURDATE()`,
+        { replacements: [days], raw: true }
+      );
+
+      // Store a compact set in Redis for quick membership checks
+      const key = `cache:audit:last_${days}_days`;
+      await this.cache.set(key, JSON.stringify(auditRows), 3600);
+
+      await CacheMetadata.upsert({
+        cache_key: key,
+        entity_type: 'audit',
+        record_count: auditRows.length,
+        data_size_bytes: JSON.stringify(auditRows).length,
+        last_sync_at: new Date(),
+        expires_at: new Date(Date.now() + 3600000),
+        is_valid: true
+      });
+
+      console.log(`✅ Audit preload completed: ${auditRows.length} records cached`);
+      return { success: true, synced: result, cached: auditRows.length };
+
+    } catch (error) {
+      console.error('❌ Audit preload error:', error);
+      throw error;
+    }
+  }
+
+
 
   /**
    * Build relationships between entities

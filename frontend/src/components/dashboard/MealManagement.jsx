@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './MealManagement.css';
 import { useLanguage } from '../../context/LanguageContext';
+import PageHeader from './PageHeader';
 
 const MealManagement = () => {
   const [divisions, setDivisions] = useState([]);
@@ -940,13 +941,12 @@ const MealManagement = () => {
 
   return (
     <div className="meal-management">
-      {/* Professional Section Header (like UserManagement, no colors) */}
-      <div className="section-header" style={{ marginBottom: '32px', padding: '32px 0 16px 0', borderBottom: '2px solid #eee', background: 'none', boxShadow: 'none', borderRadius: '0', textAlign: 'left' }}>
-        <h2 style={{ fontSize: '2.2rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-          <i className="bi bi-utensils" style={{ fontSize: '2rem' }}></i>
-          {t('mealManagementTitle')}
-        </h2>
-      </div>
+      {/* Professional Section Header with Logo */}
+      <PageHeader
+        title={t('mealManagementTitle')}
+        subtitle="Manage meal bookings and employee preferences"
+        icon="bi-cup-hot-fill"
+      />
 
       {message && (
         <div className={`alert alert-${messageType === 'success' ? 'success' : messageType === 'warning' ? 'warning' : 'danger'} alert-dismissible fade show`} 

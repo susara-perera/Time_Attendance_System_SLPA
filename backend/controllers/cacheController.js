@@ -237,6 +237,8 @@ module.exports = {
   connectCache,
   // New cache preload endpoints
   triggerCachePreload,
+  startLoginCacheActivation,
+  getCacheActivationProgress,
   getCacheStatus,
   invalidateCache,
   getSyncHistory,
@@ -284,6 +286,69 @@ async function triggerCachePreload(req, res) {
     res.status(500).json({
       success: false,
       message: 'Failed to trigger cache preload',
+      error: error.message
+    });
+  }
+}
+
+/**
+ * @desc    Start full-system cache activation (for login UI)
+ * @route   POST /api/cache/preload/login
+ * @access  Private
+ */
+async function startLoginCacheActivation(req, res) {
+  try {
+    const triggeredBy = req.user?.id || req.user?._id || 'login';
+    const job = cachePreloadService.startFullSystemPreloadJob(String(triggeredBy));
+
+    return res.status(202).json({
+      success: true,
+      message: 'Cache activation started',
+      data: {
+        jobId: job.id,
+        status: job.status,
+        percent: job.percent,
+        currentStep: job.currentStep,
+        stepIndex: job.stepIndex,
+        steps: job.steps
+      }
+    });
+  } catch (error) {
+    console.error('Start login cache activation error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to start cache activation',
+      error: error.message
+    });
+  }
+}
+
+/**
+ * @desc    Get cache activation progress by job id
+ * @route   GET /api/cache/preload/progress/:jobId
+ * @access  Private
+ */
+async function getCacheActivationProgress(req, res) {
+  try {
+    const { jobId } = req.params;
+    const job = cachePreloadService.getPreloadJob(jobId);
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job not found'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: job
+    });
+  } catch (error) {
+    console.error('Get cache activation progress error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to get cache activation progress',
       error: error.message
     });
   }

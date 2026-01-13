@@ -14,6 +14,8 @@ const {
   connectCache,
   // New cache preload endpoints
   triggerCachePreload,
+  startLoginCacheActivation,
+  getCacheActivationProgress,
   getCacheStatus,
   invalidateCache,
   getSyncHistory,
@@ -73,6 +75,16 @@ router.post('/connect', adminAuth, connectCache);
 // @desc    Trigger full cache preload
 // @access  Private (Admin)
 router.post('/preload', adminAuth, triggerCachePreload);
+
+// @route   POST /api/cache/preload/login
+// @desc    Start full-system cache activation for login progress UI
+// @access  Private
+router.post('/preload/login', auth, startLoginCacheActivation);
+
+// @route   GET /api/cache/preload/progress/:jobId
+// @desc    Get cache activation progress for a given job
+// @access  Private
+router.get('/preload/progress/:jobId', auth, getCacheActivationProgress);
 
 // @route   POST /api/cache/warmup
 // @desc    Warm up cache (preload if cold)

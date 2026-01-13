@@ -32,6 +32,8 @@ ChartJS.register(
 const DashboardStats = ({ onQuickAction }) => {
   const [stats, setStats] = useState(null);
   const [activities, setActivities] = useState([]);
+  const [allActivities, setAllActivities] = useState([]); // Store all activities for expanded view
+  const [showAllActivities, setShowAllActivities] = useState(false); // Toggle for showing all activities
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [trendPeriod, setTrendPeriod] = useState('daily');
@@ -56,10 +58,11 @@ const DashboardStats = ({ onQuickAction }) => {
         'Content-Type': 'application/json'
       };
 
-      const [statsRes, activitiesRes, employeesRes] = await Promise.all([
+      const [statsRes, activitiesRes, employeesRes, auditLogsRes] = await Promise.all([
         fetch('/api/dashboard/stats', { headers }),
-        fetch('/api/dashboard/activities/recent?limit=10', { headers }),
-        fetch('/api/hris-cache/employees', { headers })
+        fetch('/api/dashboard/activities/recent?limit=50', { headers }),
+        fetch('/api/hris-cache/employees', { headers }),
+        fetch('/api/audit-logs?limit=100', { headers }).catch(() => null) // Fetch audit logs for comprehensive activities
       ]);
 
       if (!statsRes.ok) throw new Error('Failed to fetch dashboard stats');
@@ -67,8 +70,65 @@ const DashboardStats = ({ onQuickAction }) => {
       const statsData = await statsRes.json();
       const activitiesData = activitiesRes.ok ? await activitiesRes.json() : { data: [] };
       
+      // Process audit logs for comprehensive activity display
+      let auditActivities = [];
+      if (auditLogsRes && auditLogsRes.ok) {
+        try {
+          const auditData = await auditLogsRes.json();
+          const logs = Array.isArray(auditData?.data) ? auditData.data : (Array.isArray(auditData) ? auditData : []);
+          auditActivities = logs.map(log => {
+            const actionType = log.action || '';
+            let icon = 'bi bi-activity';
+            let severity = 'low';
+            let title = actionType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            
+            // Categorize actions with appropriate icons and severity
+            if (actionType.includes('login')) {
+              icon = 'bi bi-box-arrow-in-right';
+              severity = 'low';
+              title = 'User Login';
+            } else if (actionType.includes('logout')) {
+              icon = 'bi bi-box-arrow-right';
+              severity = 'low';
+              title = 'User Logout';
+            } else if (actionType.includes('created') || actionType.includes('create')) {
+              icon = 'bi bi-plus-circle';
+              severity = 'medium';
+            } else if (actionType.includes('updated') || actionType.includes('update')) {
+              icon = 'bi bi-pencil-square';
+              severity = 'medium';
+            } else if (actionType.includes('deleted') || actionType.includes('delete')) {
+              icon = 'bi bi-trash';
+              severity = 'high';
+            } else if (actionType.includes('transfer')) {
+              icon = 'bi bi-arrow-left-right';
+              severity = 'medium';
+            }
+            
+            const createdAt = log.createdAt ? new Date(log.createdAt) : new Date();
+            return {
+              id: log._id,
+              title: title,
+              description: log.entity?.name ? `${log.entity.type}: "${log.entity.name}"` : (log.description || actionType),
+              date: createdAt.toISOString().split('T')[0],
+              time: createdAt.toTimeString().split(' ')[0],
+              icon: icon,
+              severity: severity,
+              user: log.user?.username || log.user?.name || 'System',
+              action: actionType
+            };
+          });
+        } catch (e) {
+          console.warn('Failed parsing audit logs:', e);
+        }
+      }
+      
       // Calculate active/inactive employee counts from cached employees
-      if (employeesRes && employeesRes.ok) {
+      // First try to use the stats data (more reliable from MySQL)
+      if (statsData.data?.totalEmployees) {
+        setActiveEmployeeCount(statsData.data.totalEmployees);
+        setInactiveEmployeeCount(0); // MySQL already filters for IS_ACTIVE = 1
+      } else if (employeesRes && employeesRes.ok) {
         try {
           const eData = await employeesRes.json();
           const rows = Array.isArray(eData?.data) ? eData.data : (Array.isArray(eData) ? eData : []);
@@ -86,8 +146,20 @@ const DashboardStats = ({ onQuickAction }) => {
         setInactiveEmployeeCount(0);
       }
       
+      // Combine activities from different sources
+      const dashboardActivities = activitiesData.data || statsData.data?.recentActivities || [];
+      const combinedActivities = [...auditActivities, ...dashboardActivities.map(a => ({
+        ...a,
+        id: a.id || `activity-${Math.random().toString(36).substr(2, 9)}`
+      }))];
+      
+      // Sort by date/time and remove duplicates
+      const sortedActivities = combinedActivities
+        .sort((a, b) => new Date(`${b.date}T${b.time}`) - new Date(`${a.date}T${a.time}`));
+      
       setStats(statsData.data);
-      setActivities(activitiesData.data || statsData.data?.recentActivities || []);
+      setAllActivities(sortedActivities);
+      setActivities(sortedActivities.slice(0, 10));
       setError(null);
     } catch (err) {
       console.error('Dashboard stats error:', err);
@@ -99,8 +171,8 @@ const DashboardStats = ({ onQuickAction }) => {
 
   useEffect(() => {
     fetchStats();
-    const interval = setInterval(fetchStats, 60000); // Refresh every minute
-    return () => clearInterval(interval);
+    // const interval = setInterval(fetchStats, 60000); // Refresh every minute - DISABLED
+    // return () => clearInterval(interval);
   }, [fetchStats]);
 
   // Update time every second
@@ -380,94 +452,82 @@ const DashboardStats = ({ onQuickAction }) => {
         </div>
       </div>
 
-      {/* Stats Cards Grid */}
+      {/* Stats Cards Grid - Enhanced Modern Design */}
       <div className="stats-cards-grid">
-        {/* Active Employees */}
-        <div className="stat-card stat-card-success" style={{ '--delay': '0.2s' }}>
-          <div className="stat-card-bg">
-            <div className="stat-card-pattern"></div>
-          </div>
-          <div className="stat-card-content">
-            <div className="stat-icon">
-              <i className="bi bi-person-check-fill"></i>
+        {/* Active Employees Card */}
+        <div className="stat-card stat-card-gradient stat-card-success" style={{ '--delay': '0.1s' }}>
+          <div className="stat-card-inner">
+            <div className="stat-card-icon-wrapper">
+              <div className="stat-icon-circle">
+                <i className="bi bi-person-check-fill"></i>
+              </div>
+              <div className="stat-icon-ring"></div>
             </div>
-            <div className="stat-info">
-              <h3 className="stat-value">{animatedStats.activeEmployees || 0}</h3>
-              <p className="stat-label">Active Employees</p>
+            <div className="stat-card-data">
+              <h3 className="stat-number">{animatedStats.activeEmployees || 0}</h3>
+              <p className="stat-title">Active Employees</p>
+              <span className="stat-subtitle">
+                <i className="bi bi-person-badge-fill"></i> Currently employed staff
+              </span>
             </div>
           </div>
-          <div className="stat-card-footer">
-            <span className="stat-trend trend-up">
-              <i className="bi bi-check-circle"></i> {activeEmployeeCount + inactiveEmployeeCount > 0 ? Math.round((activeEmployeeCount / (activeEmployeeCount + inactiveEmployeeCount)) * 100) : 0}% of total
-            </span>
-          </div>
-          <div className="stat-card-glow"></div>
         </div>
 
-        {/* Total Divisions */}
-        <div className="stat-card stat-card-warning" style={{ '--delay': '0.3s' }}>
-          <div className="stat-card-bg">
-            <div className="stat-card-pattern"></div>
-          </div>
-          <div className="stat-card-content">
-            <div className="stat-icon">
-              <i className="bi bi-building-fill"></i>
+        {/* Total Divisions Card */}
+        <div className="stat-card stat-card-gradient stat-card-warning" style={{ '--delay': '0.15s' }}>
+          <div className="stat-card-inner">
+            <div className="stat-card-icon-wrapper">
+              <div className="stat-icon-circle">
+                <i className="bi bi-building-fill"></i>
+              </div>
+              <div className="stat-icon-ring"></div>
             </div>
-            <div className="stat-info">
-              <h3 className="stat-value">{animatedStats.totalDivisions || 0}</h3>
-              <p className="stat-label">Total Divisions</p>
+            <div className="stat-card-data">
+              <h3 className="stat-number">{animatedStats.totalDivisions || 0}</h3>
+              <p className="stat-title">Total Divisions</p>
+              <span className="stat-subtitle">
+                <i className="bi bi-layers-fill"></i> Organizational units
+              </span>
             </div>
           </div>
-          <div className="stat-card-footer">
-            <span className="stat-trend trend-neutral">
-              <i className="bi bi-layers"></i> Organizational units
-            </span>
-          </div>
-          <div className="stat-card-glow"></div>
         </div>
 
-        {/* Total Sections */}
-        <div className="stat-card stat-card-info" style={{ '--delay': '0.5s' }}>
-          <div className="stat-card-bg">
-            <div className="stat-card-pattern"></div>
-          </div>
-          <div className="stat-card-content">
-            <div className="stat-icon">
-              <i className="bi bi-diagram-3-fill"></i>
+        {/* Total Sections Card */}
+        <div className="stat-card stat-card-gradient stat-card-info" style={{ '--delay': '0.25s' }}>
+          <div className="stat-card-inner">
+            <div className="stat-card-icon-wrapper">
+              <div className="stat-icon-circle">
+                <i className="bi bi-diagram-3-fill"></i>
+              </div>
+              <div className="stat-icon-ring"></div>
             </div>
-            <div className="stat-info">
-              <h3 className="stat-value">{animatedStats.totalSections || 0}</h3>
-              <p className="stat-label">Total Sections</p>
+            <div className="stat-card-data">
+              <h3 className="stat-number">{animatedStats.totalSections || 0}</h3>
+              <p className="stat-title">Total Sections</p>
+              <span className="stat-subtitle">
+                <i className="bi bi-grid-3x3-gap-fill"></i> Department sections
+              </span>
             </div>
           </div>
-          <div className="stat-card-footer">
-            <span className="stat-trend trend-neutral">
-              <i className="bi bi-grid-3x3"></i> Department sections
-            </span>
-          </div>
-          <div className="stat-card-glow"></div>
         </div>
 
-        {/* Total Sub Sections */}
-        <div className="stat-card stat-card-purple" style={{ '--delay': '0.6s' }}>
-          <div className="stat-card-bg">
-            <div className="stat-card-pattern"></div>
-          </div>
-          <div className="stat-card-content">
-            <div className="stat-icon">
-              <i className="bi bi-diagram-2-fill"></i>
+        {/* Sub Sections Card */}
+        <div className="stat-card stat-card-gradient stat-card-purple" style={{ '--delay': '0.25s' }}>
+          <div className="stat-card-inner">
+            <div className="stat-card-icon-wrapper">
+              <div className="stat-icon-circle">
+                <i className="bi bi-diagram-2-fill"></i>
+              </div>
+              <div className="stat-icon-ring"></div>
             </div>
-            <div className="stat-info">
-              <h3 className="stat-value">{animatedStats.totalSubSections || 0}</h3>
-              <p className="stat-label">Sub Sections</p>
+            <div className="stat-card-data">
+              <h3 className="stat-number">{animatedStats.totalSubSections || 0}</h3>
+              <p className="stat-title">Sub Sections</p>
+              <span className="stat-subtitle">
+                <i className="bi bi-collection-fill"></i> Work units
+              </span>
             </div>
           </div>
-          <div className="stat-card-footer">
-            <span className="stat-trend trend-neutral">
-              <i className="bi bi-collection"></i> Work units
-            </span>
-          </div>
-          <div className="stat-card-glow"></div>
         </div>
       </div>
 
@@ -541,23 +601,20 @@ const DashboardStats = ({ onQuickAction }) => {
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Today's Progress and Recent Activities */}
-      <div className="bottom-section">
-        {/* Today's Progress */}
-        <div className="progress-card">
-          <div className="progress-card-header">
-            <div className="progress-title">
+        {/* Today's Progress Chart */}
+        <div className="chart-card progress-chart-card">
+          <div className="chart-card-header">
+            <div className="chart-title">
               <i className="bi bi-clock-history"></i>
               <h3>Today's Progress</h3>
             </div>
-            <span className="progress-time">
+            <span className="chart-badge">
               <i className="bi bi-calendar-check"></i>
               {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
             </span>
           </div>
-          <div className="progress-card-body">
+          <div className="chart-card-body">
             {/* Main Progress Circle */}
             <div className="progress-circle-container">
               <svg className="progress-circle" viewBox="0 0 120 120">
@@ -604,16 +661,7 @@ const DashboardStats = ({ onQuickAction }) => {
                 </div>
               </div>
               <div className="progress-stat-item">
-                <div className="progress-stat-icon total-scans">
-                  <i className="bi bi-upc-scan"></i>
-                </div>
-                <div className="progress-stat-info">
-                  <span className="progress-stat-value">{stats?.todayAttendance?.totalScans || 0}</span>
-                  <span className="progress-stat-label">Total Scans</span>
-                </div>
-              </div>
-              <div className="progress-stat-item">
-                <div className="progress-stat-icon attendance-rate">
+                <div className="progress-stat-icon rate">
                   <i className="bi bi-percent"></i>
                 </div>
                 <div className="progress-stat-info">
@@ -624,45 +672,77 @@ const DashboardStats = ({ onQuickAction }) => {
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Recent Activities */}
-        <div className="activities-card">
+      {/* Recent Activities - Enhanced Section */}
+      <div className="bottom-section">
+        <div className="activities-card activities-card-enhanced">
           <div className="activities-card-header">
             <div className="activities-title">
               <i className="bi bi-activity"></i>
               <h3>Recent Activities</h3>
             </div>
-            <span className="activities-badge">{activities.length} activities</span>
+            <div className="activities-header-actions">
+              <span className="activities-badge">{showAllActivities ? allActivities.length : activities.length} activities</span>
+              <button 
+                className="view-all-btn"
+                onClick={() => setShowAllActivities(!showAllActivities)}
+              >
+                {showAllActivities ? (
+                  <>
+                    <i className="bi bi-chevron-up"></i> Show Less
+                  </>
+                ) : (
+                  <>
+                    <i className="bi bi-list-ul"></i> View All ({allActivities.length})
+                  </>
+                )}
+              </button>
+            </div>
           </div>
-          <div className="activities-card-body">
-            {activities.length === 0 ? (
+          <div className={`activities-card-body ${showAllActivities ? 'expanded' : ''}`}>
+            {(showAllActivities ? allActivities : activities).length === 0 ? (
               <div className="no-activities">
                 <i className="bi bi-inbox"></i>
                 <p>No recent activities</p>
               </div>
             ) : (
               <div className="activities-list">
-                {activities.slice(0, 6).map((activity, index) => (
+                {(showAllActivities ? allActivities : activities.slice(0, 6)).map((activity, index) => (
                   <div 
-                    className="activity-item" 
+                    className={`activity-item activity-item-${activity.severity || 'low'}`}
                     key={activity.id || index}
-                    style={{ '--delay': `${index * 0.1}s` }}
+                    style={{ '--delay': `${index * 0.05}s` }}
                   >
                     <div className={`activity-icon ${activity.severity || 'low'}`}>
                       <i className={activity.icon || 'bi bi-activity'}></i>
                     </div>
                     <div className="activity-content">
-                      <h4 className="activity-title">{activity.title}</h4>
+                      <div className="activity-header">
+                        <h4 className="activity-title">{activity.title}</h4>
+                        <span className={`activity-badge activity-badge-${activity.severity || 'low'}`}>
+                          {activity.action?.includes('login') ? 'Login' :
+                           activity.action?.includes('logout') ? 'Logout' :
+                           activity.action?.includes('created') ? 'Created' :
+                           activity.action?.includes('updated') ? 'Updated' :
+                           activity.action?.includes('deleted') ? 'Deleted' :
+                           activity.action?.includes('transfer') ? 'Transfer' : 'Activity'}
+                        </span>
+                      </div>
                       <p className="activity-description">{activity.description}</p>
                       <div className="activity-meta">
                         {activity.user && (
                           <span className="activity-user">
-                            <i className="bi bi-person"></i> {activity.user}
+                            <i className="bi bi-person-circle"></i> {activity.user}
                           </span>
                         )}
                         <span className="activity-time">
-                          <i className="bi bi-clock"></i>
+                          <i className="bi bi-clock-history"></i>
                           {formatTimeAgo(activity.date, activity.time)}
+                        </span>
+                        <span className="activity-date-full">
+                          <i className="bi bi-calendar3"></i>
+                          {activity.date} {activity.time}
                         </span>
                       </div>
                     </div>

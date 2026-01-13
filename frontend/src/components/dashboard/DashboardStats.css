@@ -145,7 +145,7 @@
 }
 
 /* =============================================
-   STATS CARDS GRID
+   ENHANCED STATS CARDS GRID
    ============================================= */
 .stats-cards-grid {
   display: grid;
@@ -154,16 +154,55 @@
   margin-bottom: 28px;
 }
 
+/* New Enhanced Stat Card Design */
 .stat-card {
   position: relative;
   background: #fff;
   border-radius: 20px;
-  padding: 24px;
+  padding: 0;
   overflow: hidden;
   box-shadow: 0 4px 20px rgba(0,0,0,0.06);
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   animation: cardSlideIn 0.6s ease-out backwards;
   animation-delay: var(--delay, 0s);
+}
+
+.stat-card-gradient {
+  border: none;
+}
+
+.stat-card-gradient::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-radius: 20px 20px 0 0;
+}
+
+.stat-card-success::before {
+  background: linear-gradient(90deg, #10b981, #34d399);
+}
+
+.stat-card-danger::before {
+  background: linear-gradient(90deg, #ef4444, #f87171);
+}
+
+.stat-card-warning::before {
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+.stat-card-info::before {
+  background: linear-gradient(90deg, #06b6d4, #22d3ee);
+}
+
+.stat-card-purple::before {
+  background: linear-gradient(90deg, #8b5cf6, #a78bfa);
+}
+
+.stat-card-primary::before {
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
 }
 
 @keyframes cardSlideIn {
@@ -182,33 +221,146 @@
   box-shadow: 0 20px 40px rgba(0,0,0,0.12);
 }
 
-.stat-card-bg {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  opacity: 0.05;
-  transition: opacity 0.3s ease;
+.stat-card-inner {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.stat-card:hover .stat-card-bg {
-  opacity: 0.08;
+.stat-card-icon-wrapper {
+  position: relative;
+  width: 56px;
+  height: 56px;
 }
 
-.stat-card-pattern {
+.stat-icon-circle {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  color: #fff;
+  position: relative;
+  z-index: 2;
+  transition: transform 0.3s ease;
+}
+
+.stat-card:hover .stat-icon-circle {
+  transform: scale(1.1) rotate(-5deg);
+}
+
+.stat-icon-ring {
   position: absolute;
-  width: 200%;
-  height: 200%;
-  top: -50%;
-  left: -50%;
-  background: repeating-linear-gradient(
-    45deg,
-    currentColor 0px,
-    currentColor 2px,
-    transparent 2px,
-    transparent 12px
-  );
+  top: -4px;
+  left: -4px;
+  right: -4px;
+  bottom: -4px;
+  border-radius: 20px;
+  opacity: 0.2;
+  z-index: 1;
+}
+
+.stat-card-success .stat-icon-circle {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+.stat-card-success .stat-icon-ring {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+.stat-card-danger .stat-icon-circle {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+}
+.stat-card-danger .stat-icon-ring {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+}
+
+.stat-card-warning .stat-icon-circle {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+.stat-card-warning .stat-icon-ring {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+
+.stat-card-info .stat-icon-circle {
+  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+}
+.stat-card-info .stat-icon-ring {
+  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+}
+
+.stat-card-purple .stat-icon-circle {
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+}
+.stat-card-purple .stat-icon-ring {
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+}
+
+.stat-card-primary .stat-icon-circle {
+  background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%);
+}
+.stat-card-primary .stat-icon-ring {
+  background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%);
+}
+
+.stat-card-data {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-number {
+  font-size: 2.25rem;
+  font-weight: 800;
+  line-height: 1.1;
+  margin: 0;
+  background: linear-gradient(135deg, #1e293b 0%, #475569 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.stat-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #475569;
+  margin: 0;
+}
+
+.stat-subtitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-top: 8px;
+}
+
+.stat-subtitle i {
+  font-size: 0.85rem;
+}
+
+/* Progress bar for stat cards */
+.stat-progress-bar {
+  width: 100%;
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.stat-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #34d399);
+  border-radius: 3px;
+  transition: width 1s ease-out;
+}
+
+.stat-progress-danger .stat-progress-fill {
+  background: linear-gradient(90deg, #ef4444, #f87171);
 }
 
 .stat-card-content {
@@ -351,7 +503,7 @@
    ============================================= */
 .charts-section {
   display: grid;
-  grid-template-columns: 1fr 2fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 24px;
   margin-bottom: 28px;
 }
@@ -530,8 +682,56 @@
    ============================================= */
 .bottom-section {
   display: grid;
-  grid-template-columns: 1fr 1.5fr;
+  grid-template-columns: 1fr;
   gap: 24px;
+}
+
+/* Enhanced Activities Card */
+.activities-card-enhanced {
+  background: #fff;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+  animation: fadeInUp 0.6s ease-out 0.5s backwards;
+}
+
+.activities-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(0,0,0,0.05);
+  background: linear-gradient(135deg, #f8fafc 0%, #fff 100%);
+}
+
+.activities-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.view-all-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.view-all-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+}
+
+.view-all-btn i {
+  font-size: 0.85rem;
 }
 
 /* Progress Card */
@@ -791,6 +991,11 @@
   padding: 16px 24px 24px;
   max-height: 420px;
   overflow-y: auto;
+  transition: max-height 0.4s ease;
+}
+
+.activities-card-body.expanded {
+  max-height: 800px;
 }
 
 .activities-card-body::-webkit-scrollbar {
@@ -842,6 +1047,58 @@
 .activity-item:hover {
   background: #f1f5f9;
   transform: translateX(4px);
+}
+
+/* Activity item variations */
+.activity-item-low {
+  border-left: 3px solid #3b82f6;
+}
+
+.activity-item-medium {
+  border-left: 3px solid #f59e0b;
+}
+
+.activity-item-high {
+  border-left: 3px solid #ef4444;
+}
+
+.activity-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.activity-badge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.activity-badge-low {
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+  color: #1e40af;
+}
+
+.activity-badge-medium {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  color: #b45309;
+}
+
+.activity-badge-high {
+  background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+  color: #b91c1c;
+}
+
+.activity-date-full {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  color: #94a3b8;
 }
 
 .activity-icon {
@@ -1057,7 +1314,7 @@
 
 @media (max-width: 1200px) {
   .charts-section {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 1fr;
   }
   
   .bottom-section {
@@ -1066,6 +1323,10 @@
 }
 
 @media (max-width: 992px) {
+  .charts-section {
+    grid-template-columns: 1fr;
+  }
+  
   .stats-cards-grid {
     grid-template-columns: repeat(2, 1fr);
   }

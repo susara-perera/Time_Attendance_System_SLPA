@@ -1361,7 +1361,7 @@ body {
 }
 
 .actions-container {
-  max-width: 1400px;
+  max-width: 1600px;
   margin: 0 auto;
   padding: 0 32px;
   display: flex;
@@ -1674,7 +1674,7 @@ Enhanced Button Colors with Gradients
 }
 
 .content-container {
-  max-width: 1400px;
+  max-width: 1600px;
   margin: 0 auto;
   padding: 40px 32px;
   position: relative;

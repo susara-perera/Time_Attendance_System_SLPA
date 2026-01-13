@@ -120,7 +120,7 @@
 }
 
 .header-content {
-  max-width: 1200px;
+  max-width: 1600px;
   margin: 0 auto;
   padding: 0 2rem;
   display: flex; /* left title, right subtitle */
@@ -132,7 +132,7 @@
 }
 
 .header-content {
-  max-width: 1200px;
+  max-width: 1600px;
   margin: 0 auto;
   padding: 0 2rem;
   display: flex; /* left title, right subtitle */
@@ -244,7 +244,7 @@
 }
 
 .report-container {
-  max-width: 1200px;
+  max-width: 1600px;
   margin: 0 auto;
   padding: 0 2rem 2rem 2rem;
   display: grid;
@@ -252,7 +252,7 @@
 }
 
 .report-form-container {
-  max-width: 1400px;
+  max-width: 1600px;
   margin: 2.5rem auto;
   padding: 0 2.5rem;
 }
@@ -263,7 +263,7 @@
   padding: 2.5rem;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(37, 99, 235, 0.06);
   border: 1px solid rgba(226, 232, 240, 0.8);
-  max-width: 1200px;
+  max-width: 1600px;
   animation: cardSlideUp 0.4s ease-out;
   transition: all 0.3s ease;
 }
@@ -1433,7 +1433,7 @@
 
 /* Wizard Layout Styles */
 .report-wizard-container {
-  max-width: 1400px;
+  max-width: 1600px;
   margin: -1rem auto 2rem auto;
   padding: 0 2rem;
   display: grid;
@@ -1923,7 +1923,7 @@
   background: #ffffff;
   border-radius: 24px;
   width: 95%;
-  max-width: 1400px;
+  max-width: 1600px;
   max-height: 90vh;
   overflow-y: auto;
   position: relative;

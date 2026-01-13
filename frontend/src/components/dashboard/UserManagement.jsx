@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import usePermission from '../../hooks/usePermission';
 import { useLanguage } from '../../context/LanguageContext';
 import './UserManagement.css';
+import PageHeader from './PageHeader';
 
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
@@ -139,11 +140,11 @@ const UserManagement = () => {
             
             // Normalize divisions to consistent format
             const normalizedDivisions = rawDivisions.map(d => ({
-              _id: d._id || d.id || d.DIVISION_ID || d.code,
-              id: d._id || d.id || d.DIVISION_ID || d.code,
-              code: d.code || d.DIVISION_CODE || d.hie_code || d._id || d.id,
-              name: d.name || d.DIVISION_NAME || d.hie_name || d.hie_relationship || 'Unknown Division',
-              hie_relationship: d.hie_relationship,
+              _id: d._id || d.id || d.HIE_CODE || d.code,
+              id: d._id || d.id || d.HIE_CODE || d.code,
+              code: d.code || d.HIE_CODE || d.hie_code || d._id || d.id,
+              name: d.name || d.HIE_NAME || d.hie_name || d.hie_relationship || 'Unknown Division',
+              hie_relationship: d.hie_relationship || d.HIE_RELATIONSHIP,
               isActive: d.isActive !== false
             })).sort((a, b) => a.name.localeCompare(b.name));
             
@@ -178,18 +179,21 @@ const UserManagement = () => {
             console.log('Raw sections:', rawSections.length); // Debug log
             
             // Normalize sections to consistent format
-            // hie_relationship contains the division NAME (HIE_NAME_3)
-            // name contains the section NAME (HIE_NAME_4)
+            // The sections API returns:
+            // - code/HIE_CODE: section's own code
+            // - name/HIE_NAME: section name
+            // - division_code/HIE_RELATIONSHIP: parent division's CODE (not name)
             const normalizedSections = rawSections.map(s => ({
-              _id: s._id || s.id || s.SECTION_ID || s.code,
-              id: s._id || s.id || s.SECTION_ID || s.code,
-              code: s.code || s.SECTION_CODE || s.hie_code || s.section_code || s._id || s.id,
-              name: s.name || s.hie_name || s.section_name || s.SECTION_NAME || s.HIE_NAME_4 || `Section ${s.code}`,
-              divisionId: s.division_id || s.DIVISION_ID || s.division_code || s.DIVISION_CODE || '',
-              divisionCode: s.division_code || s.DIVISION_CODE || '',
-              // hie_relationship is the division NAME from HRIS (HIE_NAME_3)
-              divisionName: s.division_name || s.hie_relationship || s.DIVISION_NAME || '',
-              hie_relationship: s.hie_relationship || s.division_name || '',
+              _id: s._id || s.id || s.HIE_CODE || s.code,
+              id: s._id || s.id || s.HIE_CODE || s.code,
+              code: s.code || s.HIE_CODE || s.hie_code || s.section_code || s._id || s.id,
+              name: s.name || s.HIE_NAME || s.hie_name || s.section_name || `Section ${s.code}`,
+              // division_code is the parent division's HIE_CODE
+              divisionCode: s.division_code || s.HIE_RELATIONSHIP || s.divisionCode || '',
+              divisionId: s.division_id || s.divisionId || '',
+              // These may not be available - need to lookup from divisions
+              divisionName: s.division_name || s.divisionName || '',
+              hie_relationship: s.hie_relationship || s.HIE_RELATIONSHIP || s.division_code || '',
               isActive: s.isActive !== false
             })).sort((a, b) => a.name.localeCompare(b.name));
             
@@ -262,29 +266,32 @@ const UserManagement = () => {
     fetchData();
   }, []);
 
-  // Filter sections based on selected division (same logic as EmployeeManagement)
+  // Filter sections based on selected division
   useEffect(() => {
     if (!formData.division) {
       setAvailableSections([]);
       return;
     }
 
-    // Filter sections that belong to the selected division (by name)
+    // Find the selected division to get its code
+    const selectedDivision = divisions.find(d => d.name === formData.division);
+    const selectedDivisionCode = selectedDivision?.code || '';
+    
+    console.log('Selected Division Name:', formData.division);
+    console.log('Selected Division Code:', selectedDivisionCode);
+
+    // Filter sections that belong to the selected division (by division code)
     const filteredSections = sections.filter(section => {
-      const selectedDivisionName = String(formData.division || '');
-      const sectionDivisionName = String(section.divisionName || section.hie_relationship || '');
-      const sectionDivisionId = String(section.divisionId || section.divisionCode || '');
+      // Section's divisionCode/hie_relationship contains the parent division's CODE
+      const sectionParentCode = String(section.divisionCode || section.hie_relationship || '');
       
-      // Match by division name (primary) or ID/code (fallback)
-      return sectionDivisionName === selectedDivisionName || 
-             sectionDivisionId === selectedDivisionName ||
-             String(section.divisionCode) === selectedDivisionName;
+      // Match by code
+      return sectionParentCode === selectedDivisionCode;
     });
 
-    console.log('Selected Division:', formData.division);
-    console.log('Filtered Sections:', filteredSections);
+    console.log('Filtered Sections:', filteredSections.length);
     setAvailableSections(filteredSections);
-  }, [formData.division, sections]);
+  }, [formData.division, sections, divisions]);
 
   // Filter subsections based on selected section
   useEffect(() => {
@@ -293,37 +300,25 @@ const UserManagement = () => {
       return;
     }
 
-    // Filter subsections that belong to the selected section
+    // Find the selected section to get its code
+    const selectedSection = availableSections.find(s => s.name === formData.section);
+    const selectedSectionCode = selectedSection?.code || '';
+    
+    console.log('Selected Section Name:', formData.section);
+    console.log('Selected Section Code:', selectedSectionCode);
+
+    // Filter subsections that belong to the selected section (by section code)
     const filteredSubsections = subsections.filter(subsection => {
-      const selectedSectionId = String(formData.section || '');
-      const subsectionSectionId = String(subsection.sectionId || subsection.sectionCode || '');
-      const subsectionSectionCode = String(subsection.sectionCode || '');
-      
-      // Match by section ID or code
-      return subsectionSectionId === selectedSectionId || 
-             subsectionSectionCode === selectedSectionId;
+      const subsectionParentCode = String(subsection.sectionCode || subsection.sectionId || '');
+      return subsectionParentCode === selectedSectionCode;
     });
 
-    console.log('Selected Section:', formData.section);
-    console.log('Filtered Subsections:', filteredSubsections);
+    console.log('Filtered Subsections:', filteredSubsections.length);
     setAvailableSubsections(filteredSubsections);
-  }, [formData.section, subsections]);
+  }, [formData.section, subsections, availableSections]);
 
-  // Update available sections when editing a user
-  useEffect(() => {
-    if (showAddModal && editingUser && formData.division) {
-      // Trigger section filtering when modal opens with existing division (by name)
-      const filteredSections = sections.filter(section => {
-        const selectedDivisionName = String(formData.division || '');
-        const sectionDivisionName = String(section.divisionName || section.hie_relationship || '');
-        const sectionDivisionId = String(section.divisionId || section.divisionCode || '');
-        return sectionDivisionName === selectedDivisionName || 
-               sectionDivisionId === selectedDivisionName ||
-               String(section.divisionCode) === selectedDivisionName;
-      });
-      setAvailableSections(filteredSections);
-    }
-  }, [showAddModal, editingUser, formData.division, sections]);
+  // The main filtering useEffect already handles section updates for editing
+  // So we don't need a separate useEffect for editing mode
 
   const handleAddUser = () => {
     setFormData({
@@ -509,12 +504,21 @@ const UserManagement = () => {
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => {
-      // If division changes, reset section to ensure consistency
+      // If division changes, reset section and subsection to ensure consistency
       if (name === 'division') {
         return {
           ...prev,
           [name]: value,
-          section: '' // Reset section when division changes
+          section: '',
+          subsection: ''
+        };
+      }
+      // If section changes, reset subsection
+      if (name === 'section') {
+        return {
+          ...prev,
+          [name]: value,
+          subsection: ''
         };
       }
       return {
@@ -537,9 +541,11 @@ const UserManagement = () => {
   if (!canViewUsers) {
     return (
       <div className="user-management">
-        <div className="section-header">
-          <h2><i className="bi bi-people"></i> {t('userManagement')}</h2>
-        </div>
+        <PageHeader
+          title={t('userManagement')}
+          subtitle="User access denied"
+          icon="bi-people"
+        />
         <div className="professional-card">
           <div className="no-data">
             <p>{t('noPermissionViewUsers')}</p>
@@ -551,10 +557,12 @@ const UserManagement = () => {
 
   return (
     <div className="user-management">
-      {/* Professional Section Header */}
-      <div className="section-header">
-        <h2><i className="bi bi-people"></i> {t('userManagement')}</h2>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      {/* Professional Section Header with Logo */}
+      <PageHeader
+        title={t('userManagement')}
+        subtitle="Manage system users and access permissions"
+        icon="bi-people"
+        actions={
           <button 
             className="btn-professional btn-primary"
             onClick={canCreateUser ? handleAddUser : undefined}
@@ -564,8 +572,8 @@ const UserManagement = () => {
           >
             <i className="bi bi-plus-circle"></i> Add User
           </button>
-        </div>
-      </div>
+        }
+      />
 
       {/* Professional Users Table */}
       <div className="professional-card">

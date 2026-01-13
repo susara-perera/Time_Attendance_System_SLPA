@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { AuthContext } from '../../context/AuthContext';
 import './RoleAccessManagement.css';
+import PageHeader from './PageHeader';
 
 const RoleManagement = () => {
   const { user, hasPermission } = useContext(AuthContext);
@@ -300,46 +301,42 @@ const RoleManagement = () => {
       </div>
 
       <div className="container-fluid px-4">
-        <div className="main-card">
-          <div className="card-header-custom">
-            <div className="header-content" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-              <div className="header-text">
-                <h1 className="page-title role-title-black">Role Management</h1>
-              </div>
-              
-              {hasRoleManageReadPermission() ? (
-                <button
-                  className={`btn-professional ${hasRoleManageCreatePermission() ? 'btn-primary' : 'btn-secondary'}`}
-                  onClick={() => {
-                    if (hasRoleManageCreatePermission()) {
-                      setShowAddRoleModal(true);
-                    } else {
-                      setMessage('You do not have permission to create roles. Contact a Super Admin for "roles.create" access.');
-                      setMessageType('error');
-                      setToastVisible(true);
-                      setTimeout(() => setToastVisible(false), 4000);
-                    }
-                  }}
-                  title={hasRoleManageCreatePermission() ? "Add New Role" : "You need 'roles.create' permission to add roles"}
-                  style={{ 
-                    padding: '10px 16px', 
-                    fontSize: '14px',
-                    cursor: hasRoleManageCreatePermission() ? 'pointer' : 'not-allowed',
-                    opacity: hasRoleManageCreatePermission() ? 1 : 0.6
-                  }}
-                >
-                  <i className={`bi ${hasRoleManageCreatePermission() ? 'bi-plus-circle' : 'bi-lock'}`}></i> 
-                  Add Role
-                  {!hasRoleManageCreatePermission() && <i className="bi bi-exclamation-triangle ml-1" style={{fontSize: '12px'}}></i>}
-                </button>
-              ) : (
-                <div className="alert alert-info" style={{ margin: 0, padding: '8px 12px', fontSize: '14px' }}>
-                  <i className="bi bi-info-circle mr-2"></i>
-                  You have limited access to role management.
-                </div>
-              )}
-            </div>
-          </div>
+        {/* Professional Section Header with Logo */}
+        <PageHeader
+          title="Role Management"
+          subtitle="Define and manage user roles and access levels"
+          icon="bi-shield-lock"
+          actions={
+            hasRoleManageReadPermission() ? (
+              <button
+                className={`btn-professional ${hasRoleManageCreatePermission() ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => {
+                  if (hasRoleManageCreatePermission()) {
+                    setShowAddRoleModal(true);
+                  } else {
+                    setMessage('You do not have permission to create roles. Contact a Super Admin for "roles.create" access.');
+                    setMessageType('error');
+                    setToastVisible(true);
+                    setTimeout(() => setToastVisible(false), 4000);
+                  }
+                }}
+                title={hasRoleManageCreatePermission() ? "Add New Role" : "You need 'roles.create' permission to add roles"}
+                style={{ 
+                  padding: '10px 16px', 
+                  fontSize: '14px',
+                  cursor: hasRoleManageCreatePermission() ? 'pointer' : 'not-allowed',
+                  opacity: hasRoleManageCreatePermission() ? 1 : 0.6
+                }}
+              >
+                <i className={`bi ${hasRoleManageCreatePermission() ? 'bi-plus-circle' : 'bi-lock'}`}></i> 
+                Add Role
+                {!hasRoleManageCreatePermission() && <i className="bi bi-exclamation-triangle ml-1" style={{fontSize: '12px'}}></i>}
+              </button>
+            ) : null
+          }
+        />
+
+        <div className="main-card" style={{ marginTop: '20px' }}>
           
           <div className="card-body-custom">
             {/* Toast popup */}

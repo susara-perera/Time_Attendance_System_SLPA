@@ -175,14 +175,13 @@ router.post(
 );
 
 // @route   POST /api/reports/mysql/audit
-// @desc    Generate MySQL-based audit report (employees who punched "ON" once)
+// @desc    Generate MySQL-based audit report (employees who punched once)
 // @access  Private
 router.post(
   '/mysql/audit',
   auth,
-  checkPermission('reports', 'view_reports'),
-  checkPermission('reports', 'audit'),
-  auditTrail('mysql_audit_report_generated', 'Report'),
+  // Permission: audit_generate OR create (legacy) OR view_reports
+  // auditTrail('mysql_audit_report_generated', 'Report'),
   require('../controllers/reportController').generateMySQLAuditReport
 );
 

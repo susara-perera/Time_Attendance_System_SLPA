@@ -284,9 +284,20 @@ const Login = () => {
       localStorage.removeItem('loginAttempts');
       localStorage.removeItem('blockUntil');
       setLoginAttempts(0);
-      
-      console.log('Login successful, navigating to dashboard...', result);
-      navigate('/dashboard');
+
+      // Show brief cache preload notice if server triggered preloads
+      if (result && result.cache && result.cache.preloadTrigger) {
+        const days = result.cache.preloadTrigger.days || 0;
+        setError(`⚡ Cache preload triggered for attendance & audit (last ${days} days). Warming up in background.`);
+        // Show message briefly then navigate
+        setTimeout(() => {
+          setError('');
+          navigate('/dashboard');
+        }, 900);
+      } else {
+        console.log('Login successful, navigating to dashboard...', result);
+        navigate('/dashboard');
+      }
     } catch (err) {
       console.error('Login error:', err);
       
@@ -378,11 +389,9 @@ const Login = () => {
         }}
       >
         {/* Try multiple video sources */}
-        <source src="/assets/background-video.mp4" type="video/mp4" />
-        <source src="./assets/background-video.mp4" type="video/mp4" />
-        <source src="/public/assets/background-video.mp4" type="video/mp4" />
-        <source src="/assets/background-video.webm" type="video/webm" />
-        <source src="./assets/background-video.webm" type="video/webm" />
+        <source src="/assets/fingerback.mp4" type="video/mp4" />
+        <source src="./assets/fingerback.mp4" type="video/mp4" />
+        <source src="/public/assets/fingerback.mp4" type="video/mp4" />
         {/* Fallback for browsers that don't support video */}
         Your browser does not support the video tag.
       </video>

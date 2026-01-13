@@ -5,6 +5,7 @@ import GroupReport from './GroupReport';
 import IndividualReport from './IndividualReport';
 import AuditReport from './AuditReport';
 import { useLanguage } from '../../context/LanguageContext';
+import PageHeader from './PageHeader';
 
 const ReportGeneration = () => {
   const { t } = useLanguage();
@@ -1550,15 +1551,12 @@ const ReportGeneration = () => {
 
   return (
     <div className="report-generation">
-      {/* Header Section */}
-      <div className="report-header">
-        <div className="header-content header-no-subtitle">
-          <h1>
-            <i className="bi bi-graph-up-arrow"></i>
-            Report Generation Center
-          </h1>
-        </div>
-      </div>
+      {/* Header Section with Logo */}
+      <PageHeader
+        title="Report Generation Center"
+        subtitle="Generate attendance, audit, and meal reports"
+        icon="bi-graph-up-arrow"
+      />
 
       {/* Form Container */}
       <div className="report-form-container">

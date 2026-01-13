@@ -1,0 +1,62 @@
+[
+  {
+    "scan_type": "OUT"
+  },
+  {
+    "scan_type": ""
+  },
+  {
+    "scan_type": ""
+  },
+  {
+    "scan_type": "IN"
+  },
+  {
+    "scan_type": ""
+  },
+  {
+    "scan_type": ""
+  },
+  {
+    "scan_type": ""
+  },
+  {
+    "scan_type": ""
+  },
+  {
+    "scan_type": ""
+  },
+  {
+    "scan_type": ""
+  },
+  {
+    "scan_type": ""
+  },
+  {
+    "scan_type": ""
+  },
+  {
+    "scan_type": "IN"
+  },
+  {
+    "scan_type": "IN"
+  },
+  {
+    "scan_type": "IN"
+  },
+  {
+    "scan_type": "IN"
+  },
+  {
+    "scan_type": "IN"
+  },
+  {
+    "scan_type": "IN"
+  },
+  {
+    "scan_type": ""
+  },
+  {
+    "scan_type": ""
+  }
+]

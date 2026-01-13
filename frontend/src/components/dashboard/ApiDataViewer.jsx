@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import './ApiDataViewer.css';
+import PageHeader from './PageHeader';
 
 const ApiDataViewer = () => {
   // Normalized state: all entities use id/code/name and link by IDs
@@ -1295,20 +1296,22 @@ const ApiDataViewer = () => {
 
   return (
     <div className="api-data-viewer">
-      <div className="api-header">
-        <h2>
-          <i className="bi bi-cloud-download"></i>
-          HRIS API Data Viewer
-        </h2>
-        <button 
-          className="btn btn-outline-primary refresh-btn"
-          onClick={refreshData}
-          disabled={loading}
-        >
-          <i className="bi bi-arrow-clockwise"></i>
-          Refresh
-        </button>
-      </div>
+      {/* Professional Section Header with Logo */}
+      <PageHeader
+        title="HRIS API Data Viewer"
+        subtitle="View and explore synchronized HRIS data"
+        icon="bi-cloud-download"
+        actions={
+          <button 
+            className="btn btn-outline-primary refresh-btn"
+            onClick={refreshData}
+            disabled={loading}
+          >
+            <i className="bi bi-arrow-clockwise"></i>
+            Refresh
+          </button>
+        }
+      />
 
       <div className="api-tabs">
         <button

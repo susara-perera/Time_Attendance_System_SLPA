@@ -14,9 +14,11 @@ class OptimizedAttendanceSyncService {
   /**
    * Sync attendance data in hierarchical order
    */
-  async syncAttendanceData(startDate, endDate) {
+  async syncAttendanceData(startDate, endDate, options = {}) {
     console.log(`\n🔄 Starting optimized attendance sync...`);
     console.log(`📅 Date Range: ${startDate} to ${endDate}`);
+
+    const onProgress = typeof options?.onProgress === 'function' ? options.onProgress : null;
     
     const startTime = Date.now();
     let stats = {
@@ -33,6 +35,16 @@ class OptimizedAttendanceSyncService {
       // Step 2: Fetch data in HIERARCHICAL ORDER from source tables
       console.log('📊 Fetching data in hierarchical order...');
       const attendanceData = await this.fetchHierarchicalData(startDate, endDate);
+
+      if (onProgress) {
+        onProgress({
+          message: `Fetched ${attendanceData.length} records. Syncing...`,
+          processed: 0,
+          total: attendanceData.length,
+          inserted: 0,
+          updated: 0
+        });
+      }
       
       console.log(`✅ Found ${attendanceData.length} records to sync`);
       
@@ -47,6 +59,16 @@ class OptimizedAttendanceSyncService {
         stats.recordsInserted += result.inserted;
         stats.recordsUpdated += result.updated;
         stats.recordsProcessed += batch.length;
+
+        if (onProgress) {
+          onProgress({
+            message: `Syncing attendance... ${stats.recordsProcessed}/${attendanceData.length}`,
+            processed: stats.recordsProcessed,
+            total: attendanceData.length,
+            inserted: stats.recordsInserted,
+            updated: stats.recordsUpdated
+          });
+        }
         
         if ((i + batchSize) % 5000 === 0) {
           console.log(`   Processed ${stats.recordsProcessed} / ${attendanceData.length} records...`);
@@ -65,6 +87,16 @@ class OptimizedAttendanceSyncService {
       console.log(`   - Records Updated: ${stats.recordsUpdated}`);
       console.log(`   - Duration: ${duration}s`);
       console.log(`   - Speed: ${Math.round(stats.recordsProcessed / duration)} records/second`);
+
+      if (onProgress) {
+        onProgress({
+          message: 'Attendance sync completed.',
+          processed: stats.recordsProcessed,
+          total: attendanceData.length,
+          inserted: stats.recordsInserted,
+          updated: stats.recordsUpdated
+        });
+      }
       
       return stats;
       
@@ -141,8 +173,8 @@ class OptimizedAttendanceSyncService {
       
       -- Join Sub-Section (if exists)
       LEFT JOIN sub_sections ss 
-        ON e.SEC_CODE = ss.section_code
-        AND e.DIV_CODE = ss.division_code
+        ON e.SEC_CODE COLLATE utf8mb4_unicode_ci = ss.section_code COLLATE utf8mb4_unicode_ci
+        AND e.DIV_CODE COLLATE utf8mb4_unicode_ci = ss.division_code COLLATE utf8mb4_unicode_ci
       
       WHERE 
         DATE(a.date_) BETWEEN :startDate AND :endDate

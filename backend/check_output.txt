@@ -1,0 +1,5 @@
+Records with scan_type = '08': 0
+Records with scan_type = '8': 0
+Records with scan_type = '': 626171
+Records with scan_type = NULL: 0
+Total single punch days: 34432
