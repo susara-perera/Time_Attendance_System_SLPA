@@ -84,9 +84,11 @@ if (process.env.MYSQL_ENABLED !== 'false') {
 
 // Initialize HRIS Sync Scheduler (daily at 12 PM for data sync)
 // NOTE: HRIS API is now ONLY used for daily sync, NOT for data access
-const { initializeScheduler } = require('./services/hrisSyncScheduler');
-console.log('🕐 Initializing HRIS sync scheduler (daily at 12 PM)...');
-initializeScheduler('0 12 * * *'); // Daily at 12 PM
+// const { initializeScheduler } = require('./services/hrisSyncScheduler');
+// console.log('🕐 Initializing HRIS sync scheduler (daily at 12 PM)...');
+// initializeScheduler('0 12 * * *'); // Daily at 12 PM
+
+console.log('🛑 HRIS sync scheduler DISABLED - no automatic sync processes');
 
 // Initialize Redis cache for reports (non-blocking, graceful fallback)
 const { getCache } = require('./config/reportCache');

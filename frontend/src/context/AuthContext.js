@@ -7,6 +7,8 @@ export const AuthProvider = ({ children }) => {
   const [rolesList, setRolesList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [cacheStatus, setCacheStatus] = useState(null);
+  const [tokenVerified, setTokenVerified] = useState(false);
+  const [lastVerified, setLastVerified] = useState(0);
 
   // Check for existing token on app start
   useEffect(() => {
@@ -28,6 +30,8 @@ export const AuthProvider = ({ children }) => {
             const data = await response.json();
             if (data.success && data.user) {
               setUser(data.user);
+              setTokenVerified(true);
+              setLastVerified(Date.now());
               // Fetch available roles once to enable role-based permission lookups
               (async () => {
                 try {
@@ -64,6 +68,11 @@ export const AuthProvider = ({ children }) => {
       try {
         const token = localStorage.getItem('token');
         if (!token) return;
+        
+        // Only verify token if it hasn't been verified in the last 30 seconds
+        const now = Date.now();
+        if (now - lastVerified < 30000) return;
+        
         // Refresh user data
         const res = await fetch('http://localhost:5000/api/auth/verify', {
           method: 'GET',
@@ -77,6 +86,7 @@ export const AuthProvider = ({ children }) => {
         const data = await res.json().catch(() => ({}));
         if (data && data.success && data.user) {
           setUser(data.user);
+          setLastVerified(now);
         }
         // Also refresh roles list to pick up permission changes
         const rolesRes = await fetch('http://localhost:5000/api/roles', {
@@ -125,34 +135,6 @@ export const AuthProvider = ({ children }) => {
       window.removeEventListener('profileUpdated', profileHandler);
     };
   }, []);
-
-  // Poll backend periodically to pick up permission changes made by other users/sessions
-  useEffect(() => {
-    let intervalId;
-    const startPolling = () => {
-      intervalId = setInterval(async () => {
-        try {
-          const token = localStorage.getItem('token');
-          if (!token) return;
-          // Fetch latest roles to update permissions
-          const rolesRes = await fetch('http://localhost:5000/api/roles', {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          if (rolesRes.ok) {
-            const rolesData = await rolesRes.json().catch(() => ({}));
-            if (rolesData && rolesData.data) {
-              setRolesList(rolesData.data);
-            }
-          }
-        } catch (err) {
-          // Ignore polling errors silently
-        }
-      }, 5000); // every 5 seconds
-    };
-
-    if (user) startPolling();
-    return () => clearInterval(intervalId);
-  }, [user]);
 
   // Helper: get effective permissions for the current user by merging explicit user.permissions
   // with permissions defined on their role (rolesList). Returns an object map.

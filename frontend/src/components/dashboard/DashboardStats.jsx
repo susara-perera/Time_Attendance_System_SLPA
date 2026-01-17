@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -52,24 +52,35 @@ const DashboardStats = ({ onQuickAction }) => {
   const fetchStats = useCallback(async () => {
     try {
       setLoading(true);
+      lastFetchRef.current = Date.now(); // Update timestamp when starting fetch
       const token = localStorage.getItem('token');
       const headers = {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
       };
 
-      const [statsRes, activitiesRes, employeesRes, auditLogsRes] = await Promise.all([
+      // First fetch stats and activities in parallel
+      const [statsRes, activitiesRes, auditLogsRes] = await Promise.all([
         fetch('/api/dashboard/stats', { headers }),
         fetch('/api/dashboard/activities/recent?limit=50', { headers }),
-        fetch('/api/hris-cache/employees', { headers }),
         fetch('/api/audit-logs?limit=100', { headers }).catch(() => null) // Fetch audit logs for comprehensive activities
       ]);
 
       if (!statsRes.ok) throw new Error('Failed to fetch dashboard stats');
-      
+
       const statsData = await statsRes.json();
       const activitiesData = activitiesRes.ok ? await activitiesRes.json() : { data: [] };
-      
+
+      // Check if we need to fetch employees (only if stats don't provide totalEmployees)
+      let employeesRes = null;
+      const hasTotalEmployees = statsData.data && typeof statsData.data.totalEmployees === 'number' && statsData.data.totalEmployees >= 0;
+      if (!hasTotalEmployees) {
+        console.log('📊 Stats API missing or invalid totalEmployees, fetching from cache...', { totalEmployees: statsData.data?.totalEmployees });
+        employeesRes = await fetch('/api/hris-cache/employees', { headers });
+      } else {
+        console.log('✅ Using totalEmployees from stats API:', statsData.data.totalEmployees);
+      }
+
       // Process audit logs for comprehensive activity display
       let auditActivities = [];
       if (auditLogsRes && auditLogsRes.ok) {
@@ -169,11 +180,21 @@ const DashboardStats = ({ onQuickAction }) => {
     }
   }, []);
 
+  // Prevent multiple calls within short time window
+  const lastFetchRef = useRef(0);
+
   useEffect(() => {
-    fetchStats();
+    const now = Date.now();
+    if (now - lastFetchRef.current > 1000) { // Only fetch if more than 1 second since last fetch
+      lastFetchRef.current = now;
+      console.log('📊 DashboardStats: Fetching stats on mount');
+      fetchStats();
+    } else {
+      console.log('📊 DashboardStats: Skipping fetch (too soon since last fetch)');
+    }
     // const interval = setInterval(fetchStats, 60000); // Refresh every minute - DISABLED
     // return () => clearInterval(interval);
-  }, [fetchStats]);
+  }, []); // Remove fetchStats from dependencies
 
   // Update time every second
   useEffect(() => {

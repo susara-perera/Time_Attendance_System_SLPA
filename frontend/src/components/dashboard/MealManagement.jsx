@@ -137,6 +137,9 @@ const MealManagement = () => {
   // Manual loading - removed automatic refresh
 
   const fetchUserInfo = async () => {
+    // Only fetch if we don't already have user info
+    if (userInfo) return;
+    
     try {
       const token = localStorage.getItem('token');
       const response = await fetch('http://localhost:5000/api/auth/verify', {

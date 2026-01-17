@@ -16,17 +16,36 @@ const getDashboardStats = async (req, res) => {
     console.log('📊 Getting dashboard statistics from MySQL sync tables...');
 
     // Get counts from MySQL sync tables (fast!)
-    const [[divisionCount]] = await sequelize.query(
-      'SELECT COUNT(*) as count FROM divisions_sync'
-    );
+    let divisionCount = { count: 0 };
+    let sectionCount = { count: 0 };
+    let employeeCount = { count: 0 };
 
-    const [[sectionCount]] = await sequelize.query(
-      'SELECT COUNT(*) as count FROM sections_sync'
-    );
+    try {
+      const [[divCount]] = await sequelize.query(
+        'SELECT COUNT(*) as count FROM divisions_sync'
+      );
+      divisionCount = divCount || { count: 0 };
+    } catch (err) {
+      console.log('⚠️ Could not get division count from MySQL, using 0:', err.message);
+    }
 
-    const [[employeeCount]] = await sequelize.query(
-      'SELECT COUNT(*) as count FROM employees_sync WHERE IS_ACTIVE = 1'
-    );
+    try {
+      const [[secCount]] = await sequelize.query(
+        'SELECT COUNT(*) as count FROM sections_sync'
+      );
+      sectionCount = secCount || { count: 0 };
+    } catch (err) {
+      console.log('⚠️ Could not get section count from MySQL, using 0:', err.message);
+    }
+
+    try {
+      const [[empCount]] = await sequelize.query(
+        'SELECT COUNT(*) as count FROM employees_sync WHERE IS_ACTIVE = 1'
+      );
+      employeeCount = empCount || { count: 0 };
+    } catch (err) {
+      console.log('⚠️ Could not get employee count from MySQL, using 0:', err.message);
+    }
 
     // Get sub-sections count from MySQL
     let subSectionCount = 0;
