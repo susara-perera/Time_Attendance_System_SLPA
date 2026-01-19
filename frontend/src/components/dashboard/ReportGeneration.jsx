@@ -7,7 +7,7 @@ import AuditReport from './AuditReport';
 import { useLanguage } from '../../context/LanguageContext';
 import PageHeader from './PageHeader';
 
-const ReportGeneration = () => {
+const ReportGeneration = ({ onBack }) => {
   const { t } = useLanguage();
   const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
   
@@ -1556,6 +1556,7 @@ const ReportGeneration = () => {
         title="Report Generation Center"
         subtitle="Generate attendance, audit, and meal reports"
         icon="bi-graph-up-arrow"
+        onBack={onBack}
       />
 
       {/* Form Container */}

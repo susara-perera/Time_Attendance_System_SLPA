@@ -3,7 +3,7 @@ import { AuthContext } from '../../context/AuthContext';
 import './RoleAccessManagement.css';
 import PageHeader from './PageHeader';
 
-const RoleManagement = () => {
+const RoleManagement = ({ onBack }) => {
   const { user, hasPermission } = useContext(AuthContext);
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -306,6 +306,7 @@ const RoleManagement = () => {
           title="Role Management"
           subtitle="Define and manage user roles and access levels"
           icon="bi-shield-lock"
+          onBack={onBack}
           actions={
             hasRoleManageReadPermission() ? (
               <button

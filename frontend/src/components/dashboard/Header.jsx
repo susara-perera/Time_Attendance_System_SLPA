@@ -76,7 +76,7 @@ const Header = ({ toggleSidebar, user }) => {
         <div className="welcome-section">
           <div className="welcome-text">
             <h2>👋 {user?.name ? `${t('welcome')} ${user.name}` : t('welcomeAdmin')}</h2>
-            <p className="greeting">👋 {t(getGreeting())}</p>
+            <p className="greeting">👋 {t(getGreeting())}, {user?.role ? user.role.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'User'}</p>
             <p className="datetime">{currentTime.date}</p>
             <p className="time">{currentTime.time}</p>
           </div>
@@ -100,6 +100,11 @@ const Header = ({ toggleSidebar, user }) => {
 
         <div className="user-profile">
           <span className="admin-text">{user?.name || t('admin')}</span>
+          {user?.role && (
+            <span className={`role-badge role-${user.role.replace('_', '-')}`}>
+              {user.role.replace('_', ' ').toUpperCase()}
+            </span>
+          )}
         </div>
       </div>
     </header>

@@ -4,7 +4,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import './UserManagement.css';
 import PageHeader from './PageHeader';
 
-const UserManagement = () => {
+const UserManagement = ({ onBack }) => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -14,7 +14,7 @@ const UserManagement = () => {
     lastName: '',
     email: '',
     employeeId: '',
-    role: 'employee',
+    role: '',
     password: '',
     confirmPassword: '',
     division: '',
@@ -26,6 +26,7 @@ const UserManagement = () => {
   const [availableSections, setAvailableSections] = useState([]);
   const [subsections, setSubsections] = useState([]);
   const [availableSubsections, setAvailableSubsections] = useState([]);
+  const [roles, setRoles] = useState([]);
   const canViewUsers = usePermission('users', 'read');
   const canCreateUser = usePermission('users', 'create');
   const canUpdateUser = usePermission('users', 'update');
@@ -254,6 +255,34 @@ const UserManagement = () => {
           console.error('Error fetching subsections:', subsectionError);
           setSubsections([]);
         }
+
+        // Fetch roles from API
+        try {
+          const rolesResponse = await fetch(`${API_BASE_URL}/roles`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+
+          if (rolesResponse.ok) {
+            const rolesData = await rolesResponse.json();
+            console.log('Roles API Response:', rolesData); // Debug log
+
+            // Handle the response structure properly
+            const roles = rolesData.data || rolesData || [];
+            console.log('Fetched roles:', roles); // Debug log
+            setRoles(roles);
+          } else {
+            console.error('Failed to fetch roles, status:', rolesResponse.status);
+            const errorText = await rolesResponse.text();
+            console.error('Roles error response:', errorText);
+            setRoles([]);
+          }
+        } catch (roleError) {
+          console.error('Error fetching roles:', roleError);
+          setRoles([]);
+        }
         
         setLoading(false);
         
@@ -326,7 +355,7 @@ const UserManagement = () => {
       lastName: '',
       email: '',
       employeeId: '',
-      role: 'employee',
+      role: '',
       password: '',
       confirmPassword: '',
       division: '',
@@ -562,6 +591,7 @@ const UserManagement = () => {
         title={t('userManagement')}
         subtitle="Manage system users and access permissions"
         icon="bi-people"
+        onBack={onBack}
         actions={
           <button 
             className="btn-professional btn-primary"
@@ -817,11 +847,12 @@ const UserManagement = () => {
                           onChange={handleInputChange}
                           required
                         >
-                          <option value="employee">👤 Employee</option>
-                          <option value="administrative_clerk">📋 Administrative Clerk</option>
-                          <option value="clerk">📝 Clerk</option>
-                          <option value="admin">⚙️ Administrator</option>
-                          <option value="super_admin">👑 Super Admin</option>
+                          <option value="">-- Choose a role --</option>
+                          {roles.map(role => (
+                            <option key={role.value} value={role.value}>
+                              {role.label} - {role.description || 'No description'}
+                            </option>
+                          ))}
                         </select>
                       </div>
                     </div>

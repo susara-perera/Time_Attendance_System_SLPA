@@ -30,6 +30,12 @@ const {
   getEmployeesByDateFromAttendance
 } = require('../controllers/mysqlEmployeeController');
 
+const {
+  getEmployeesByDivisionFromIndex,
+  getDivisionsWithCountsFromIndex,
+  getISEmployeesWithAttendance
+} = require('../controllers/mysqlEmpIndexController');
+
 // Divisions
 router.get('/divisions', getMySQLDivisions);
 router.get('/divisions/:code', getMySQLDivisionByCode);
@@ -49,5 +55,10 @@ router.get('/employees/:empNo', getMySQLEmployeeByNumber);
 
 // Attendance - Get unique employee IDs by date range
 router.get('/attendance/employees-by-date', getEmployeesByDateFromAttendance);
+
+// Emp Index List - Get employees by division
+router.get('/emp-index/division/:divisionId', getEmployeesByDivisionFromIndex);
+router.get('/emp-index/divisions', getDivisionsWithCountsFromIndex);
+router.get('/emp-index/division/66/attendance', getISEmployeesWithAttendance);
 
 module.exports = router;

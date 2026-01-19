@@ -6,13 +6,12 @@ import {
   PointElement,
   LineElement,
   BarElement,
-  ArcElement,
   Title,
   Tooltip,
   Legend,
   Filler
 } from 'chart.js';
-import { Line, Doughnut, Bar } from 'react-chartjs-2';
+import { Line, Bar } from 'react-chartjs-2';
 import './DashboardStats.css';
 
 // Register Chart.js components
@@ -22,7 +21,6 @@ ChartJS.register(
   PointElement,
   LineElement,
   BarElement,
-  ArcElement,
   Title,
   Tooltip,
   Legend,
@@ -41,6 +39,17 @@ const DashboardStats = ({ onQuickAction }) => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [activeEmployeeCount, setActiveEmployeeCount] = useState(0);
   const [inactiveEmployeeCount, setInactiveEmployeeCount] = useState(0);
+  const [isEmployees, setIsEmployees] = useState([]);
+  const [isEmployeesLoading, setIsEmployeesLoading] = useState(false);
+  const [isAttendanceData, setIsAttendanceData] = useState([]);
+  const [isAttendanceLoading, setIsAttendanceLoading] = useState(false);
+  const [isSectionFilters, setIsSectionFilters] = useState({
+    'Information Systems  - ( IS )': true,
+    'Administration  - (IS)': true
+  });
+  const [showFullAttendance, setShowFullAttendance] = useState(false);
+  const [attendanceDate, setAttendanceDate] = useState('');
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
 
   // Helper: determine if an employee object represents an active employee
   const isEmployeeActive = (emp) => {
@@ -48,7 +57,90 @@ const DashboardStats = ({ onQuickAction }) => {
     return emp?.ACTIVE_HRM_FLG === 1 || emp?.STATUS === 'ACTIVE' || emp?.status === 'ACTIVE' || emp?.isActive === true;
   };
 
-  // Fetch dashboard stats
+  // Fetch IS division employees
+  const fetchISEmployees = useCallback(async () => {
+    try {
+      setIsEmployeesLoading(true);
+      const token = localStorage.getItem('token');
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      };
+
+      const response = await fetch('/api/mysql-data/emp-index/division/66', { headers });
+      if (response.ok) {
+        const data = await response.json();
+        setIsEmployees(data.employees || []);
+      } else {
+        console.warn('Failed to fetch IS employees:', response.status);
+        setIsEmployees([]);
+      }
+    } catch (err) {
+      console.error('Error fetching IS employees:', err);
+      setIsEmployees([]);
+    } finally {
+      setIsEmployeesLoading(false);
+    }
+  }, []);
+
+  // Fetch IS division attendance data
+  const fetchISAttendance = useCallback(async () => {
+    try {
+      setIsAttendanceLoading(true);
+      const token = localStorage.getItem('token');
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      };
+
+      const response = await fetch('/api/mysql-data/emp-index/division/66/attendance', { headers });
+      if (response.ok) {
+        const data = await response.json();
+        setIsAttendanceData(data.employees || []);
+        setAttendanceDate(data.date || '');
+      } else {
+        console.warn('Failed to fetch IS attendance:', response.status);
+        setIsAttendanceData([]);
+        setAttendanceDate('');
+      }
+    } catch (err) {
+      console.error('Error fetching IS attendance:', err);
+      setIsAttendanceData([]);
+    } finally {
+      setIsAttendanceLoading(false);
+    }
+  }, []);
+
+  // Format attendance date for display
+  const formatAttendanceDate = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
+
+  // Handle employee row click to show attendance times
+  const handleEmployeeClick = (employee) => {
+    setSelectedEmployee(employee);
+  };
+
+  // Handle section filter changes
+  const handleSectionFilterChange = (sectionName) => {
+    setIsSectionFilters(prev => ({
+      ...prev,
+      [sectionName]: !prev[sectionName]
+    }));
+  };
+
+  // Get filtered attendance data based on section filters
+  const filteredAttendanceData = useMemo(() => {
+    return isAttendanceData.filter(employee => {
+      return isSectionFilters[employee.section_name];
+    });
+  }, [isAttendanceData, isSectionFilters]);
   const fetchStats = useCallback(async () => {
     try {
       setLoading(true);
@@ -60,16 +152,33 @@ const DashboardStats = ({ onQuickAction }) => {
       };
 
       // First fetch stats and activities in parallel
-      const [statsRes, activitiesRes, auditLogsRes] = await Promise.all([
+      const [statsRes, activitiesRes, auditLogsRes, isAttendanceRes] = await Promise.all([
         fetch('/api/dashboard/stats', { headers }),
         fetch('/api/dashboard/activities/recent?limit=50', { headers }),
-        fetch('/api/audit-logs?limit=100', { headers }).catch(() => null) // Fetch audit logs for comprehensive activities
+        fetch('/api/audit-logs?limit=100', { headers }).catch(() => null), // Fetch audit logs for comprehensive activities
+        fetch('/api/mysql-data/emp-index/division/66/attendance', { headers }).catch(() => null) // Fetch IS attendance data
       ]);
 
       if (!statsRes.ok) throw new Error('Failed to fetch dashboard stats');
 
       const statsData = await statsRes.json();
       const activitiesData = activitiesRes.ok ? await activitiesRes.json() : { data: [] };
+
+      // Process IS attendance data
+      if (isAttendanceRes && isAttendanceRes.ok) {
+        try {
+          const isData = await isAttendanceRes.json();
+          setIsAttendanceData(isData.employees || []);
+          setAttendanceDate(isData.date || '');
+        } catch (e) {
+          console.warn('Failed parsing IS attendance response:', e);
+          setIsAttendanceData([]);
+          setAttendanceDate('');
+        }
+      } else {
+        setIsAttendanceData([]);
+        setAttendanceDate('');
+      }
 
       // Check if we need to fetch employees (only if stats don't provide totalEmployees)
       let employeesRes = null;
@@ -240,12 +349,26 @@ const DashboardStats = ({ onQuickAction }) => {
     return () => clearInterval(timer);
   }, [stats, activeEmployeeCount, inactiveEmployeeCount]);
 
-  // Generate trend data based on period
+  // Generate trend data based on period (use server-provided weekly/monthly/annual trends when available)
   const trendData = useMemo(() => {
-    if (!stats?.weeklyTrend) return null;
+    // Build safe weekly data array: server returns [{date, employees}, ...]
+    let weekly = Array.isArray(stats?.weeklyTrend) ? stats.weeklyTrend : [];
+
+    if (!weekly || weekly.length === 0) {
+      // Fallback: generate mock data for last 7 days
+      weekly = [];
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        weekly.push({ date: date.toISOString().split('T')[0], employees: Math.floor(Math.random() * 50) + 70 });
+      }
+    }
+
+    const monthly = Array.isArray(stats?.monthlyTrend) && stats.monthlyTrend.length ? stats.monthlyTrend : [85, 92, 88, 95];
+    const annually = Array.isArray(stats?.annualTrend) && stats.annualTrend.length ? stats.annualTrend : [78, 82, 85, 88, 91, 89, 92, 95, 93, 90, 87, 94];
 
     const labels = {
-      daily: stats.weeklyTrend.map(d => {
+      daily: weekly.map(d => {
         const date = new Date(d.date);
         return date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
       }),
@@ -254,23 +377,23 @@ const DashboardStats = ({ onQuickAction }) => {
     };
 
     const data = {
-      daily: stats.weeklyTrend.map(d => d.employees),
-      monthly: [85, 92, 88, 95], // Simulated monthly data
-      annually: [78, 82, 85, 88, 91, 89, 92, 95, 93, 90, 87, 94] // Simulated annual data
+      daily: weekly.map(d => (typeof d === 'number' ? d : (d?.employees || 0))),
+      monthly: monthly,
+      annually: annually
     };
 
     return {
       labels: labels[trendPeriod],
       datasets: [
         {
-          label: 'Attendance',
+          label: 'Attendance Count',
           data: data[trendPeriod],
           fill: true,
           backgroundColor: (context) => {
             const ctx = context.chart.ctx;
             const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-            gradient.addColorStop(0, 'rgba(59, 130, 246, 0.3)');
-            gradient.addColorStop(1, 'rgba(59, 130, 246, 0.02)');
+            gradient.addColorStop(0, 'rgba(59, 130, 246, 0.4)');
+            gradient.addColorStop(1, 'rgba(59, 130, 246, 0.05)');
             return gradient;
           },
           borderColor: '#3b82f6',
@@ -279,7 +402,7 @@ const DashboardStats = ({ onQuickAction }) => {
           pointBackgroundColor: '#3b82f6',
           pointBorderColor: '#fff',
           pointBorderWidth: 2,
-          pointRadius: 5,
+          pointRadius: 6,
           pointHoverRadius: 8,
           pointHoverBackgroundColor: '#3b82f6',
           pointHoverBorderColor: '#fff',
@@ -288,36 +411,6 @@ const DashboardStats = ({ onQuickAction }) => {
       ]
     };
   }, [stats, trendPeriod]);
-
-  // Attendance overview doughnut data - Present vs Absent from ACTIVE employees only
-  const attendanceOverviewData = useMemo(() => {
-    if (!stats) return null;
-
-    const present = stats.todayAttendance?.employeesPresent || 0;
-    // Use active employee count as the base, not total employees
-    const totalActive = activeEmployeeCount || 1;
-    const absent = Math.max(0, totalActive - present);
-
-    return {
-      labels: ['Present', 'Absent'],
-      datasets: [{
-        data: [present, absent],
-        backgroundColor: ['#10b981', '#94a3b8'],
-        borderColor: ['#fff', '#fff'],
-        borderWidth: 4,
-        hoverOffset: 12,
-        cutout: '75%'
-      }]
-    };
-  }, [stats, activeEmployeeCount]);
-
-  // Today's progress percentage - based on active employees
-  const todayProgress = useMemo(() => {
-    if (!stats || !activeEmployeeCount) return 0;
-    const present = stats.todayAttendance?.employeesPresent || 0;
-    const totalActive = activeEmployeeCount || 1;
-    return Math.round((present / totalActive) * 100);
-  }, [stats, activeEmployeeCount]);
 
   // Chart options
   const lineChartOptions = {
@@ -494,6 +587,8 @@ const DashboardStats = ({ onQuickAction }) => {
           </div>
         </div>
 
+
+
         {/* Total Divisions Card */}
         <div className="stat-card stat-card-gradient stat-card-warning" style={{ '--delay': '0.15s' }}>
           <div className="stat-card-inner">
@@ -554,40 +649,6 @@ const DashboardStats = ({ onQuickAction }) => {
 
       {/* Charts and Progress Section */}
       <div className="charts-section">
-        {/* Attendance Overview Chart */}
-        <div className="chart-card attendance-overview-card">
-          <div className="chart-card-header">
-            <div className="chart-title">
-              <i className="bi bi-pie-chart-fill"></i>
-              <h3>Attendance Overview</h3>
-            </div>
-            <span className="chart-badge">Today</span>
-          </div>
-          <div className="chart-card-body">
-            <div className="doughnut-chart-container">
-              {attendanceOverviewData && (
-                <Doughnut data={attendanceOverviewData} options={doughnutOptions} />
-              )}
-              <div className="doughnut-center">
-                <span className="doughnut-percentage">{todayProgress}%</span>
-                <span className="doughnut-label">Present</span>
-              </div>
-            </div>
-            <div className="chart-legend">
-              <div className="legend-item">
-                <span className="legend-color present"></span>
-                <span className="legend-text">Present</span>
-                <span className="legend-value">{stats?.todayAttendance?.employeesPresent || 0}</span>
-              </div>
-              <div className="legend-item">
-                <span className="legend-color absent"></span>
-                <span className="legend-text">Absent</span>
-                <span className="legend-value">{Math.max(0, activeEmployeeCount - (stats?.todayAttendance?.employeesPresent || 0))}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* Attendance Trend Chart */}
         <div className="chart-card trend-chart-card">
           <div className="chart-card-header">
@@ -623,74 +684,83 @@ const DashboardStats = ({ onQuickAction }) => {
           </div>
         </div>
 
-        {/* Today's Progress Chart */}
-        <div className="chart-card progress-chart-card">
+        {/* IS Attendance Table - half page width */}
+        <div className="chart-card is-attendance-card">
           <div className="chart-card-header">
             <div className="chart-title">
-              <i className="bi bi-clock-history"></i>
-              <h3>Today's Progress</h3>
+              <i className="bi bi-table"></i>
+              <div className="title-content">
+                <h3>IS Division Attendance</h3>
+                <span className="attendance-date">{formatAttendanceDate(attendanceDate)}</span>
+              </div>
             </div>
-            <span className="chart-badge">
-              <i className="bi bi-calendar-check"></i>
-              {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-            </span>
+            <div className="attendance-header-controls">
+              <div className="is-section-filters">
+                <label className="section-filter">
+                  <input
+                    type="checkbox"
+                    checked={isSectionFilters['Information Systems  - ( IS )']}
+                    onChange={() => handleSectionFilterChange('Information Systems  - ( IS )')}
+                  />
+                  <span className="filter-label">IS Section</span>
+                </label>
+                <label className="section-filter">
+                  <input
+                    type="checkbox"
+                    checked={isSectionFilters['Administration  - (IS)']}
+                    onChange={() => handleSectionFilterChange('Administration  - (IS)')}
+                  />
+                  <span className="filter-label">Admin Section</span>
+                </label>
+              </div>
+              <div className="is-counts">
+                <span className="is-present">{filteredAttendanceData.length} employees</span>
+              </div>
+            </div>
           </div>
           <div className="chart-card-body">
-            {/* Main Progress Circle */}
-            <div className="progress-circle-container">
-              <svg className="progress-circle" viewBox="0 0 120 120">
-                <circle 
-                  className="progress-circle-bg" 
-                  cx="60" 
-                  cy="60" 
-                  r="54"
-                />
-                <circle 
-                  className="progress-circle-fill" 
-                  cx="60" 
-                  cy="60" 
-                  r="54"
-                  style={{ 
-                    strokeDasharray: `${(todayProgress / 100) * 339.292} 339.292` 
-                  }}
-                />
-              </svg>
-              <div className="progress-circle-content">
-                <span className="progress-value">{todayProgress}%</span>
-                <span className="progress-label">Complete</span>
+            {isAttendanceLoading ? (
+              <div className="loading-container">
+                <div className="spinner-border spinner-border-sm" role="status">
+                  <span className="visually-hidden">Loading...</span>
+                </div>
+                <span className="loading-text">Loading IS attendance...</span>
               </div>
-            </div>
-
-            {/* Progress Stats */}
-            <div className="progress-stats">
-              <div className="progress-stat-item">
-                <div className="progress-stat-icon check-in">
-                  <i className="bi bi-box-arrow-in-right"></i>
-                </div>
-                <div className="progress-stat-info">
-                  <span className="progress-stat-value">{stats?.todayAttendance?.inScans || 0}</span>
-                  <span className="progress-stat-label">Check-ins</span>
-                </div>
+            ) : filteredAttendanceData.length > 0 ? (
+              <div className="attendance-table-container">
+                <table className="attendance-table">
+                  <thead>
+                    <tr>
+                      <th>Employee</th>
+                      <th>Section</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredAttendanceData.slice(0, 20).map((employee) => (
+                      <tr 
+                        key={employee.employee_id} 
+                        className={employee.is_present ? 'present-row' : 'absent-row'}
+                        onClick={() => handleEmployeeClick(employee)}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <td className="employee-cell">
+                          <div className="employee-name">{employee.employee_name}</div>
+                          <div className="employee-id">{employee.employee_id}</div>
+                        </td>
+                        <td className="section-cell">{employee.section_name}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {filteredAttendanceData.length > 20 && (
+                  <div className="show-more" onClick={() => setShowFullAttendance(true)} style={{ cursor: 'pointer' }}>
+                    <span>... and {filteredAttendanceData.length - 20} more employees</span>
+                  </div>
+                )}
               </div>
-              <div className="progress-stat-item">
-                <div className="progress-stat-icon check-out">
-                  <i className="bi bi-box-arrow-right"></i>
-                </div>
-                <div className="progress-stat-info">
-                  <span className="progress-stat-value">{stats?.todayAttendance?.outScans || 0}</span>
-                  <span className="progress-stat-label">Check-outs</span>
-                </div>
-              </div>
-              <div className="progress-stat-item">
-                <div className="progress-stat-icon rate">
-                  <i className="bi bi-percent"></i>
-                </div>
-                <div className="progress-stat-info">
-                  <span className="progress-stat-value">{stats?.attendanceRate || 0}%</span>
-                  <span className="progress-stat-label">Rate</span>
-                </div>
-              </div>
-            </div>
+            ) : (
+              <div className="no-attendance">No attendance data found for IS division</div>
+            )}
           </div>
         </div>
       </div>
@@ -774,6 +844,101 @@ const DashboardStats = ({ onQuickAction }) => {
           </div>
         </div>
       </div>
+
+      {/* Full Attendance Modal */}
+      {showFullAttendance && (
+        <div className="attendance-modal-overlay" onClick={() => setShowFullAttendance(false)}>
+          <div className="attendance-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="attendance-modal-header">
+              <h3>IS Division Attendance - Full List</h3>
+              <button className="modal-close-btn" onClick={() => setShowFullAttendance(false)}>
+                <i className="bi bi-x-lg"></i>
+              </button>
+            </div>
+            <div className="attendance-modal-body">
+              <div className="attendance-table-container full-view">
+                <table className="attendance-table">
+                  <thead>
+                    <tr>
+                      <th>Employee</th>
+                      <th>Section</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredAttendanceData.map((employee) => (
+                      <tr 
+                        key={employee.employee_id} 
+                        className={employee.is_present ? 'present-row' : 'absent-row'}
+                        onClick={() => handleEmployeeClick(employee)}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <td className="employee-cell">
+                          <div className="employee-name">{employee.employee_name}</div>
+                          <div className="employee-id">{employee.employee_id}</div>
+                        </td>
+                        <td className="section-cell">{employee.section_name}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Employee Attendance Times Modal */}
+      {selectedEmployee && (
+        <div className="attendance-modal-overlay" onClick={() => setSelectedEmployee(null)}>
+          <div className="attendance-modal-content employee-times-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="attendance-modal-header">
+              <h3>{selectedEmployee.employee_name} - Attendance Times</h3>
+              <button className="modal-close-btn" onClick={() => setSelectedEmployee(null)}>
+                <i className="bi bi-x-lg"></i>
+              </button>
+            </div>
+            <div className="attendance-modal-body">
+              <div className="employee-info">
+                <div className="employee-detail">
+                  <span className="label">Employee ID:</span>
+                  <span className="value">{selectedEmployee.employee_id}</span>
+                </div>
+                <div className="employee-detail">
+                  <span className="label">Section:</span>
+                  <span className="value">{selectedEmployee.section_name}</span>
+                </div>
+                <div className="employee-detail">
+                  <span className="label">Status:</span>
+                  <span className={`value status-${selectedEmployee.is_present ? 'present' : 'absent'}`}>
+                    {selectedEmployee.is_present ? 'Present' : 'Absent'}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="attendance-times-section">
+                <h4>Today's Attendance Times</h4>
+                {selectedEmployee.attendance_times && selectedEmployee.attendance_times.length > 0 ? (
+                  <div className="attendance-times-list">
+                    {selectedEmployee.attendance_times.map((record, index) => (
+                      <div key={index} className="time-entry">
+                        <div className="time-icon">
+                          <i className="bi bi-clock"></i>
+                        </div>
+                        <div className="time-details">
+                          <div className="time-value">{record.time}</div>
+                          <div className="time-date">{formatAttendanceDate(record.date)}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="no-times">No attendance records found for today</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

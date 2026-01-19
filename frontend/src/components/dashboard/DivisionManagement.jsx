@@ -4,7 +4,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import PageHeader from './PageHeader';
 import './DivisionManagement.css';
 
-const DivisionManagement = () => {
+const DivisionManagement = ({ onBack }) => {
   const [divisions, setDivisions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -340,6 +340,7 @@ const DivisionManagement = () => {
         title={t('divisionManagementTitle')}
         subtitle="Manage organizational divisions and view division details"
         icon="bi-building"
+        onBack={onBack}
       />
 
       {/* Search and Filter Section */}

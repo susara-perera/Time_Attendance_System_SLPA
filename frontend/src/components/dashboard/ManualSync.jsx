@@ -3,7 +3,7 @@ import axios from 'axios';
 import './ManualSync.css';
 import PageHeader from './PageHeader';
 
-const ManualSync = () => {
+const ManualSync = ({ onBack }) => {
   const [loading, setLoading] = useState({});
   const [results, setResults] = useState(null);
   const [showModal, setShowModal] = useState(false);
@@ -140,6 +140,7 @@ const ManualSync = () => {
         title="Manual Data Synchronization"
         subtitle="Sync data from HRIS API to local MySQL database. Only new records will be added."
         icon="bi-arrow-repeat"
+        onBack={onBack}
       />
 
       {error && (

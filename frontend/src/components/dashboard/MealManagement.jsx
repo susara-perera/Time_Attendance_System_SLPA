@@ -3,7 +3,7 @@ import './MealManagement.css';
 import { useLanguage } from '../../context/LanguageContext';
 import PageHeader from './PageHeader';
 
-const MealManagement = () => {
+const MealManagement = ({ onBack }) => {
   const [divisions, setDivisions] = useState([]);
   const [sections, setSections] = useState([]);
   const [allSections, setAllSections] = useState([]);
@@ -949,6 +949,7 @@ const MealManagement = () => {
         title={t('mealManagementTitle')}
         subtitle="Manage meal bookings and employee preferences"
         icon="bi-cup-hot-fill"
+        onBack={onBack}
       />
 
       {message && (

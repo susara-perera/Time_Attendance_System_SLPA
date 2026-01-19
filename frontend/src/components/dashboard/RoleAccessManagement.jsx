@@ -6,7 +6,7 @@ import RoleManagement from './RoleManagement';
 import './RoleAccessManagement.css';
 import PageHeader from './PageHeader';
 
-const RoleAccessManagement = () => {
+const RoleAccessManagement = ({ onBack }) => {
   const { user, hasPermission } = useContext(AuthContext);
   const isSuperAdmin = user?.role === 'super_admin';
 
@@ -614,6 +614,7 @@ const RoleAccessManagement = () => {
         title="Role Access Management"
         subtitle="Configure permissions and access levels for each role"
         icon="bi-people-fill"
+        onBack={onBack}
         actions={
           <button
             className="btn-manage-roles"

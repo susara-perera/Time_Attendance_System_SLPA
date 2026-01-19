@@ -8,12 +8,22 @@ import logo from '../../assets/logo.jpg';
  * @param {string} subtitle - The page subtitle/description
  * @param {string} icon - Bootstrap icon class (e.g., "bi-building")
  * @param {React.ReactNode} actions - Optional action buttons
+ * @param {function} onBack - Optional back navigation function
  */
-const PageHeader = ({ title, subtitle, icon = 'bi-folder', actions }) => {
+const PageHeader = ({ title, subtitle, icon = 'bi-folder', actions, onBack }) => {
   return (
     <div className="page-header-banner">
       <div className="page-header-content">
         <div className="page-header-left">
+          {onBack && (
+            <button 
+              className="back-arrow-btn"
+              onClick={onBack}
+              title="Back to Dashboard"
+            >
+              <i className="bi bi-arrow-left"></i>
+            </button>
+          )}
           <div className="page-header-icon">
             <i className={`bi ${icon}`}></i>
           </div>

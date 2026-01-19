@@ -22,6 +22,7 @@ import logo from '../../assets/PortAuthLogo.png';
 const Dashboard = () => {
   const [activeSection, setActiveSection] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState(null);
   const { user, logout } = useContext(AuthContext);
   const { t } = useLanguage();
   const canViewSettingsPerm = usePermission('settings', 'view');
@@ -170,6 +171,19 @@ const Dashboard = () => {
     }
     return 'U';
   })();
+
+  // Get role abbreviation for avatar display
+  const getRoleAbbrev = (role) => {
+    if (!role) return 'USER';
+    switch (role) {
+      case 'super_admin': return 'SUPER\nADMIN';
+      case 'admin': return 'ADMIN';
+      case 'administrative_clerk': return 'ADMIN\nCLERK';
+      case 'clerk': return 'CLERK';
+      case 'employee': return 'EMPLOYEE';
+      default: return role.replace('_', '\n').toUpperCase();
+    }
+  };
   
 
   // Listen for external navigation events (e.g., from other components)
@@ -188,34 +202,52 @@ const Dashboard = () => {
   const renderActiveSection = () => {
     switch (activeSection) {
       case 'dashboard':
-        return <DashboardStats onQuickAction={handleQuickAction} />;
+        return <DashboardStats 
+          onQuickAction={handleQuickAction}
+          onGenerateEmployeeReport={(employeeId) => {
+            setSelectedEmployeeId(employeeId);
+            setActiveSection('unit-attendance');
+          }}
+        />;
       case 'users':
-        return <UserManagement />;
+        return <UserManagement onBack={() => setActiveSection('dashboard')} />;
       case 'employees':
-        return <EmployeeManagement />;
+        return <EmployeeManagement onBack={() => setActiveSection('dashboard')} />;
       case 'reports':
       case 'unit-attendance':
       case 'audit-report':
       case 'meal-report':
-        return <ReportGeneration />;
+        return <ReportGeneration 
+          onBack={() => {
+            setActiveSection('dashboard');
+            setSelectedEmployeeId(null); // Clear employee ID when going back
+          }} 
+          initialEmployeeId={selectedEmployeeId}
+        />;
       case 'meals':
-        return <MealManagement />;
+        return <MealManagement onBack={() => setActiveSection('dashboard')} />;
       case 'divisions':
-        return <DivisionManagement />;
+        return <DivisionManagement onBack={() => setActiveSection('dashboard')} />;
       case 'sections':
-        return <SectionManagement />;
+        return <SectionManagement onBack={() => setActiveSection('dashboard')} />;
       case 'roles':
-        return <RoleAccessManagement />;
+        return <RoleAccessManagement onBack={() => setActiveSection('dashboard')} />;
       case 'role-management':
-        return <RoleManagement />;
+        return <RoleManagement onBack={() => setActiveSection('dashboard')} />;
       case 'sync':
-        return <ManualSync />;
+        return <ManualSync onBack={() => setActiveSection('dashboard')} />;
       case 'api':
-        return <ApiDataViewer />;
+        return <ApiDataViewer onBack={() => setActiveSection('dashboard')} />;
       case 'settings':
-        return <Settings />;
+        return <Settings onBack={() => setActiveSection('dashboard')} />;
       default:
-        return <DashboardStats onQuickAction={handleQuickAction} />;
+        return <DashboardStats 
+          onQuickAction={handleQuickAction}
+          onGenerateEmployeeReport={(employeeId) => {
+            setSelectedEmployeeId(employeeId);
+            setActiveSection('unit-attendance');
+          }}
+        />;
     }
   };
 
@@ -421,7 +453,7 @@ const Dashboard = () => {
           <div className="nav-center">
             <div className="greeting-container">
               <div className="greeting-avatar-wrapper">
-                <div className="greeting-avatar">{initials}</div>
+                <div className="greeting-avatar">{getRoleAbbrev(user?.role)}</div>
                 <div className="avatar-status"></div>
               </div>
               <div className="greeting-text">

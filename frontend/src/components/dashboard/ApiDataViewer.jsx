@@ -3,7 +3,7 @@ import axios from 'axios';
 import './ApiDataViewer.css';
 import PageHeader from './PageHeader';
 
-const ApiDataViewer = () => {
+const ApiDataViewer = ({ onBack }) => {
   // Normalized state: all entities use id/code/name and link by IDs
   const [divisions, setDivisions] = useState([]); // [{ id, code, name, ... }]
   const [sections, setSections] = useState([]);   // filtered view
@@ -1301,6 +1301,7 @@ const ApiDataViewer = () => {
         title="HRIS API Data Viewer"
         subtitle="View and explore synchronized HRIS data"
         icon="bi-cloud-download"
+        onBack={onBack}
         actions={
           <button 
             className="btn btn-outline-primary refresh-btn"

@@ -3,7 +3,7 @@ import usePermission from '../../hooks/usePermission';
 import PageHeader from './PageHeader';
 import './SectionManagement.css';
 
-const SectionManagement = () => {
+const SectionManagement = ({ onBack }) => {
   const [sections, setSections] = useState([]);
   const [divisions, setDivisions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1792,6 +1792,7 @@ const SectionManagement = () => {
         title="Section Management"
         subtitle="Manage organizational sections, sub-sections and employee assignments"
         icon="bi-diagram-3"
+        onBack={onBack}
       />
 
       {/* Unified Filter & Search Section */}

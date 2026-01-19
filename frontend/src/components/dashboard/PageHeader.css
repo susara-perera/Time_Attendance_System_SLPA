@@ -218,3 +218,34 @@
 [data-theme="dark"] .page-header-logo {
   background: rgba(30, 41, 59, 0.95);
 }
+
+/* Back Arrow Button */
+.back-arrow-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  color: #fff;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 8px 12px;
+  margin-right: 15px;
+  border-radius: 12px;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.back-arrow-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.5);
+  transform: translateX(-3px) scale(1.05);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+
+.back-arrow-btn i {
+  font-size: 1.3rem;
+}

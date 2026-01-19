@@ -14,7 +14,7 @@ const TOOLTIP = {
   autoLogout: 'Time in minutes before automatic logout due to inactivity.',
 };
 
-const Settings = () => {
+const Settings = ({ onBack }) => {
   const formatAddress = (addr) => {
     if (!addr) return '';
     if (typeof addr === 'string') return addr;
@@ -230,6 +230,15 @@ const Settings = () => {
         title={t('systemSettings')}
         subtitle="Configure system preferences and user settings"
         icon="bi-gear-fill"
+        actions={
+          <button 
+            className="btn-professional btn-secondary"
+            onClick={onBack}
+            title="Back to Dashboard"
+          >
+            <i className="bi bi-arrow-left"></i> Back
+          </button>
+        }
       />
       
       <div className="row" style={{ marginTop: '20px' }}>

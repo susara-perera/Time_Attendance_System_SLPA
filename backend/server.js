@@ -209,6 +209,7 @@ app.use('/api/reports', require('./routes/report'));
 app.use('/api/reports/mysql', require('./routes/reports'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/mysql', require('./routes/mysql'));
+app.use('/api/mysql-data', require('./routes/mysqlData'));
 app.use('/api/roles', require('./routes/role'));
 app.use('/api/permissions', require('./routes/permission'));
 app.use('/api/dashboard', require('./routes/dashboard'));

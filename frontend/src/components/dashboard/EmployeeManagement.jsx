@@ -4,7 +4,7 @@ import './ReportGeneration.css';
 import { useLanguage } from '../../context/LanguageContext';
 import PageHeader from './PageHeader';
 
-const EmployeeManagement = () => {
+const EmployeeManagement = ({ onBack }) => {
   const [divisions, setDivisions] = useState([]);
   const [sections, setSections] = useState([]);
   const [subSections, setSubSections] = useState([]);
@@ -699,6 +699,7 @@ const EmployeeManagement = () => {
         title={t('employeeManagement')}
         subtitle="View and manage employee records and assignments"
         icon="bi-people"
+        onBack={onBack}
       />
 
       {/* Active Filters Display - Moved before filter section */}
