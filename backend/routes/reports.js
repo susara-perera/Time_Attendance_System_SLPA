@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { auth } = require('../middleware/auth');
-const { getAuditReport } = require('../controllers/auditController');
+// const { getAuditReport } = require('../controllers/auditController'); // Disabled - needs reimplementation
 const { generateMySQLAttendanceReport } = require('../controllers/reportController');
 
 /*
@@ -27,7 +27,7 @@ const { generateMySQLAttendanceReport } = require('../controllers/reportControll
 */
 
 // Lightweight route that delegates to controller + model
-router.post('/audit', auth, getAuditReport);
+// router.post('/audit', auth, getAuditReport); // Disabled - needs reimplementation
 
 // Attendance report (Individual/Group) using MySQL sync tables
 router.post('/attendance', generateMySQLAttendanceReport);

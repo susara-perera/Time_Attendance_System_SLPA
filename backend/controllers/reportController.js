@@ -1,9 +1,11 @@
-const Attendance = require('../models/Attendance');
-const User = require('../models/User');
-const Division = require('../models/Division');
-const Section = require('../models/Section');
-const Meal = require('../models/Meal');
-const AuditLog = require('../models/AuditLog');
+const { 
+  MySQLAttendance: Attendance,
+  MySQLUser: User,
+  MySQLDivision: Division,
+  MySQLSection: Section,
+  MySQLMeal: Meal,
+  MySQLAuditLog: AuditLog 
+} = require('../models/mysql');
 const { createMySQLConnection } = require('../config/mysql');
 const moment = require('moment');
 const { 
@@ -110,6 +112,9 @@ const getAttendanceReport = async (req, res) => {
     if (report_type === 'group') {
       const sub_section_id = data.sub_section_id || '';
       reportData = await generateMySQLGroupAttendanceReport(start_date, end_date, division_id, section_id, sub_section_id);
+    } else if (employee_id) {
+      // Individual employee report using MySQL
+      reportData = await generateMySQLIndividualAttendanceReport(employee_id, start_date, end_date);
     } else if (groupBy === 'division') {
       reportData = await generateDivisionReport(attendanceQuery, start, end);
     } else if (groupBy === 'section') {
@@ -1134,6 +1139,7 @@ const generateMySQLAttendanceReport = async (req, res) => {
                 a.scan_type
                FROM attendance a
                WHERE a.date_ BETWEEN ? AND ? AND a.employee_ID = ?
+               AND (a.fingerprint_id NOT LIKE '%Emergancy Exit%' OR a.fingerprint_id IS NULL)
                ORDER BY a.date_ ASC, a.time_ ASC`;
       
       const params = [from_date, to_date, employee_id];
@@ -1811,6 +1817,7 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
       FROM attendance a
       INNER JOIN emp_index_list e ON a.employee_ID = e.employee_id
       WHERE a.date_ BETWEEN ? AND ?
+        AND (a.fingerprint_id NOT LIKE '%Emergancy Exit%' OR a.fingerprint_id IS NULL)
     `;
     
     const queryParams = [from_date, to_date];
@@ -1834,8 +1841,16 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
     
     console.log(`   ✅ Query completed in ${queryDuration}ms`);
     console.log(`   📊 Retrieved ${attendanceRecords.length} attendance records (filtered at DB level)`);
+    // Defensive filter: ensure any pre-existing cached or unexpected records from 'Emergancy Exit' devices are removed
+    const beforeFilterCount = attendanceRecords.length;
+    const filteredRecords = attendanceRecords.filter(r => !(r.fingerprint_id && String(r.fingerprint_id).includes('Emergancy Exit')));
+    if (filteredRecords.length !== beforeFilterCount) {
+      console.log(`   ⚠️ Removed ${beforeFilterCount - filteredRecords.length} Emergency Exit records from result set`);
+    }
+    // Continue processing with filteredRecords
+    const processedAttendanceRecords = filteredRecords;
     
-    if (attendanceRecords.length === 0) {
+    if (processedAttendanceRecords.length === 0) {
       console.log('⚠️ No attendance records found for given filters');
       return {
         reportType: 'group',
@@ -1857,7 +1872,7 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
     console.log('\n📋 STEP 2: Building employee list from query results');
     
     const employeeMap = new Map();
-    attendanceRecords.forEach(record => {
+    processedAttendanceRecords.forEach(record => {
       const empId = String(record.employee_ID);
       if (!employeeMap.has(empId)) {
         employeeMap.set(empId, {
@@ -1978,10 +1993,10 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
     console.log(`   ⏱️ Total time: ${totalTime}ms (Query: ${queryDuration}ms, Processing: ${totalTime - queryDuration}ms)`);
     console.log(`   📅 Date range: ${from_date} to ${to_date} (${dateRange.length} days)`);
     console.log(`   👥 Employees: ${reportData.length}`);
-    console.log(`   📝 Attendance records: ${attendanceRecords.length}`);
+    console.log(`   📝 Attendance records: ${processedAttendanceRecords.length}`);
     console.log(`   📍 Division: ${employees[0]?.division_name || 'All'}`);
     console.log(`   📂 Section: ${employees[0]?.section_name || 'All'}`);
-    console.log(`   🚀 Performance: ${(attendanceRecords.length / (totalTime / 1000)).toFixed(0)} records/sec\n`);
+    console.log(`   🚀 Performance: ${(processedAttendanceRecords.length / (totalTime / 1000)).toFixed(0)} records/sec\n`);
 
     const result = {
       reportType: 'group',
@@ -2019,6 +2034,161 @@ const generateMySQLGroupAttendanceReport = async (from_date, to_date, division_i
   }
 };
 
+// Helper function to generate MySQL-based individual attendance report
+// For specific employee attendance records within date range
+const generateMySQLIndividualAttendanceReport = async (employee_id, from_date, to_date) => {
+  const perfStart = Date.now();
+
+  try {
+    console.log('=== 🚀 INDIVIDUAL ATTENDANCE REPORT GENERATION ===');
+    console.log(`Employee ID: ${employee_id}`);
+    console.log(`Date range: ${from_date} to ${to_date}`);
+
+    // Import connection pool
+    const { executeQuery } = require('../config/mysqlPool');
+
+    // Ensure employee_id is a string
+    const empId = String(employee_id).trim();
+    console.log(`   🔍 Fetching attendance for employee: "${empId}" from ${from_date} to ${to_date}`);
+
+    // Build query to get individual employee attendance records
+    // Using CAST to ensure consistent type matching
+    const attendanceQuery = `
+      SELECT
+        a.employee_ID,
+        a.date_,
+        a.time_ AS punch_time,
+        a.scan_type AS status,
+        e.employee_name,
+        e.division_id,
+        e.division_name,
+        e.section_id,
+        e.section_name,
+        e.sub_section_id
+      FROM attendance a
+      LEFT JOIN emp_index_list e ON CAST(a.employee_ID AS CHAR) = CAST(e.employee_id AS CHAR)
+      WHERE CAST(a.employee_ID AS CHAR) = ?
+        AND a.date_ BETWEEN ? AND ?
+        AND (a.fingerprint_id NOT LIKE '%Emergancy Exit%' OR a.fingerprint_id IS NULL)
+      ORDER BY a.date_, a.time_ ASC
+    `;
+
+    const queryParams = [empId, from_date, to_date];
+    console.log(`   📝 Query params: [${queryParams.join(', ')}]`);
+
+    // Execute query using connection pool
+    const [attendanceRecords, queryDuration] = await executeQuery(attendanceQuery, queryParams);
+
+    console.log(`   ✅ Query completed in ${queryDuration}ms`);
+    console.log(`   📊 Retrieved ${attendanceRecords.length} attendance records for employee ${employee_id}`);
+
+    // Process the records into a structured format
+    const processedData = [];
+    const dateGroups = {};
+
+    // Group records by date and keep raw punch-level entries (scan_type) so
+    // frontend can render per-punch rows identical to the group report.
+    attendanceRecords.forEach(record => {
+      const dateKey = record.date_;
+      if (!dateGroups[dateKey]) {
+        dateGroups[dateKey] = {
+          date: dateKey,
+          employeeId: record.employee_ID,
+          employeeName: record.employee_name,
+          division: record.division_name,
+          section: record.section_name,
+          subSection: record.sub_section_name,
+          punches: []
+        };
+      }
+      // Include both 'scan_type' (preferred by frontend) and 'status' for
+      // backward compatibility. Keep original punch time as 'time'.
+      dateGroups[dateKey].punches.push({
+        time: record.punch_time,
+        status: record.status,
+        scan_type: (record.status || '').toUpperCase()
+      });
+    });
+
+    // Convert to array and calculate summary
+    Object.values(dateGroups).forEach(dayData => {
+      // Determine attendance status based on punches
+      let status = 'absent';
+      let checkInTime = null;
+      let checkOutTime = null;
+      let workingHours = 0;
+
+      if (dayData.punches.length > 0) {
+        // Sort punches by time
+        dayData.punches.sort((a, b) => a.time.localeCompare(b.time));
+
+        // Find first IN and last OUT
+        const firstIn = dayData.punches.find(p => p.status === 'IN');
+        const lastOut = [...dayData.punches].reverse().find(p => p.status === 'OUT');
+
+        if (firstIn) {
+          checkInTime = firstIn.time;
+          status = 'present';
+        }
+
+        if (lastOut) {
+          checkOutTime = lastOut.time;
+        }
+
+        // Calculate working hours if both check-in and check-out exist
+        if (checkInTime && checkOutTime) {
+          const checkIn = new Date(`2000-01-01T${checkInTime}`);
+          const checkOut = new Date(`2000-01-01T${checkOutTime}`);
+          workingHours = (checkOut - checkIn) / (1000 * 60 * 60); // hours
+        }
+      }
+
+      // Include the original punches array so the frontend can expand to
+      // per-punch rows (scan_type/time) and match the group report output.
+      processedData.push({
+        ...dayData,
+        status,
+        checkInTime,
+        checkOutTime,
+        punches: dayData.punches || [],
+        workingHours: workingHours.toFixed(2),
+        totalPunches: dayData.punches.length
+      });
+    });
+
+    // Sort by date
+    processedData.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    const totalTime = Date.now() - perfStart;
+
+    return {
+      reportType: 'individual',
+      employeeId: employee_id,
+      employeeName: attendanceRecords[0]?.employee_name || 'Unknown',
+      dateRange: { from: from_date, to: to_date },
+      totalDays: processedData.length,
+      totalRecords: attendanceRecords.length,
+      data: processedData,
+      summary: {
+        totalDays: processedData.length,
+        presentDays: processedData.filter(d => d.status === 'present').length,
+        absentDays: processedData.filter(d => d.status === 'absent').length,
+        totalWorkingHours: processedData.reduce((sum, d) => sum + parseFloat(d.workingHours), 0).toFixed(2),
+        averageWorkingHours: processedData.length > 0 ?
+          (processedData.reduce((sum, d) => sum + parseFloat(d.workingHours), 0) / processedData.length).toFixed(2) : '0.00',
+        queryTime: queryDuration,
+        processingTime: totalTime - queryDuration,
+        totalTime: totalTime
+      }
+    };
+
+  } catch (error) {
+    const totalTime = Date.now() - perfStart;
+    console.error(`❌ Error generating individual attendance report (${totalTime}ms):`, error);
+    throw error;
+  }
+};
+
 module.exports = {
   getAttendanceReport,
   getAuditReport,
@@ -2032,6 +2202,7 @@ module.exports = {
   generateMySQLAttendanceReport,
   generateMySQLMealReport,
   generateMySQLGroupAttendanceReport,
+  generateMySQLIndividualAttendanceReport,
   generateMySQLAuditReport: async (req, res) => {
     try {
       console.log('=== AUDIT REPORT REQUEST (High Speed) ===');

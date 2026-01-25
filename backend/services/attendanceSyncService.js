@@ -12,8 +12,7 @@
  */
 
 const { sequelize } = require('../models/mysql');
-const Attendance = require('../models/Attendance');
-const User = require('../models/User');
+const { MySQLAttendance: Attendance, MySQLUser: User } = require('../models/mysql');
 const moment = require('moment');
 
 /**

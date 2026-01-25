@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Form } from 'react-bootstrap';
 import { AuthContext } from '../../context/AuthContext';
+import { showModernAlert } from '../common/ModernAlert';
 import RoleManagement from './RoleManagement';
 import './RoleAccessManagement.css';
 import PageHeader from './PageHeader';
@@ -417,7 +418,12 @@ const RoleAccessManagement = ({ onBack }) => {
       const hasViewReports = !!formData[category]?.['view_reports'];
       if (!hasViewReports) {
         // Show error message and don't allow the change
-        alert('Cannot enable report permissions without "View Reports" permission. Please enable "View Reports" first.');
+        showModernAlert({
+          type: 'warning',
+          title: 'Prerequisite Required',
+          message: 'Cannot enable report permissions without "View Reports" permission. Please enable "View Reports" first.',
+          duration: 4000
+        });
         return; // Don't proceed with the change
       }
       setFormData(prev => ({
@@ -440,7 +446,12 @@ const RoleAccessManagement = ({ onBack }) => {
       // Check if view_roles is enabled, if not, prevent the change
       const hasViewRoles = !!formData[category]?.['view_roles'];
       if (!hasViewRoles) {
-        alert('Cannot enable role-management permissions without "View Roles" permission. Please enable "View Roles" first.');
+        showModernAlert({
+          type: 'warning',
+          title: 'Prerequisite Required',
+          message: 'Cannot enable role-management permissions without "View Roles" permission. Please enable "View Roles" first.',
+          duration: 4000
+        });
         return;
       }
       setFormData(prev => ({

@@ -1,8 +1,10 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const User = require('../models/User');
-const AuditLog = require('../models/AuditLog');
+const User = require('../models/mysql/User');
+const AuditLog = require('../models/mysql/AuditLog');
+const Division = require('../models/mysql/Division');
+const Section = require('../models/mysql/Section');
 
 // Generate JWT Token
 const generateToken = (id) => {
@@ -24,15 +26,23 @@ const login = async (req, res) => {
 
     if (email) {
       // Login with email
-      user = await User.findOne({ email })
-        .populate('division', 'name code')
-        .populate('section', 'name code');
+      user = await User.findOne({
+        where: { email },
+        include: [
+          { model: Division, as: 'division', attributes: ['name', 'code'] },
+          { model: Section, as: 'section', attributes: ['name', 'code'] }
+        ]
+      });
       loginIdentifier = email;
     } else if (employeeId) {
       // Login with employee ID
-      user = await User.findOne({ employeeId })
-        .populate('division', 'name code')
-        .populate('section', 'name code');
+      user = await User.findOne({
+        where: { employeeId },
+        include: [
+          { model: Division, as: 'division', attributes: ['name', 'code'] },
+          { model: Section, as: 'section', attributes: ['name', 'code'] }
+        ]
+      });
       loginIdentifier = employeeId;
     } else {
       return res.status(400).json({
@@ -71,9 +81,9 @@ const login = async (req, res) => {
     if (!user.isActive) {
       // Log inactive account access attempt
       await AuditLog.createLog({
-        user: user._id,
+        user: user.id,
         action: 'failed_login',
-        entity: { type: 'User', id: user._id, name: user.email },
+        entity: { type: 'User', id: user.id, name: user.email },
         category: 'authentication',
         severity: 'medium',
         description: 'Login attempt on inactive account',
@@ -94,13 +104,20 @@ const login = async (req, res) => {
     }
 
     // Check password
-    console.log('Login attempt for user:', user.email);
-    console.log('Password received:', password ? `Yes (length: ${password.length})` : 'No');
-    console.log('Stored password hash exists:', user.password ? 'Yes' : 'No');
-    console.log('Stored hash length:', user.password ? user.password.length : 0);
-    
+    console.log('🔐 Login attempt for user:', user.email);
+    console.log('   Password received:', password ? `Yes (length: ${password.length})` : 'No');
+    console.log('   Stored password hash exists:', user.password ? 'Yes' : 'No');
+    console.log('   Stored hash length:', user.password ? user.password.length : 0);
+    console.log('   Hash starts with:', user.password ? user.password.substring(0, 10) + '...' : 'N/A');
+
     const isPasswordValid = await user.comparePassword(password);
-    console.log('Password comparison result:', isPasswordValid);
+    console.log('   Password comparison result:', isPasswordValid);
+
+    // Also test direct bcrypt comparison
+    if (user.password) {
+      const directBcrypt = await bcrypt.compare(password, user.password);
+      console.log('   Direct bcrypt comparison:', directBcrypt);
+    }
     
     if (!isPasswordValid) {
       // Login attempt increment removed for development
@@ -108,9 +125,9 @@ const login = async (req, res) => {
 
       // Log failed login attempt
       await AuditLog.createLog({
-        user: user._id,
+        user: user.id,
         action: 'failed_login',
-        entity: { type: 'User', id: user._id, name: user.email },
+        entity: { type: 'User', id: user.id, name: user.email },
         category: 'authentication',
         severity: 'medium',
         description: 'Failed login attempt - invalid password',
@@ -130,71 +147,20 @@ const login = async (req, res) => {
       });
     }
 
-    // Preload cache on login for fast data access
-    const cachePreloadService = require('../services/cachePreloadService');
-    const cacheDataService = require('../services/cacheDataService');
-    
-    let cacheStatus = { healthy: false, preloaded: false };
-    
-    try {
-      // Check if cache is already warm
-      const isCacheWarm = await cachePreloadService.isCacheWarm();
-      
-      if (!isCacheWarm) {
-        console.log('🔥 Cache is cold - preloading...');
-        // Trigger preload asynchronously (don't block login)
-        cachePreloadService.preloadAll(user._id.toString()).catch(err => {
-          console.error('Background cache preload error:', err);
-        });
-        cacheStatus.preloaded = false;
-        cacheStatus.message = 'Cache is warming up in background';
-      } else {
-        console.log('✅ Cache is already warm');
-        cacheStatus.healthy = true;
-        cacheStatus.preloaded = true;
-      }
-      
-      // Check cache health
-      const health = await cacheDataService.checkHealth();
-      cacheStatus = { ...cacheStatus, ...health };
-
-      // Trigger preloads for Attendance and Audit reports (last 180 days) on login
-      try {
-        const preloadDays = 180;
-        console.log(`🔁 Triggering ${preloadDays}-day attendance and audit cache preloads (login)`);
-
-        // Fire-and-forget background preloads so login is not blocked
-        cachePreloadService.preloadAttendance(preloadDays, 'login')
-          .then(result => console.log('Attendance preload started:', result))
-          .catch(err => console.error('Attendance preload error:', err));
-
-        cachePreloadService.preloadAudit(preloadDays, 'login')
-          .then(result => console.log('Audit preload started:', result))
-          .catch(err => console.error('Audit preload error:', err));
-
-        cacheStatus.preloadTrigger = { attendance: true, audit: true, days: preloadDays };
-      } catch (preErr) {
-        console.error('Error triggering login preloads:', preErr);
-        cacheStatus.preloadTrigger = { error: preErr.message };
-      }
-
-    } catch (cacheError) {
-      console.error('Cache initialization error:', cacheError);
-      cacheStatus.error = cacheError.message;
-    }
+    // Cache preload removed - not needed during login
 
     // Update last login
     user.lastLogin = new Date();
     await user.save();
 
     // Generate token
-    const token = generateToken(user._id);
+    const token = generateToken(user.id);
 
     // Log successful login
     await AuditLog.createLog({
-      user: user._id,
+      user: user.id,
       action: 'user_login',
-      entity: { type: 'User', id: user._id, name: user.email },
+      entity: { type: 'User', id: user.id, name: user.email },
       category: 'authentication',
       severity: 'low',
       description: 'User logged in successfully',
@@ -207,6 +173,28 @@ const login = async (req, res) => {
       },
       isSecurityRelevant: true
     });
+
+    // Log to recent activities table with automatic 20-record FIFO cleanup
+    try {
+      const { logRecentActivity } = require('../services/activityLogService');
+
+      const fullName = user.getFullName();
+      await logRecentActivity({
+        title: 'User Login',
+        description: `"${fullName}" logged in`,
+        activity_type: 'user_login',
+        entity_id: user.id?.toString(),
+        entity_name: fullName,
+        user_id: user.id?.toString(),
+        user_name: fullName
+      });
+
+      console.log(`[MySQL] ✅ Recent activity logged for user login: ${fullName}`);
+    } catch (activityErr) {
+      console.error('[RecentActivity] Failed to log user login activity:', activityErr);
+    }
+
+    // Dashboard preload removed - not needed during login
 
     // Set cookie and send response
     const cookieOptions = {
@@ -236,10 +224,10 @@ const login = async (req, res) => {
       message: 'Login successful',
       token,
       user: {
-        id: user._id,
+        id: user.id,
         firstName: user.firstName,
         lastName: user.lastName,
-        fullName: user.fullName,
+        fullName: user.getFullName(),
         email: user.email,
         employeeId: user.employeeId,
         role: user.role,
@@ -247,8 +235,7 @@ const login = async (req, res) => {
         section: user.section,
         permissions: effectivePermissions,
         lastLogin: user.lastLogin
-      },
-      cache: cacheStatus
+      }
     });
 
   } catch (error) {
@@ -267,13 +254,13 @@ const logout = async (req, res) => {
   try {
     // Log logout
     await AuditLog.createLog({
-      user: req.user._id,
+      user: req.user.id,
       action: 'user_logout',
-      entity: { type: 'User', id: req.user._id, name: req.user.email },
+      entity: { type: 'User', id: req.user.id, name: req.user.email },
       category: 'authentication',
       severity: 'low',
       description: 'User logged out',
-      details: `User ${req.user.fullName} logged out`,
+      details: `User ${req.user.getFullName()} logged out`,
       metadata: {
         ipAddress: req.ip,
         userAgent: req.get('User-Agent'),

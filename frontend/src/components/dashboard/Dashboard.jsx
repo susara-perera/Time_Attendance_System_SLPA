@@ -1,22 +1,43 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, lazy, Suspense } from 'react';
 import { AuthContext } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import usePermission from '../../hooks/usePermission';
 import DashboardStats from './DashboardStats';
-import UserManagement from './UserManagement';
-import EmployeeManagement from './EmployeeManagement';
-import ReportGeneration from './ReportGeneration';
-import MealManagement from './MealManagement';
-import DivisionManagement from './DivisionManagement';
-import SectionManagement from './SectionManagement';
-import RoleAccessManagement from './RoleAccessManagement';
-import RoleManagement from './RoleManagement';
-import ApiDataViewer from './ApiDataViewer';
-import Settings from './Settings';
-import ManualSync from './ManualSync';
 import Footer from './Footer';
+import Toast from './Toast';
+import ConfirmModal from './ConfirmModal';
 import './Dashboard.css';
 import logo from '../../assets/PortAuthLogo.png';
+
+// Lazy load heavy components for better performance
+const UserManagement = lazy(() => import('./UserManagement'));
+const EmployeeManagement = lazy(() => import('./EmployeeManagement'));
+const ReportGeneration = lazy(() => import('./ReportGeneration'));
+const MealManagement = lazy(() => import('./MealManagement'));
+const DivisionManagement = lazy(() => import('./DivisionManagement'));
+const SectionManagement = lazy(() => import('./SectionManagement'));
+const RoleAccessManagement = lazy(() => import('./RoleAccessManagement'));
+const RoleManagement = lazy(() => import('./RoleManagement'));
+const ApiDataViewer = lazy(() => import('./ApiDataViewer'));
+const Settings = lazy(() => import('./Settings'));
+const ManualSync = lazy(() => import('./ManualSync'));
+
+// Loading fallback component
+const LoadingFallback = () => (
+  <div style={{ 
+    display: 'flex', 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    height: '400px',
+    flexDirection: 'column',
+    gap: '20px'
+  }}>
+    <div className="spinner-border text-primary" role="status">
+      <span className="visually-hidden">Loading...</span>
+    </div>
+    <p style={{ color: '#64748b' }}>Loading...</p>
+  </div>
+);
 
 
 const Dashboard = () => {
@@ -66,10 +87,16 @@ const Dashboard = () => {
     }
   };
 
-  const handleQuickAction = (action) => {
+  const handleQuickAction = (action, employeeIdParam = null) => {
+    // If employeeId is provided, store it for report generation
+    if (employeeIdParam) {
+      setSelectedEmployeeId(employeeIdParam);
+    }
+    
     switch (action) {
       case 'home':
         setActiveSection('dashboard');
+        setSelectedEmployeeId(null);
         break;
       case 'users':
         setActiveSection('users');
@@ -200,55 +227,72 @@ const Dashboard = () => {
   }, []);
 
   const renderActiveSection = () => {
-    switch (activeSection) {
-      case 'dashboard':
-        return <DashboardStats 
-          onQuickAction={handleQuickAction}
-          onGenerateEmployeeReport={(employeeId) => {
-            setSelectedEmployeeId(employeeId);
-            setActiveSection('unit-attendance');
-          }}
-        />;
-      case 'users':
-        return <UserManagement onBack={() => setActiveSection('dashboard')} />;
-      case 'employees':
-        return <EmployeeManagement onBack={() => setActiveSection('dashboard')} />;
-      case 'reports':
-      case 'unit-attendance':
-      case 'audit-report':
-      case 'meal-report':
-        return <ReportGeneration 
-          onBack={() => {
-            setActiveSection('dashboard');
-            setSelectedEmployeeId(null); // Clear employee ID when going back
-          }} 
-          initialEmployeeId={selectedEmployeeId}
-        />;
-      case 'meals':
-        return <MealManagement onBack={() => setActiveSection('dashboard')} />;
-      case 'divisions':
-        return <DivisionManagement onBack={() => setActiveSection('dashboard')} />;
-      case 'sections':
-        return <SectionManagement onBack={() => setActiveSection('dashboard')} />;
-      case 'roles':
-        return <RoleAccessManagement onBack={() => setActiveSection('dashboard')} />;
-      case 'role-management':
-        return <RoleManagement onBack={() => setActiveSection('dashboard')} />;
-      case 'sync':
-        return <ManualSync onBack={() => setActiveSection('dashboard')} />;
-      case 'api':
-        return <ApiDataViewer onBack={() => setActiveSection('dashboard')} />;
-      case 'settings':
-        return <Settings onBack={() => setActiveSection('dashboard')} />;
-      default:
-        return <DashboardStats 
-          onQuickAction={handleQuickAction}
-          onGenerateEmployeeReport={(employeeId) => {
-            setSelectedEmployeeId(employeeId);
-            setActiveSection('unit-attendance');
-          }}
-        />;
+    const content = (() => {
+      switch (activeSection) {
+        case 'dashboard':
+          return (
+            <DashboardStats 
+              onQuickAction={handleQuickAction}
+              onGenerateEmployeeReport={(employeeId) => {
+                setSelectedEmployeeId(employeeId);
+                setActiveSection('unit-attendance');
+              }}
+            />
+          );
+        case 'users':
+          return <UserManagement onBack={() => setActiveSection('dashboard')} />;
+        case 'employees':
+          return <EmployeeManagement onBack={() => setActiveSection('dashboard')} />;
+        case 'reports':
+        case 'unit-attendance':
+        case 'audit-report':
+        case 'meal-report':
+          return <ReportGeneration 
+            onBack={() => {
+              setActiveSection('dashboard');
+              setSelectedEmployeeId(null); // Clear employee ID when going back
+            }} 
+            initialEmployeeId={selectedEmployeeId}
+          />;
+        case 'meals':
+          return <MealManagement onBack={() => setActiveSection('dashboard')} />;
+        case 'divisions':
+          return <DivisionManagement onBack={() => setActiveSection('dashboard')} />;
+        case 'sections':
+          return <SectionManagement onBack={() => setActiveSection('dashboard')} />;
+        case 'roles':
+          return <RoleAccessManagement onBack={() => setActiveSection('dashboard')} />;
+        case 'role-management':
+          return <RoleManagement onBack={() => setActiveSection('dashboard')} />;
+        case 'sync':
+          return <ManualSync onBack={() => setActiveSection('dashboard')} />;
+        case 'api':
+          return <ApiDataViewer onBack={() => setActiveSection('dashboard')} />;
+        case 'settings':
+          return <Settings onBack={() => setActiveSection('dashboard')} />;
+        default:
+          return (
+            <DashboardStats 
+              onQuickAction={handleQuickAction}
+              onGenerateEmployeeReport={(employeeId) => {
+                setSelectedEmployeeId(employeeId);
+                setActiveSection('unit-attendance');
+              }}
+            />
+          );
+      }
+    })();
+
+    // Wrap lazy-loaded components in Suspense
+    if (activeSection !== 'dashboard') {
+      return (
+        <Suspense fallback={<LoadingFallback />}>
+          {content}
+        </Suspense>
+      );
     }
+
+    return content;
   };
 
   // Users view permission (master view for User Management quick-action)
@@ -355,14 +399,13 @@ const Dashboard = () => {
               <img src={logo} alt="SLPA Logo" className="brand-logo" />
             </div>
             <div className="brand-text">
-              <h3>{t('attendanceSystem')}</h3>
-              <span>{t('poweredBy')}</span>
+              <h3>Attendance System</h3>
             </div>
           </div>
           <button 
             className="sidebar-close-btn"
             onClick={() => setSidebarOpen(false)}
-            title={t('closeSidebar')}
+            title="Close"
           >
             <i className="bi bi-x-lg"></i>
           </button>
@@ -370,7 +413,6 @@ const Dashboard = () => {
 
         <div className="sidebar-content">
           <div className="sidebar-section">
-            <div className="sidebar-section-title">{t('quickActions')}</div>
             <div className="sidebar-actions">
               {quickActions.map((action) => {
                 if (!hasAccess(action.roles)) return null;
@@ -420,12 +462,12 @@ const Dashboard = () => {
       {/* Top Navigation - Modern Professional Header */}
       <nav className="top-nav">
         <div className="nav-container">
-          {/* Toggle Button and Logo Section */}
-          <div className="nav-left">
+          {/* Toggle Button and Logo Section - Moved to far left */}
+          <div className="nav-left" style={{ flex: '0 0 auto' }}>
             <button 
               className="sidebar-toggle-btn"
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              title={t('toggleSidebar')}
+              title="Toggle Menu"
             >
               <i className="bi bi-list"></i>
             </button>
@@ -449,8 +491,16 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Center Greeting - Modern Style */}
+          {/* Center Time - Move time to the middle */}
           <div className="nav-center">
+            <div className="header-datetime center-datetime">
+              <div className="datetime-time">{currentTime.time}</div>
+              <div className="datetime-date">{currentTime.date}</div>
+            </div>
+          </div>
+
+          {/* User Section - Move greeting to the right */}
+          <div className="nav-user">
             <div className="greeting-container">
               <div className="greeting-avatar-wrapper">
                 <div className="greeting-avatar">{getRoleAbbrev(user?.role)}</div>
@@ -463,14 +513,6 @@ const Dashboard = () => {
                   {getGreeting()}
                 </span>
               </div>
-            </div>
-          </div>
-
-          {/* User Section */}
-          <div className="nav-user">
-            <div className="header-datetime">
-              <div className="datetime-time">{currentTime.time}</div>
-              <div className="datetime-date">{currentTime.date}</div>
             </div>
             
             {/* Header Actions */}
@@ -505,6 +547,10 @@ const Dashboard = () => {
 
       {/* Footer */}
       <Footer />
+
+      {/* Modern UI Components */}
+      <Toast />
+      <ConfirmModal />
     </div>
   );
 };

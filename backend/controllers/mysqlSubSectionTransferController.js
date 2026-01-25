@@ -1,5 +1,5 @@
 const { createMySQLConnection } = require('../config/mysql');
-const AuditLog = require('../models/AuditLog');
+const { MySQLAuditLog: AuditLog } = require('../models/mysql');
 
 // List transfers for a specific subsection (only active transfers)
 exports.getTransferredEmployees = async (req, res, next) => {
@@ -139,6 +139,26 @@ exports.transferEmployeeToSubSection = async (req, res, next) => {
       } catch (auditErr) {
         console.error('[AuditLog] Failed to log MySQL employee transfer:', auditErr);
       }
+    }
+
+    // Log to recent activities table
+    try {
+      const { logRecentActivity } = require('../services/activityLogService');
+
+      await logRecentActivity({
+        title: 'Employee Transferred',
+        description: `"${employeeName}" transferred to "${sub_hie_name}"`,
+        activity_type: 'employee_transferred',
+        icon: 'bi bi-arrow-left-right',
+        entity_id: employeeId,
+        entity_name: employeeName,
+        user_id: req.user?._id?.toString(),
+        user_name: req.user?.name || req.user?.username || 'Unknown User'
+      });
+
+      console.log(`[MySQL] ✅ Recent activity logged for employee transfer: ${employeeName} -> ${sub_hie_name}`);
+    } catch (activityErr) {
+      console.error('[RecentActivity] Failed to log employee transfer activity:', activityErr);
     }
 
     return res.status(201).json({ success: true, message: 'Employee transferred successfully', data: created });

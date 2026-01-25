@@ -1,5 +1,5 @@
-const Role = require('../models/Role');
-const AuditLog = require('../models/AuditLog');
+const Role = require('../models/mysql/Role');
+const AuditLog = require('../models/mysql/AuditLog');
 
 // Return the permission catalog (categories and permission ids/names)
 const getPermissionCatalog = async (req, res) => {
@@ -123,16 +123,19 @@ const updateRolePermissions = async (req, res) => {
       }
     }
 
-    const role = await Role.findByIdAndUpdate(roleId, { permissions, updatedAt: Date.now() }, { new: true });
+    const role = await Role.findByPk(roleId);
     if (!role) return res.status(404).json({ success: false, message: 'Role not found' });
 
+    await role.update({ permissions, updatedAt: new Date() });
+    await role.reload();
+
     // Log audit trail for permission update
-    if (req.user?._id) {
+    if (req.user?.id) {
       try {
         await AuditLog.createLog({
-          user: req.user._id,
+          user: req.user.id,
           action: 'permissions_updated',
-          entity: { type: 'User', id: role._id, name: role.label },
+          entity: { type: 'User', id: role.id, name: role.label },
           category: 'data_modification',
           severity: 'high',
           description: `Permissions updated for role "${role.label}"`,
@@ -147,6 +150,26 @@ const updateRolePermissions = async (req, res) => {
       } catch (auditErr) {
         console.error('[AuditLog] Failed to log permission update:', auditErr);
       }
+    }
+
+    // Log to recent activities table
+    try {
+      const { logRecentActivity } = require('../services/activityLogService');
+
+      await logRecentActivity({
+        title: 'Role Permissions Updated',
+        description: `"${role.label}" permissions changed`,
+        activity_type: 'permissions_updated',
+        icon: 'bi bi-shield-check',
+        entity_id: role.id?.toString(),
+        entity_name: role.label,
+        user_id: req.user?.id?.toString(),
+        user_name: req.user?.firstName || req.user?.email || 'Unknown User'
+      });
+
+      console.log(`[MySQL] ✅ Recent activity logged for permission update: ${role.label}`);
+    } catch (activityErr) {
+      console.error('[RecentActivity] Failed to log permission update activity:', activityErr);
     }
 
     res.status(200).json({ success: true, data: role });

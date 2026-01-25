@@ -1,4 +1,4 @@
-const AuditLog = require('../models/AuditLog');
+const { MySQLAuditLog: AuditLog } = require('../models/mysql');
 const moment = require('moment');
 
 // @desc    Get recent activities (audit logs)

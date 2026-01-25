@@ -4,6 +4,7 @@
  * Creates cache tables and initializes the cache preload system
  */
 
+require('dotenv').config();
 const { sequelize } = require('./config/mysql');
 const fs = require('fs');
 const path = require('path');

@@ -61,7 +61,7 @@ const getCacheInfo = async (req, res) => {
 };
 
 /**
- * @desc    Clear specific report cache
+ * @desc    Clear cache
  * @route   POST /api/cache/clear
  * @access  Private (Admin only)
  */
@@ -226,27 +226,6 @@ const connectCache = async (req, res) => {
   }
 };
 
-module.exports = {
-  getCacheStats,
-  getCacheInfo,
-  clearCache,
-  clearAllCache,
-  clearDateRangeCache,
-  clearOrganizationCache,
-  resetCacheStats,
-  connectCache,
-  // New cache preload endpoints
-  triggerCachePreload,
-  startLoginCacheActivation,
-  getCacheActivationProgress,
-  getCacheStatus,
-  invalidateCache,
-  getSyncHistory,
-  getCacheMetadata,
-  searchCache,
-  warmupCache
-};
-
 /**
  * ========================================
  * NEW CACHE PRELOAD ENDPOINTS
@@ -299,16 +278,21 @@ async function triggerCachePreload(req, res) {
 async function startLoginCacheActivation(req, res) {
   try {
     const triggeredBy = req.user?.id || req.user?._id || 'login';
-    const job = cachePreloadService.startFullSystemPreloadJob(String(triggeredBy));
+    const result = cachePreloadService.startFullSystemPreloadJob(String(triggeredBy));
+    
+    // result can be { job, isNew } or just the job object
+    const job = result.job || result;
+    const isNew = result.isNew !== undefined ? result.isNew : true;
 
     return res.status(202).json({
       success: true,
-      message: 'Cache activation started',
+      message: isNew ? 'Cache activation started' : 'Cache activation already in progress',
       data: {
         jobId: job.id,
         status: job.status,
         percent: job.percent,
         currentStep: job.currentStep,
+        isNew: isNew,
         stepIndex: job.stepIndex,
         steps: job.steps
       }
@@ -324,31 +308,37 @@ async function startLoginCacheActivation(req, res) {
 }
 
 /**
- * @desc    Get cache activation progress by job id
- * @route   GET /api/cache/preload/progress/:jobId
+ * @desc    Start page-wise cache activation
+ * @route   POST /api/cache/preload/pages
  * @access  Private
  */
-async function getCacheActivationProgress(req, res) {
+async function startPageWiseCacheActivation(req, res) {
   try {
-    const { jobId } = req.params;
-    const job = cachePreloadService.getPreloadJob(jobId);
+    const triggeredBy = req.user?.id || req.user?._id || 'user';
+    const result = cachePreloadService.startPageWiseCacheJob(String(triggeredBy));
+    
+    const job = result.job || result;
+    const isNew = result.isNew !== undefined ? result.isNew : true;
 
-    if (!job) {
-      return res.status(404).json({
-        success: false,
-        message: 'Job not found'
-      });
-    }
-
-    return res.status(200).json({
+    return res.status(202).json({
       success: true,
-      data: job
+      message: isNew ? 'Page-wise cache activation started' : 'Page-wise cache activation already in progress',
+      data: {
+        jobId: job.id,
+        status: job.status,
+        percent: job.percent,
+        currentStep: job.currentStep,
+        isNew: isNew,
+        stepIndex: job.stepIndex,
+        steps: job.steps,
+        type: 'page-wise'
+      }
     });
   } catch (error) {
-    console.error('Get cache activation progress error:', error);
+    console.error('Start page-wise cache activation error:', error);
     return res.status(500).json({
       success: false,
-      message: 'Failed to get cache activation progress',
+      message: 'Failed to start page-wise cache activation',
       error: error.message
     });
   }
@@ -550,3 +540,162 @@ async function warmupCache(req, res) {
     });
   }
 }
+
+/**
+ * @desc    Start cache activation process
+ * @route   POST /api/cache/activate
+ * @access  Private
+ */
+const startCacheActivation = async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID is required"
+      });
+    }
+
+    // Start a full-system preload job and return the job descriptor
+    const job = cachePreloadService.startFullSystemPreloadJob(String(userId));
+
+    res.status(202).json({
+      success: true,
+      message: "Cache activation started",
+      jobId: job.id,
+      status: job.status,
+      percent: job.percent,
+      steps: job.steps,
+      stepIndex: job.stepIndex
+    });
+
+  } catch (error) {
+    console.error("Start cache activation error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to start cache activation",
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Get cache activation progress
+ * @route   GET /api/cache/activation/:jobId
+ * @access  Private
+ */
+const getCacheActivationProgress = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+
+    const job = cachePreloadService.getPreloadJob(jobId);
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: "Cache activation job not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      job: {
+        id: job.id,
+        status: job.status,
+        percent: job.percent,
+        message: job.message,
+        currentStep: job.currentStep,
+        stepIndex: job.stepIndex,
+        steps: job.steps,
+        stepTotals: job.stepTotals || [],
+        stepProgress: job.stepProgress || [],
+        stepLabels: job.stepLabels || job.steps || [],
+        totalWork: job.totalWork || 0,
+        cumulativeCompleted: job.cumulativeCompleted || 0,
+        attendance: job.attendance || null,
+        startedAt: job.startedAt,
+        completedAt: job.completedAt
+      }
+    });
+
+  } catch (error) {
+    console.error("Get cache activation progress error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to get cache activation progress",
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Retry cache activation
+ * @route   POST /api/cache/activation/:jobId/retry
+ * @access  Private
+ */
+const retryCacheActivation = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID is required"
+      });
+    }
+
+    // Cancel existing job if running
+    const existingJob = cachePreloadService.getPreloadJob(jobId);
+    if (existingJob && existingJob.status === "running") {
+      // Mark as cancelled
+      existingJob.status = "cancelled";
+      existingJob.completedAt = new Date().toISOString();
+      existingJob.message = "Job cancelled for retry";
+    }
+
+    // Start new cache preload process
+    const job = await cachePreloadService.preloadAll(userId);
+
+    res.json({
+      success: true,
+      message: "Cache activation restarted",
+      jobId: job.id,
+      status: job.status
+    });
+
+  } catch (error) {
+    console.error("Retry cache activation error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to retry cache activation",
+      error: error.message
+    });
+  }
+};
+
+module.exports = {
+  getCacheStats,
+  getCacheInfo,
+  clearCache,
+  clearAllCache,
+  clearDateRangeCache,
+  clearOrganizationCache,
+  resetCacheStats,
+  connectCache,
+  // New cache preload endpoints
+  triggerCachePreload,
+  startLoginCacheActivation,
+  startPageWiseCacheActivation,
+  getCacheActivationProgress,
+  getCacheStatus,
+  invalidateCache,
+  getSyncHistory,
+  getCacheMetadata,
+  searchCache,
+  warmupCache,
+  // Cache activation endpoints
+  startCacheActivation,
+  retryCacheActivation
+};

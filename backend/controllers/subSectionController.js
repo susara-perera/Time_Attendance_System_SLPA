@@ -1,6 +1,4 @@
-const SubSection = require('../models/SubSection');
-const TransferToSubsection = require('../models/TransferToSubsection');
-const AuditLog = require('../models/AuditLog');
+const { MySQLSubSection: SubSection, MySQLAuditLog: AuditLog } = require('../models/mysql');
 const { getCachedSubSections, refreshSubSectionsCache } = require('../services/mongodbCacheService');
 
 // GET /api/subsections
@@ -89,11 +87,39 @@ exports.createSubSection = async (req, res, next) => {
 				console.error('[AuditLog] Failed to log sub-section creation:', auditErr);
 			}
 		}
+
+		// Log to recent activities table
+		try {
+			const { logRecentActivity } = require('../services/activityLogService');
+
+			await logRecentActivity({
+				title: 'New Sub-Section',
+				description: `"${created.subSection?.sub_hie_name}" added`,
+				activity_type: 'subsection_created',
+				icon: 'bi bi-diagram-2',
+				entity_id: created._id?.toString(),
+				entity_name: created.subSection?.sub_hie_name,
+				user_id: req.user?._id?.toString(),
+				user_name: req.user?.name || req.user?.username || 'Unknown User'
+			});
+
+			console.log(`[MySQL] ✅ Recent activity logged for sub-section creation: ${created.subSection?.sub_hie_name}`);
+		} catch (activityErr) {
+			console.error('[RecentActivity] Failed to log sub-section creation activity:', activityErr);
+		}
 		
 		// Refresh cache after creation
 		const { refreshSubSectionsCache } = require('../services/mongodbCacheService');
 		await refreshSubSectionsCache();
 		console.log(`[MongoDB] 🔄 Cache refreshed after sub-section creation`);
+
+		// Auto-update dashboard subsections count
+		try {
+			const { updateSubsectionsCount } = require('../services/dashboardAutoUpdateService');
+			await updateSubsectionsCount();
+		} catch (dashErr) {
+			console.error('[DashboardAutoUpdate] Failed to update subsections count:', dashErr);
+		}
 
 		return res.status(201).json({
 			success: true,
@@ -187,11 +213,39 @@ exports.updateSubSection = async (req, res, next) => {
 				console.error('[AuditLog] Failed to log sub-section update:', auditErr);
 			}
 		}
+
+		// Log to recent activities table
+		try {
+			const { logRecentActivity } = require('../services/activityLogService');
+
+			await logRecentActivity({
+				title: 'Sub-Section Updated',
+				description: `"${updated.subSection?.sub_hie_name || 'Unknown'}" modified`,
+				activity_type: 'subsection_updated',
+				icon: 'bi bi-diagram-2',
+				entity_id: updated._id?.toString(),
+				entity_name: updated.subSection?.sub_hie_name || 'Unknown',
+				user_id: req.user?._id?.toString(),
+				user_name: req.user?.name || req.user?.username || 'Unknown User'
+			});
+
+			console.log(`[MySQL] ✅ Recent activity logged for sub-section update: ${updated.subSection?.sub_hie_name}`);
+		} catch (activityErr) {
+			console.error('[RecentActivity] Failed to log sub-section update activity:', activityErr);
+		}
 		
 		// Refresh cache after update
 		const { refreshSubSectionsCache } = require('../services/mongodbCacheService');
 		await refreshSubSectionsCache();
 		console.log(`[MongoDB] 🔄 Cache refreshed after sub-section update`);
+
+		// Auto-update dashboard subsections count (in case MongoDB count changed)
+		try {
+			const { updateSubsectionsCount } = require('../services/dashboardAutoUpdateService');
+			await updateSubsectionsCount();
+		} catch (dashErr) {
+			console.error('[DashboardAutoUpdate] Failed to update subsections count:', dashErr);
+		}
 
 		return res.json({ success: true, message: 'Sub-section updated successfully', data: updated });
 	} catch (err) {
@@ -236,6 +290,26 @@ exports.deleteSubSection = async (req, res, next) => {
 				console.error('[AuditLog] Failed to log sub-section deletion:', auditErr);
 			}
 		}
+
+		// Log to recent activities table
+		try {
+			const { logRecentActivity } = require('../services/activityLogService');
+
+			await logRecentActivity({
+				title: 'Sub-Section Deleted',
+				description: `"${removed.subSection?.sub_hie_name || 'Unknown'}" removed`,
+				activity_type: 'subsection_deleted',
+				icon: 'bi bi-trash',
+				entity_id: removed._id?.toString(),
+				entity_name: removed.subSection?.sub_hie_name || 'Unknown',
+				user_id: req.user?._id?.toString(),
+				user_name: req.user?.name || req.user?.username || 'Unknown User'
+			});
+
+			console.log(`[MySQL] ✅ Recent activity logged for sub-section deletion: ${removed.subSection?.sub_hie_name || 'Unknown'}`);
+		} catch (activityErr) {
+			console.error('[RecentActivity] Failed to log sub-section deletion activity:', activityErr);
+		}
 		
 		// Remove all employee transfers to this sub-section
 		console.log(`[MongoDB] 🔄 Removing employee transfers for sub-section ID: ${id}`);
@@ -252,6 +326,14 @@ exports.deleteSubSection = async (req, res, next) => {
 		await refreshSubSectionsCache();
 		console.log(`[MongoDB] 🔄 Cache refreshed after sub-section deletion`);
 		
+		// Auto-update dashboard subsections count
+		try {
+			const { updateSubsectionsCount } = require('../services/dashboardAutoUpdateService');
+			await updateSubsectionsCount();
+		} catch (dashErr) {
+			console.error('[DashboardAutoUpdate] Failed to update subsections count:', dashErr);
+		}
+
 		const message = transferResult.deletedCount > 0 
 			? `Sub-section deleted successfully. ${transferResult.deletedCount} employee(s) removed from sub-section.`
 			: 'Sub-section deleted successfully.';

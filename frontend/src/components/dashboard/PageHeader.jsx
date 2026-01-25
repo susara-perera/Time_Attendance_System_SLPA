@@ -12,26 +12,28 @@ import logo from '../../assets/logo.jpg';
  */
 const PageHeader = ({ title, subtitle, icon = 'bi-folder', actions, onBack }) => {
   return (
-    <div className="page-header-banner">
-      <div className="page-header-content">
-        <div className="page-header-left">
-          {onBack && (
-            <button 
-              className="back-arrow-btn"
-              onClick={onBack}
-              title="Back to Dashboard"
-            >
-              <i className="bi bi-arrow-left"></i>
-            </button>
-          )}
-          <div className="page-header-icon">
-            <i className={`bi ${icon}`}></i>
+    <>
+      {onBack && (
+        <button 
+          className="back-arrow-btn"
+          onClick={onBack}
+          title="Back to Dashboard"
+          style={{ marginBottom: '12px', background: 'transparent', color: '#0f172a', border: '1px solid rgba(15,23,42,0.08)', width: 'auto', padding: '8px 12px' }}
+        >
+          <i className="bi bi-arrow-left"></i>&nbsp;<span style={{ fontWeight: 600 }}>Back</span>
+        </button>
+      )}
+      <div className="page-header-banner">
+        <div className="page-header-content">
+          <div className="page-header-left">
+            <div className="page-header-icon">
+              <i className={`bi ${icon}`}></i>
+            </div>
+            <div className="page-header-text">
+              <h1>{title}</h1>
+              {subtitle && <p>{subtitle}</p>}
+            </div>
           </div>
-          <div className="page-header-text">
-            <h1>{title}</h1>
-            {subtitle && <p>{subtitle}</p>}
-          </div>
-        </div>
         <div className="page-header-right">
           {actions && <div className="page-header-actions">{actions}</div>}
           <div className="page-header-logo">
@@ -46,6 +48,7 @@ const PageHeader = ({ title, subtitle, icon = 'bi-folder', actions, onBack }) =>
         <div className="decoration-circle decoration-circle-3"></div>
       </div>
     </div>
+    </>
   );
 };
 

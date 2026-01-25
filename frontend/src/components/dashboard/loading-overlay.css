@@ -1,0 +1,54 @@
+/* Loading Overlay - Non-blocking indicator */
+.loading-overlay {
+  position: fixed;
+  top: 80px;
+  right: 24px;
+  z-index: 9999;
+  pointer-events: none;
+  animation: slideInRight 0.3s ease-out;
+}
+
+.loading-indicator {
+  background: rgba(255, 255, 255, 0.98);
+  border-radius: 12px;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(102, 126, 234, 0.2);
+}
+
+.loading-indicator span {
+  font-size: 14px;
+  font-weight: 600;
+  color: #667eea;
+  letter-spacing: 0.3px;
+}
+
+.spinner-small {
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(102, 126, 234, 0.2);
+  border-top-color: #667eea;
+  border-radius: 50%;
+  animation: spinSmall 0.8s linear infinite;
+}
+
+@keyframes spinSmall {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(50px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}

@@ -2,240 +2,152 @@
  * Dashboard Controller - MySQL Sync Version
  * 
  * Uses MySQL sync tables (divisions_sync, sections_sync, employees_sync)
- * instead of HRIS API cache for fast, reliable dashboard data
+ * for fast, reliable dashboard data - NO CACHE
  */
 
 const { sequelize } = require('../models/mysql');
 const moment = require('moment');
 
-// @desc    Get dashboard statistics using MySQL sync tables
+const safeJsonParse = (value, fallback) => {
+  try {
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === 'string') return JSON.parse(value);
+    return value;
+  } catch (e) {
+    return fallback;
+  }
+};
+
+const getDashboardCacheRow = async () => {
+  const [row] = await sequelize.query(`
+    SELECT *
+    FROM total_count_dashboard
+    WHERE id = 1
+    LIMIT 1
+  `, {
+    raw: true,
+    type: sequelize.QueryTypes.SELECT
+  });
+
+  return row || null;
+};
+
+// @desc    Get dashboard statistics using total_count_dashboard cache table
 // @route   GET /api/dashboard/stats
 // @access  Private
 const getDashboardStats = async (req, res) => {
   try {
-    console.log('📊 Getting dashboard statistics from MySQL sync tables...');
+    const startTime = Date.now();
 
-    // Get counts from MySQL sync tables (fast!)
-    let divisionCount = { count: 0 };
-    let sectionCount = { count: 0 };
-    let employeeCount = { count: 0 };
+    // Get ALL data from total_count_dashboard table (single ULTRA-FAST query with index!)
+    const [dashboardData] = await sequelize.query(`
+      SELECT 
+        totalDivisions,
+        totalSections,
+        totalSubsections,
+        totalActiveEmployees,
+        IS_attendance_trend,
+        present_IS,
+        absent_IS,
+        last_updated
+      FROM total_count_dashboard USE INDEX (idx_id_updated)
+      WHERE id = 1
+      LIMIT 1
+    `, {
+      raw: true,
+      type: sequelize.QueryTypes.SELECT
+    });
 
-    try {
-      const [[divCount]] = await sequelize.query(
-        'SELECT COUNT(*) as count FROM divisions_sync'
-      );
-      divisionCount = divCount || { count: 0 };
-    } catch (err) {
-      console.log('⚠️ Could not get division count from MySQL, using 0:', err.message);
+    if (!dashboardData) {
+      console.warn('⚠️ No data in total_count_dashboard (cache empty).');
+      return res.status(200).json({
+        success: true,
+        data: {
+          totalDivisions: 0,
+          totalSections: 0,
+          totalSubSections: 0,
+          totalEmployees: 0,
+          message: 'Dashboard cache is empty. Please run Manual Sync → Dashboard Totals Cache.'
+        }
+      });
     }
 
-    try {
-      const [[secCount]] = await sequelize.query(
-        'SELECT COUNT(*) as count FROM sections_sync'
-      );
-      sectionCount = secCount || { count: 0 };
-    } catch (err) {
-      console.log('⚠️ Could not get section count from MySQL, using 0:', err.message);
-    }
+    const cachedData = dashboardData;
+
+    // Parse JSON fields  
+    let isAttendanceTrend = [];
+    let presentIS = [];
+    let absentIS = [];
 
     try {
-      const [[empCount]] = await sequelize.query(
-        'SELECT COUNT(*) as count FROM employees_sync WHERE IS_ACTIVE = 1'
-      );
-      employeeCount = empCount || { count: 0 };
-    } catch (err) {
-      console.log('⚠️ Could not get employee count from MySQL, using 0:', err.message);
-    }
-
-    // Get sub-sections count from MySQL
-    let subSectionCount = 0;
-    try {
-      const [[subSecCount]] = await sequelize.query(
-        'SELECT COUNT(*) as count FROM sub_sections'
-      );
-      subSectionCount = subSecCount?.count || 0;
-    } catch (err) {
-      // Table doesn't exist yet, try MongoDB fallback
-      try {
-        const SubSection = require('../models/SubSection');
-        subSectionCount = await SubSection.countDocuments({});
-      } catch (mongoErr) {
-        subSectionCount = 0;
+      if (cachedData.IS_attendance_trend) {
+        isAttendanceTrend = typeof cachedData.IS_attendance_trend === 'string' 
+          ? JSON.parse(cachedData.IS_attendance_trend) 
+          : cachedData.IS_attendance_trend;
       }
+      if (cachedData.present_IS) {
+        presentIS = typeof cachedData.present_IS === 'string'
+          ? JSON.parse(cachedData.present_IS)
+          : cachedData.present_IS;
+      }
+      if (cachedData.absent_IS) {
+        absentIS = typeof cachedData.absent_IS === 'string'
+          ? JSON.parse(cachedData.absent_IS)
+          : cachedData.absent_IS;
+      }
+    } catch (e) {
+      console.warn('⚠️ Failed to parse IS attendance data:', e.message);
     }
 
-    // Get system users count from MongoDB
+    // Get additional data not in cache table
     const User = require('../models/User');
     const totalUsers = await User.countDocuments({ isActive: true });
-
-    // Get today's date
-    const today = moment().format('YYYY-MM-DD');
-
-    // Try to get attendance stats from attendance_sync
-    let presentToday = 0;
-    try {
-      const [[todayStats]] = await sequelize.query(`
-        SELECT COUNT(DISTINCT employee_id) as present_count
-        FROM attendance_sync 
-        WHERE attendance_date = ? AND status = 'present'
-      `, { replacements: [today] });
-      presentToday = todayStats?.present_count || 0;
-    } catch (err) {
-      // attendance_sync not available yet
-    }
-
-    const totalEmployees = employeeCount?.count || 0;
-    const attendanceRate = totalEmployees > 0 
-      ? parseFloat(((presentToday / totalEmployees) * 100).toFixed(1)) 
-      : 0;
-
-    // Calculate active users (logged in last 24 hours)
     const activeUsers = await User.countDocuments({ 
       isActive: true, 
       lastLogin: { $gte: moment().subtract(24, 'hours').toDate() } 
     });
 
+    // Get today's overall attendance (optional; attendance_sync may not exist)
+    const today = moment().format('YYYY-MM-DD');
+    const presentToday = 0;
+    const totalEmployees = cachedData.totalActiveEmployees || 0;
+    const attendanceRate = 0;
+
     // Get recent activities
     let recentActivities = [];
     try {
-      const SubSection = require('../models/SubSection');
-      const TransferToSubsection = require('../models/TransferToSubsection');
+      const { RecentActivity } = require('../models/mysql');
       const weekAgoDate = moment().subtract(7, 'days').toDate();
 
-      const [recentSubSections, recentTransfers] = await Promise.all([
-        SubSection.find({ createdAt: { $gte: weekAgoDate } }).sort({ createdAt: -1 }).limit(5).lean(),
-        TransferToSubsection.find({ transferredAt: { $gte: weekAgoDate } }).sort({ transferredAt: -1 }).limit(5).lean()
-      ]);
+      const activities = await RecentActivity.findAll({
+        where: {
+          created_at: {
+            [require('sequelize').Op.gte]: weekAgoDate
+          }
+        },
+        order: [['created_at', 'DESC']],
+        limit: 10
+      });
 
-      const subSectionActivities = recentSubSections.map(sub => ({
-        title: 'New Sub-Section',
-        description: `"${sub.subSection?.sub_hie_name || 'Unknown'}" added`,
-        date: moment(sub.createdAt).format('YYYY-MM-DD'),
-        time: moment(sub.createdAt).format('HH:mm:ss'),
-        icon: 'bi bi-diagram-2'
+      recentActivities = activities.map(activity => ({
+        title: activity.title,
+        description: activity.description,
+        date: activity.activity_date,
+        time: activity.activity_time,
+        icon: activity.icon
       }));
-
-      const transferActivities = recentTransfers.map(tr => ({
-        title: 'Employee Transferred',
-        description: `"${tr.employeeName}" transferred to "${tr.sub_hie_name}"`,
-        date: moment(tr.transferredAt).format('YYYY-MM-DD'),
-        time: moment(tr.transferredAt).format('HH:mm:ss'),
-        icon: 'bi bi-arrow-left-right'
-      }));
-
-      recentActivities = [...subSectionActivities, ...transferActivities]
-        .sort((a, b) => new Date(`${b.date}T${b.time}`) - new Date(`${a.date}T${a.time}`))
-        .slice(0, 10);
     } catch (err) {
       console.log('⚠️ Could not fetch activities:', err.message);
     }
 
-    // Get weekly attendance trend (last 7 days)
-    let weeklyTrend = [];
-    try {
-      // Generate dates for the last 7 days
-      const dates = [];
-      for (let i = 6; i >= 0; i--) {
-        dates.push(moment().subtract(i, 'days').format('YYYY-MM-DD'));
-      }
-
-      // Query attendance data for each day
-      for (const date of dates) {
-        try {
-          const [[dayStats]] = await sequelize.query(`
-            SELECT COUNT(DISTINCT employee_id) as present_count
-            FROM attendance_sync 
-            WHERE attendance_date = ? AND status = 'present'
-          `, { replacements: [date] });
-          
-          weeklyTrend.push({
-            date: date,
-            employees: dayStats?.present_count || 0
-          });
-        } catch (dayErr) {
-          // If no data for this day, add 0
-          weeklyTrend.push({
-            date: date,
-            employees: 0
-          });
-        }
-      }
-    } catch (err) {
-      console.log('⚠️ Could not generate weekly trend:', err.message);
-      // Fallback: generate mock data for the last 7 days
-      weeklyTrend = [];
-      for (let i = 6; i >= 0; i--) {
-        const date = moment().subtract(i, 'days').format('YYYY-MM-DD');
-        weeklyTrend.push({
-          date: date,
-          employees: Math.floor(Math.random() * 50) + 70 // Random data between 70-120
-        });
-      }
-    }
-
-    // Compute IS division employee list and today's present list in parallel, then derive absent list
-    let absentTodayIS = [];
-    let absentTodayISCount = 0;
-    let presentTodayIS = [];
-    let presentTodayISCount = 0;
-    let totalEmployeesIS = 0;
-    try {
-      const isDivCode = process.env.IS_DIV_CODE || 'IS';
-
-      const empSql = `
-        SELECT e.EMP_NO as empNo, e.EMP_NAME as name, e.SEC_CODE as secCode
-        FROM employees_sync e
-        WHERE e.IS_ACTIVE = 1
-          AND (e.DIV_CODE = :divCode OR e.DIV_CODE IN (SELECT HIE_CODE FROM divisions_sync WHERE HIE_NAME LIKE :divName))
-      `;
-
-      const presentSql = `
-        SELECT DISTINCT a.employee_id as empNo
-        FROM attendance_sync a
-        JOIN employees_sync e ON a.employee_id = e.EMP_NO
-        WHERE a.attendance_date = :today AND a.status = 'present'
-          AND (e.DIV_CODE = :divCode OR e.DIV_CODE IN (SELECT HIE_CODE FROM divisions_sync WHERE HIE_NAME LIKE :divName))
-      `;
-
-      const [empRes, presentRes] = await Promise.all([
-        sequelize.query(empSql, { replacements: { divCode: isDivCode, divName: `%${isDivCode}%` } }),
-        sequelize.query(presentSql, { replacements: { today, divCode: isDivCode, divName: `%${isDivCode}%` } })
-      ]);
-
-      const empRows = Array.isArray(empRes) ? empRes[0] : [];
-      const presentRows = Array.isArray(presentRes) ? presentRes[0] : [];
-
-      // Build employee list and map for quick lookup
-      const employeesIS = Array.isArray(empRows) ? empRows.map(r => ({ empNo: String(r.empNo), name: r.name, secCode: r.secCode })) : [];
-      const empMap = new Map(employeesIS.map(e => [String(e.empNo), e]));
-
-      // Present rows come from today's attendance only (attendance_date = :today)
-      const presentEmpNos = Array.isArray(presentRows) ? presentRows.map(r => String(r.empNo)) : [];
-      const presentSet = new Set(presentEmpNos.map(String));
-
-      // Compose present list with employee details (only those present today)
-      const presentTodayISList = presentEmpNos.map(no => empMap.get(String(no))).filter(Boolean).slice(0, 200);
-
-      // Absent are those employees in IS who are not in today's present set
-      const absentArr = employeesIS.filter(emp => !presentSet.has(String(emp.empNo)));
-
-      // Limit absent list returned to 200 rows for safety
-      absentTodayIS = absentArr.slice(0, 200);
-      absentTodayISCount = absentArr.length;
-      presentTodayISCount = presentSet.size;
-      totalEmployeesIS = employeesIS.length;
-      presentTodayIS = presentTodayISList;
-
-      console.log(`✅ IS counts - total: ${totalEmployeesIS}, present: ${presentTodayISCount}, absent: ${absentTodayISCount}`);
-
-    } catch (err) {
-      console.log('⚠️ Could not compute IS absent list:', err.message);
-    }
+    // Get IS division employee lists (from cached data in total_count_dashboard)
+    const presentTodayIS = Array.isArray(presentIS) ? presentIS.slice(0, 200) : [];
+    const absentTodayIS = Array.isArray(absentIS) ? absentIS.slice(0, 200) : [];
 
     const stats = {
-      totalDivisions: divisionCount?.count || 0,
-      totalSections: sectionCount?.count || 0,
-      totalSubSections: subSectionCount,
+      totalDivisions: cachedData.totalDivisions || 0,
+      totalSections: cachedData.totalSections || 0,
+      totalSubSections: cachedData.totalSubsections || 0,
       totalEmployees: totalEmployees,
       totalUsers: totalUsers,
       presentToday: presentToday,
@@ -250,22 +162,29 @@ const getDashboardStats = async (req, res) => {
         inScans: 0,
         outScans: 0
       },
-      weeklyTrend: weeklyTrend,
-      // IS absent / present info
+      weeklyTrend: isAttendanceTrend,  // IS division 7-day trend from cache
+      monthlyTrend: [],  // Not implemented yet
+      annualTrend: [],  // Not implemented yet
+      // IS division data
       absentTodayIS: absentTodayIS,
-      absentTodayISCount: absentTodayISCount,
-      presentTodayIS: presentTodayIS || [],
-      presentTodayISCount: presentTodayISCount,
-      totalEmployeesIS: totalEmployeesIS,
-      dataSource: 'MySQL Sync'
+      absentTodayISCount: absentTodayIS.length,
+      presentTodayIS: presentTodayIS,
+      presentTodayISCount: presentTodayIS.length,
+      totalEmployeesIS: presentTodayIS.length + absentTodayIS.length,
+      dataSource: 'total_count_dashboard (MySQL)',
+      cacheLastUpdated: cachedData.last_updated, // last_updated in total_count_dashboard
+      queryTime: Date.now() - startTime // Performance metric
     };
 
-    console.log(`✅ Dashboard: ${stats.totalDivisions} div, ${stats.totalSections} sec, ${stats.totalEmployees} emp`);
+    const queryTime = Date.now() - startTime;
+    console.log(`✅ Dashboard loaded in ${queryTime}ms (${stats.totalDivisions} div, ${stats.totalSections} sec, ${stats.totalEmployees} emp)`);
 
-    res.status(200).json({
+    const response = {
       success: true,
       data: stats
-    });
+    };
+
+    res.status(200).json(response);
 
   } catch (error) {
     console.error('❌ Dashboard stats error:', error.message);
@@ -273,68 +192,6 @@ const getDashboardStats = async (req, res) => {
       success: false,
       message: 'Failed to fetch dashboard stats',
       error: error.message
-    });
-  }
-};
-
-// @desc    Get recent activities
-// @route   GET /api/dashboard/activities/recent
-// @access  Private
-const getRecentActivities = async (req, res) => {
-  try {
-    const limit = parseInt(req.query.limit) || 10;
-    const weekAgoDate = moment().subtract(7, 'days').toDate();
-
-    const SubSection = require('../models/SubSection');
-    const TransferToSubsection = require('../models/TransferToSubsection');
-
-    let recentSubSections = [];
-    let recentTransfers = [];
-
-    try {
-      recentSubSections = await SubSection.find({ createdAt: { $gte: weekAgoDate } })
-        .sort({ createdAt: -1 })
-        .limit(limit)
-        .lean();
-    } catch (err) {}
-
-    try {
-      recentTransfers = await TransferToSubsection.find({ transferredAt: { $gte: weekAgoDate } })
-        .sort({ transferredAt: -1 })
-        .limit(limit)
-        .lean();
-    } catch (err) {}
-
-    const subSectionActivities = recentSubSections.map(sub => ({
-      title: 'New Sub-Section',
-      description: `"${sub.subSection?.sub_hie_name || 'Unknown'}" added`,
-      date: moment(sub.createdAt).format('YYYY-MM-DD'),
-      time: moment(sub.createdAt).format('HH:mm:ss'),
-      icon: 'bi bi-diagram-2'
-    }));
-
-    const transferActivities = recentTransfers.map(tr => ({
-      title: 'Employee Transferred',
-      description: `"${tr.employeeName}" transferred to "${tr.sub_hie_name}"`,
-      date: moment(tr.transferredAt).format('YYYY-MM-DD'),
-      time: moment(tr.transferredAt).format('HH:mm:ss'),
-      icon: 'bi bi-arrow-left-right'
-    }));
-
-    const allActivities = [...subSectionActivities, ...transferActivities]
-      .sort((a, b) => new Date(`${b.date}T${b.time}`) - new Date(`${a.date}T${a.time}`))
-      .slice(0, limit);
-
-    res.status(200).json({
-      success: true,
-      data: allActivities
-    });
-
-  } catch (error) {
-    console.error('Error fetching recent activities:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch recent activities'
     });
   }
 };
@@ -385,9 +242,307 @@ const refreshDashboardTotalCounts = async (req, res) => {
   }
 };
 
+// @desc    Get recent activities
+// @route   GET /api/dashboard/activities/recent
+// @access  Private
+const getRecentActivities = async (req, res) => {
+  try {
+    const requestedLimit = parseInt(req.query.limit);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 20) : 5;
+
+    // Import MySQL models
+    const { RecentActivity } = require('../models/mysql');
+
+    // Query recent activities from MySQL table
+    const activities = await RecentActivity.findAll({
+      order: [['created_at', 'DESC']],
+      limit: limit
+    });
+
+    // Map to the expected format
+    const formattedActivities = activities.map(activity => ({
+      id: activity.id,
+      title: activity.title,
+      description: activity.description,
+      date: activity.activity_date,
+      time: activity.activity_time,
+      icon: activity.icon,
+      action: activity.activity_type,
+      user: activity.user_name
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: formattedActivities
+    });
+
+  } catch (error) {
+    console.error('Error fetching recent activities:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch recent activities'
+    });
+  }
+};
+
+// --- Per-widget endpoints (read-only from total_count_dashboard / recent_activities) ---
+
+// @route GET /api/dashboard/total-divisions
+const getTotalDivisions = async (req, res) => {
+  try {
+    const row = await getDashboardCacheRow();
+    res.status(200).json({
+      success: true,
+      count: row?.totalDivisions || 0,
+      lastUpdated: row?.last_updated || null
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch total divisions' });
+  }
+};
+
+// @route GET /api/dashboard/total-sections
+const getTotalSections = async (req, res) => {
+  try {
+    const row = await getDashboardCacheRow();
+    res.status(200).json({
+      success: true,
+      count: row?.totalSections || 0,
+      lastUpdated: row?.last_updated || null
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch total sections' });
+  }
+};
+
+// @route GET /api/dashboard/total-subsections
+const getTotalSubSections = async (req, res) => {
+  try {
+    const row = await getDashboardCacheRow();
+    res.status(200).json({
+      success: true,
+      count: row?.totalSubsections || 0,
+      lastUpdated: row?.last_updated || null
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch total sub sections' });
+  }
+};
+
+// @route GET /api/dashboard/total-employees
+const getTotalEmployees = async (req, res) => {
+  try {
+    const row = await getDashboardCacheRow();
+    res.status(200).json({
+      success: true,
+      count: row?.totalActiveEmployees || 0,
+      lastUpdated: row?.last_updated || null
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch total employees' });
+  }
+};
+
+// @route GET /api/dashboard/attendance-trend
+const getAttendanceTrend = async (req, res) => {
+  try {
+    const row = await getDashboardCacheRow();
+    const trend =
+      safeJsonParse(row?.IS_attendance_trend, null) ||
+      safeJsonParse(row?.attendance_trend_data, []);
+
+    res.status(200).json({
+      success: true,
+      data: Array.isArray(trend) ? trend : [],
+      lastUpdated: row?.last_updated || null
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch attendance trend' });
+  }
+};
+
+// @route GET /api/dashboard/is-division-attendance
+const getIsDivisionAttendance = async (req, res) => {
+  try {
+    const row = await getDashboardCacheRow();
+
+    // Try to use is_division_attendance if it has valid employees array
+    const cachedObj = safeJsonParse(row?.is_division_attendance, null);
+    if (cachedObj && typeof cachedObj === 'object' && Array.isArray(cachedObj.employees) && cachedObj.employees.length > 0) {
+      return res.status(200).json({
+        success: true,
+        data: cachedObj,
+        lastUpdated: row?.last_updated || null
+      });
+    }
+
+    // Fallback: combine present_IS and absent_IS
+    const present = safeJsonParse(row?.present_IS, []);
+    const absent = safeJsonParse(row?.absent_IS, []);
+
+    const presentList = Array.isArray(present)
+      ? present.map(e => ({
+          employee_id: e.employee_id || e.empNo || e.EMP_NO || null,
+          employee_name: e.employee_name || e.empName || e.EMP_NAME || null,
+          division_code: e.division_code || e.divCode || e.DIV_CODE || null,
+          division_name: e.division_name || e.divName || e.DIV_NAME || null,
+          section_code: e.section_code || e.secCode || e.SEC_CODE || null,
+          section_name: e.section_name || e.secName || e.SEC_NAME || null,
+          is_present: true
+        }))
+      : [];
+
+    const absentList = Array.isArray(absent)
+      ? absent.map(e => ({
+          employee_id: e.employee_id || e.empNo || e.EMP_NO || null,
+          employee_name: e.employee_name || e.empName || e.EMP_NAME || null,
+          division_code: e.division_code || e.divCode || e.DIV_CODE || null,
+          division_name: e.division_name || e.divName || e.DIV_NAME || null,
+          section_code: e.section_code || e.secCode || e.SEC_CODE || null,
+          section_name: e.section_name || e.secName || e.SEC_NAME || null,
+          is_present: false
+        }))
+      : [];
+
+    const employees = [...presentList, ...absentList].filter(e => e.employee_id);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        employees,
+        totalEmployees: employees.length,
+        presentCount: presentList.length,
+        absentCount: absentList.length
+      },
+      lastUpdated: row?.last_updated || null
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch IS division attendance' });
+  }
+};
+
+// @desc    Refresh attendance trend data only (also updates total_count_dashboard)
+// @route   POST /api/dashboard/attendance-trend/refresh
+// @access  Private
+const refreshAttendanceTrend = async (req, res) => {
+  try {
+    const { updateDashboardTotals } = require('../services/dashboardTotalsService');
+    const result = await updateDashboardTotals();
+
+    res.status(200).json({
+      success: true,
+      message: 'Attendance trend data refreshed successfully',
+      data: {
+        attendanceTrend: result?.totals?.attendanceTrend || result?.attendanceTrend || [],
+        monthlyTrend: result?.totals?.monthlyTrend || result?.monthlyTrend || [],
+        annualTrend: result?.totals?.annualTrend || result?.annualTrend || []
+      }
+    });
+  } catch (error) {
+    console.error('Refresh attendance trend error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error refreshing attendance trend'
+    });
+  }
+};
+
+// @desc    Sync present/absent IS division employees for today into present_employees_IS
+// @route   POST /api/dashboard/present-absent-sync
+// @access  Private
+const syncPresentAbsentIS = async (req, res) => {
+  try {
+    const runQuery = createDbRunner();
+    const isDivCode = process.env.IS_DIV_CODE || '66';
+
+    await runQuery(`
+      CREATE TABLE IF NOT EXISTS present_employees_IS (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        employee_id VARCHAR(50) NOT NULL,
+        employee_name VARCHAR(150) NULL,
+        division_code VARCHAR(50) NULL,
+        section_code VARCHAR(50) NULL,
+        attendance_date DATE NOT NULL,
+        status VARCHAR(10) NOT NULL,
+        first_in TIME NULL,
+        last_out TIME NULL,
+        punches INT DEFAULT 0,
+        last_seen DATETIME NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_emp_date (employee_id, attendance_date),
+        INDEX idx_status (status),
+        INDEX idx_att_date (attendance_date)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await runQuery(`
+      INSERT INTO present_employees_IS (
+        employee_id, employee_name, division_code, section_code, attendance_date,
+        status, first_in, last_out, punches, last_seen
+      )
+      SELECT 
+        e.EMP_NO AS employee_id,
+        e.EMP_NAME AS employee_name,
+        e.DIV_CODE AS division_code,
+        e.SEC_CODE AS section_code,
+        CURDATE() AS attendance_date,
+        CASE WHEN a.employee_id IS NULL THEN 'absent' ELSE 'present' END AS status,
+        MIN(a.time_) AS first_in,
+        MAX(a.time_) AS last_out,
+        COUNT(a.employee_id) AS punches,
+        MAX(CONCAT(a.date_, ' ', a.time_)) AS last_seen
+      FROM employees_sync e
+      LEFT JOIN attendance a
+        ON a.employee_id = e.EMP_NO
+        AND DATE(a.date_) = CURDATE()
+        AND (a.fingerprint_id NOT LIKE '%Emergancy Exit%' OR a.fingerprint_id IS NULL)
+      WHERE e.DIV_CODE = ?
+        AND e.IS_ACTIVE = 1
+      GROUP BY e.EMP_NO, e.EMP_NAME, e.DIV_CODE, e.SEC_CODE
+      ON DUPLICATE KEY UPDATE
+        status = VALUES(status),
+        first_in = VALUES(first_in),
+        last_out = VALUES(last_out),
+        punches = VALUES(punches),
+        last_seen = VALUES(last_seen),
+        updated_at = CURRENT_TIMESTAMP
+    `, [isDivCode]);
+
+    const [summaryRows] = await runQuery(`
+      SELECT 
+        COUNT(*) AS total,
+        SUM(status = 'present') AS presentCount,
+        SUM(status = 'absent') AS absentCount
+      FROM present_employees_IS
+      WHERE attendance_date = CURDATE()
+    `);
+
+    res.status(200).json({
+      success: true,
+      message: 'present_employees_IS synced successfully',
+      data: summaryRows?.[0] || { total: 0, presentCount: 0, absentCount: 0 }
+    });
+  } catch (error) {
+    console.error('Sync present_employees_IS error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error syncing present/absent IS employees'
+    });
+  }
+};
+
 module.exports = {
   getDashboardStats,
   getRecentActivities,
   getDashboardTotalCounts,
-  refreshDashboardTotalCounts
+  refreshDashboardTotalCounts,
+  refreshAttendanceTrend,
+  syncPresentAbsentIS,
+  getTotalDivisions,
+  getTotalSections,
+  getTotalSubSections,
+  getTotalEmployees,
+  getAttendanceTrend,
+  getIsDivisionAttendance
 };

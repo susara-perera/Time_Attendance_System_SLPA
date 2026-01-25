@@ -18,7 +18,6 @@ const { syncEmpIndex } = require('../services/empIndexSyncService');
 const { syncSubSections } = require('../services/subSectionSyncService');
 const { syncAttendance } = require('../services/attendanceSyncService');
 const { syncAuditData, syncLastNDays: syncAuditLastNDays, getAuditSyncStats } = require('../services/auditSyncService');
-const cachePreloadService = require('../services/cachePreloadService');
 
 const {
   getSchedulerStatus,
@@ -106,7 +105,14 @@ const triggerDivisionsSync = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Divisions sync completed',
-      data: result
+      data: {
+        synced: result.recordsAdded || 0,
+        total: result.recordsSynced || 0,
+        created: result.recordsAdded || 0,
+        updated: result.recordsUpdated || 0,
+        failed: result.recordsFailed || 0,
+        records: result.newRecords || []
+      }
     });
 
   } catch (error) {
@@ -133,7 +139,14 @@ const triggerSectionsSync = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Sections sync completed',
-      data: result
+      data: {
+        synced: result.recordsAdded || 0,
+        total: result.recordsSynced || 0,
+        created: result.recordsAdded || 0,
+        updated: result.recordsUpdated || 0,
+        failed: result.recordsFailed || 0,
+        records: result.newRecords || []
+      }
     });
 
   } catch (error) {
@@ -160,7 +173,14 @@ const triggerEmployeesSync = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Employees sync completed',
-      data: result
+      data: {
+        synced: result.recordsAdded || 0,
+        total: result.recordsSynced || 0,
+        created: result.recordsAdded || 0,
+        updated: result.recordsUpdated || 0,
+        failed: result.recordsFailed || 0,
+        records: result.newRecords || []
+      }
     });
 
   } catch (error) {

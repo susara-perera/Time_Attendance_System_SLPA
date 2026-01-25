@@ -70,7 +70,7 @@ router.post('/trigger/attendance', authorize('super_admin', 'admin'), triggerAtt
 // @route   POST /api/sync/trigger/cache
 // @desc    Trigger cache rebuild and preload
 // @access  Private (super_admin, admin)
-router.post('/trigger/cache', authorize('super_admin', 'admin'), triggerCacheSync);
+// router.post('/trigger/cache', authorize('super_admin', 'admin'), triggerCacheSync);
 
 // @route   POST /api/sync/trigger/audit
 // @desc    Trigger audit data sync (incomplete punches to audit_sync table)

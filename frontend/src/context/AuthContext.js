@@ -240,8 +240,9 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem('token', data.token);
       }
       
-      // Save cache preload status (if returned by server)
-      if (data.cache) setCacheStatus(data.cache);
+      // Cache activation on login removed.
+      // Login should not trigger full system cache preload. Cache can be warmed manually via the Admin UI (Manual Sync).
+      // setCacheStatus remains unchanged until explicit action is performed by admin.
 
       // Set preliminary user then fetch full profile to populate fields like phone/address
       setUser(data.user);

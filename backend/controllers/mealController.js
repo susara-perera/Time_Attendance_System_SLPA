@@ -1,6 +1,4 @@
-const Meal = require('../models/Meal');
-const User = require('../models/User');
-const AuditLog = require('../models/AuditLog');
+const { MySQLMeal: Meal, MySQLUser: User, MySQLAuditLog: AuditLog } = require('../models/mysql');
 const { validationResult } = require('express-validator');
 const moment = require('moment');
 
@@ -162,6 +160,26 @@ const createMeal = async (req, res) => {
       console.error('[AuditLog] Failed to log meal creation:', auditErr);
     }
 
+    // Log to recent activities table
+    try {
+      const { logRecentActivity } = require('../services/activityLogService');
+
+      await logRecentActivity({
+        title: 'New Meal Created',
+        description: `"${meal.name}" meal added`,
+        activity_type: 'meal_created',
+        icon: 'bi bi-cup-hot',
+        entity_id: meal._id?.toString(),
+        entity_name: meal.name,
+        user_id: req.user?._id?.toString(),
+        user_name: req.user?.name || req.user?.username || 'Unknown User'
+      });
+
+      console.log(`[MySQL] ✅ Recent activity logged for meal creation: ${meal.name}`);
+    } catch (activityErr) {
+      console.error('[RecentActivity] Failed to log meal creation activity:', activityErr);
+    }
+
     res.status(201).json({
       success: true,
       data: meal,
@@ -250,6 +268,26 @@ const updateMeal = async (req, res) => {
       console.error('[AuditLog] Failed to log meal update:', auditErr);
     }
 
+    // Log to recent activities table
+    try {
+      const { logRecentActivity } = require('../services/activityLogService');
+
+      await logRecentActivity({
+        title: 'Meal Updated',
+        description: `"${updatedMeal.name}" meal modified`,
+        activity_type: 'meal_updated',
+        icon: 'bi bi-pencil-square',
+        entity_id: updatedMeal._id?.toString(),
+        entity_name: updatedMeal.name,
+        user_id: req.user?._id?.toString(),
+        user_name: req.user?.name || req.user?.username || 'Unknown User'
+      });
+
+      console.log(`[MySQL] ✅ Recent activity logged for meal update: ${updatedMeal.name}`);
+    } catch (activityErr) {
+      console.error('[RecentActivity] Failed to log meal update activity:', activityErr);
+    }
+
     res.json({
       success: true,
       data: updatedMeal,
@@ -309,6 +347,26 @@ const deleteMeal = async (req, res) => {
       });
     } catch (auditErr) {
       console.error('[AuditLog] Failed to log meal deletion:', auditErr);
+    }
+
+    // Log to recent activities table
+    try {
+      const { logRecentActivity } = require('../services/activityLogService');
+
+      await logRecentActivity({
+        title: 'Meal Deleted',
+        description: `"${meal.name}" meal removed`,
+        activity_type: 'meal_deleted',
+        icon: 'bi bi-trash',
+        entity_id: meal._id?.toString(),
+        entity_name: meal.name,
+        user_id: req.user?._id?.toString(),
+        user_name: req.user?.name || req.user?.username || 'Unknown User'
+      });
+
+      console.log(`[MySQL] ✅ Recent activity logged for meal deletion: ${meal.name}`);
+    } catch (activityErr) {
+      console.error('[RecentActivity] Failed to log meal deletion activity:', activityErr);
     }
 
     res.json({

@@ -1,102 +1,126 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-const mongoSanitize = require('express-mongo-sanitize');
 const xss = require('xss-clean');
 const compression = require('compression');
 const morgan = require('morgan');
 const cookieParser = require('cookie-parser');
+const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
-const connectDB = require('./config/database');
+// Remove MongoDB - using MySQL only
+// const connectDB = require('./config/database');
 const { testMySQLConnection, ensureMySQLSchema } = require('./config/mysql');
+const { sequelize } = require('./config/mysql');
 
 const app = express();
 
-// Ensure MongoDB is connected for auth, roles, and other Mongoose models
-// Moved after server start to allow testing before MongoDB connection
-// connectDB()
-//   .then(() => {
-//     console.log('✅ MongoDB connection established. Proceeding to seed roles...');
-//     return seedRoles();
-//   })
-//   .catch(err => {
-//     console.error('❌ Failed to connect to MongoDB at startup:', err?.message || err);
-//   });
-
-// Ensure MongoDB is connected for auth, roles, and other Mongoose models
-connectDB()
-  .then(() => {
-    console.log('✅ MongoDB connection established. Proceeding to seed roles...');
-    return seedRoles();
-  })
-  .catch(err => {
-    console.error('❌ Failed to connect to MongoDB at startup:', err?.message || err);
-    process.exit(1); // Exit if MongoDB fails
-  });
-
-// Seed default roles if missing
-const seedRoles = async () => {
+// Initialize MySQL and sync models
+const initializeMySQL = async () => {
   try {
-    const Role = require('./models/Role');
-    const defaultRoles = [
-      { value: 'super_admin', label: 'Super Admin', description: 'Highest level system administrator' },
-      { value: 'admin', label: 'Administrator', description: 'System administrator with management rights' },
-      { value: 'administrative_clerk', label: 'Administrative Clerk', description: 'Administrative support staff' },
-      { value: 'clerk', label: 'Clerk', description: 'General office clerk' },
-      { value: 'employee', label: 'Employee', description: 'Regular system user' }
-    ];
-
-    for (const r of defaultRoles) {
-      await Role.findOneAndUpdate(
-        { value: r.value },
-        { $set: { label: r.label, description: r.description || '', name: r.label } },
-        { upsert: true, new: true }
-      );
-    }
-  } catch (err) {
-    console.error('Error seeding roles:', err);
+    console.log('🔄 Connecting to MySQL database...');
+    await testMySQLConnection();
+    console.log('✅ MySQL connection established');
+    
+    // Initialize models and associations
+    require('./models/mysql');
+    
+    // Don't sync - tables already exist in MySQL, we're just using them
+    // await sequelize.sync({ alter: false, force: false }); 
+    console.log('✅ MySQL models loaded');
+    
+    // Ensure schema exists
+    await ensureMySQLSchema();
+    console.log('✅ MySQL schema verified');
+    
+    // Seed roles
+    await seedRoles();
+    
+    // Create default super admin
+    await createDefaultSuperAdmin();
+    
+  } catch (error) {
+    console.error('❌ Failed to initialize MySQL:', error.message);
+    process.exit(1);
   }
 };
 
-// Seed roles is now invoked after successful Mongo connection above
+// Seed default roles in MySQL
+const seedRoles = async () => {
+  try {
+    console.log('🌱 Seeding roles in MySQL...');
+    const { MySQLRole } = require('./models/mysql');
+    const defaultRoles = [
+      { value: 'super_admin', label: 'Super Admin', name: 'Super Admin', description: 'Highest level system administrator', permissions: {} },
+      { value: 'admin', label: 'Administrator', name: 'Administrator', description: 'System administrator with management rights', permissions: {} },
+      { value: 'administrative_clerk', label: 'Administrative Clerk', name: 'Administrative Clerk', description: 'Administrative support staff', permissions: {} },
+      { value: 'clerk', label: 'Clerk', name: 'Clerk', description: 'General office clerk', permissions: {} },
+      { value: 'employee', label: 'Employee', name: 'Employee', description: 'Regular system user', permissions: {} }
+    ];
 
-// Test MySQL connection for reports (non-blocking, optional)
-if (process.env.MYSQL_ENABLED !== 'false') {
-  testMySQLConnection().then(async success => {
-    if (success) {
-      console.log('📊 MySQL available for report generation');
-      // Ensure tables we rely on exist (idempotent)
-      await ensureMySQLSchema();
-    } else {
-      console.log('⚠️ MySQL not available - reports may be limited');
-      console.log('💡 To enable MySQL reports, ensure MySQL is running and configured in .env file');
+    for (const roleData of defaultRoles) {
+      await MySQLRole.findOrCreate({
+        where: { value: roleData.value },
+        defaults: roleData
+      });
     }
-  }).catch(err => {
-    console.log('⚠️ MySQL connection failed:', err.message);
-    console.log('💡 System will continue without MySQL - MongoDB reports will be used');
-  });
-} else {
-  console.log('ℹ️  MySQL is disabled in configuration (MYSQL_ENABLED=false)');
-  console.log('📊 Using MongoDB for all reports');
-}
+    console.log('✅ Roles seeded successfully in MySQL');
+  } catch (err) {
+    console.error('❌ Error seeding roles:', err.message);
+    // Don't fail the server if role seeding fails
+  }
+};
 
-// Initialize HRIS Sync Scheduler (daily at 12 PM for data sync)
-// NOTE: HRIS API is now ONLY used for daily sync, NOT for data access
-// const { initializeScheduler } = require('./services/hrisSyncScheduler');
-// console.log('🕐 Initializing HRIS sync scheduler (daily at 12 PM)...');
-// initializeScheduler('0 12 * * *'); // Daily at 12 PM
+// Create default super admin user
+const createDefaultSuperAdmin = async () => {
+  try {
+    console.log('👤 Checking for default super admin...');
+    const { MySQLUser } = require('./models/mysql');
+    
+    const existingAdmin = await MySQLUser.findOne({ where: { email: 'root@slpa.lk' } });
+    
+    if (!existingAdmin) {
+      console.log('🔧 Creating default super admin user...');
+      await MySQLUser.create({
+        firstName: 'Super',
+        lastName: 'Admin',
+        email: 'root@slpa.lk',
+        employeeId: 'ROOT001',
+        password: 'root123', // Will be hashed by beforeSave hook
+        role: 'super_admin',
+        divisionId: 66, // IS division
+        sectionId: 333, // IS section
+        isActive: true,
+        permissions: {
+          users: { create: true, read: true, update: true, delete: true },
+          attendance: { create: true, read: true, update: true, delete: true },
+          reports: { create: true, read: true, update: true, delete: true },
+          divisions: { create: true, read: true, update: true, delete: true },
+          settings: { create: true, read: true, update: true, delete: true }
+        }
+      });
+      console.log('✅ Default super admin created');
+      console.log('   Email: root@slpa.lk');
+      console.log('   Password: root123');
+      console.log('   Division ID: 66 (IS)');
+      console.log('   Section ID: 333 (IS)');
+    } else {
+      console.log('ℹ️  Super admin user already exists');
+    }
+  } catch (err) {
+    console.error('❌ Error creating default super admin:', err.message);
+  }
+};
+
+// Initialize MySQL on startup
+initializeMySQL();
 
 console.log('🛑 HRIS sync scheduler DISABLED - no automatic sync processes');
 
-// Initialize Redis cache for reports (non-blocking, graceful fallback)
-const { getCache } = require('./config/reportCache');
-const cache = getCache();
-cache.connect().catch(err => {
-  console.warn('⚠️  Redis cache initialization failed:', err.message);
-  console.log('📌 Reports will work without caching (slower first-time generation)');
-});
+// Cache system removed - using direct MySQL queries from sync tables
+
+// Initialize performance monitoring
+const performanceMonitor = require('./middleware/performanceMonitor');
 
 console.log('✅ System ready - Using MySQL sync tables for data access');
 console.log('🚀 Users can now login');
@@ -168,7 +192,6 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
 // Data sanitization
-app.use(mongoSanitize()); // Prevent NoSQL injection
 app.use(xss()); // Prevent XSS attacks
 
 // Compression middleware
@@ -180,6 +203,9 @@ if (process.env.NODE_ENV === 'development') {
 } else {
   app.use(morgan('combined'));
 }
+
+// Performance monitoring middleware (after logging)
+app.use(performanceMonitor.middleware);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -196,15 +222,14 @@ app.get('/health', (req, res) => {
 
 // API Routes
 app.use('/api/auth', require('./routes/auth'));
-app.use('/api/users', require('./routes/user'));
+app.use('/api/users', require('./routes/user')); // USER CRUD OPERATIONS ENABLED
 app.use('/api/attendance', require('./routes/attendance'));
 app.use('/api/divisions', require('./routes/division'));
 app.use('/api/sections', require('./routes/section'));
 app.use('/api/employees', require('./routes/employee'));
 app.use('/api/meals', require('./routes/meal'));
 // Sub-sections routes (list/create/update/delete)
-app.use('/api/subsections', require('./routes/subSection'));
-app.use('/api/reports', require('./routes/report'));
+app.use('/api/subsections', require('./routes/mysqlSubSection'));
 // MySQL-backed reports (audit, attendance, meal) mounted separately
 app.use('/api/reports/mysql', require('./routes/reports'));
 app.use('/api/settings', require('./routes/settings'));
@@ -213,22 +238,30 @@ app.use('/api/mysql-data', require('./routes/mysqlData'));
 app.use('/api/roles', require('./routes/role'));
 app.use('/api/permissions', require('./routes/permission'));
 app.use('/api/dashboard', require('./routes/dashboard'));
-// Cache management routes (Redis caching for reports)
-app.use('/api/cache', require('./routes/cache'));
-// (MongoDB subsections disabled) Remove legacy Mongo subsections route
-// app.use('/api/subsections', require('./routes/subSection'));
+app.use('/api/quick-stats', require('./routes/quickStats')); // Progressive dashboard stats
+// Performance testing route (internal testing from same process)
+app.use('/api/performance-test', require('./routes/performanceTest'));
 app.use('/api/mysql-subsections', require('./routes/mysqlSubSection'));
 app.use('/api/hris-cache', require('./routes/hrisCache'));
 // MySQL-based subsection transfer endpoints
 app.use('/api/mysql-subsections', require('./routes/mysqlSubSectionTransfer'));
 // MySQL Activity routes (recent activities with auto cleanup)
 app.use('/api/mysql-activities', require('./routes/mysqlActivity'));
-// (MongoDB cache route disabled) app.use('/api/mongodb-cache', require('./routes/mongodbCache'));
 app.use('/api/hris', require('./routes/hris'));
 // HRIS Sync routes
 app.use('/api/sync', require('./routes/sync'));
 // MySQL Data routes (fast synced data access)
 app.use('/api/mysql-data', require('./routes/mysqlData'));
+// Performance monitoring and testing routes
+app.use('/api/performance', require('./routes/performance'));
+
+const activityRoutes = require('./routes/activity');
+const reportRoutes = require('./routes/report');
+const divisionRoutes = require('./routes/division');
+
+app.use('/api/activities', activityRoutes);
+app.use('/api/reports', reportRoutes);
+app.use('/api/divisions', divisionRoutes);
 
 // Serve static files in production
 if (process.env.NODE_ENV === 'production') {
@@ -247,29 +280,21 @@ if (process.env.NODE_ENV === 'production') {
 app.use((err, req, res, next) => {
   console.error('Error:', err);
 
-  // Mongoose bad ObjectId
-  if (err.name === 'CastError') {
-    return res.status(400).json({
-      success: false,
-      error: 'Invalid ID format'
-    });
-  }
-
-  // Mongoose duplicate key
-  if (err.code === 11000) {
-    const field = Object.keys(err.keyValue)[0];
+  // Sequelize unique constraint error
+  if (err.name === 'SequelizeUniqueConstraintError') {
+    const field = err.errors[0]?.path || 'Field';
     return res.status(400).json({
       success: false,
       error: `${field} already exists`
     });
   }
 
-  // Mongoose validation error
-  if (err.name === 'ValidationError') {
-    const errors = Object.values(err.errors).map(error => error.message);
+  // Sequelize validation error
+  if (err.name === 'SequelizeValidationError') {
+    const messages = err.errors.map(e => e.message);
     return res.status(400).json({
       success: false,
-      error: errors.join(', ')
+      error: messages.join(', ')
     });
   }
 
@@ -328,30 +353,61 @@ process.on('uncaughtException', (err) => {
 
 const PORT = process.env.PORT || 5000;
 
-// Ensure MongoDB is connected for auth, roles, and other Mongoose models
-connectDB()
-  .then(() => {
-    console.log('✅ MongoDB connection established. Proceeding to seed roles...');
-    return seedRoles();
-  })
-  .catch(err => {
-    console.error('❌ Failed to connect to MongoDB at startup:', err?.message || err);
-    process.exit(1); // Exit if MongoDB fails
-  });
+console.log(`🔧 Attempting to start server on port ${PORT}...`);
+console.log(`🔧 Current directory: ${__dirname}`);
+console.log(`🔧 Express app routes count: ${app._router ? app._router.stack.length : 'unknown'}`);
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`✅ Server ACTUALLY listening on port ${PORT}`);
   console.log(`🚀 Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);
+  console.log(`📊 Data Source: MySQL Sync Tables (divisions_sync, sections_sync, employees_sync, sub_sections)`);
+  console.log('ℹ️  Dashboard totals cache sync is manual (via Manual Sync page)');
   console.log(`📍 Health check available at http://localhost:${PORT}/health`);
   console.log(`🔗 API base URL: http://localhost:${PORT}/api`);
+  
+  // Verify server is listening
+  const address = server.address();
+  console.log(`🔍 Server bound to: ${JSON.stringify(address)}`);
+  
+  // Run internal performance test after 3 seconds
+  setTimeout(async () => {
+    console.log('\n🧪 Running internal performance tests...\n');
+    try {
+      const axios = require('axios');
+      const response = await axios.get(`http://localhost:${PORT}/api/performance-test/internal-test`, {
+        timeout: 60000
+      });
+      
+      console.log('\n📊 PERFORMANCE TEST RESULTS:');
+      console.log('='.repeat(50));
+      response.data.results.tests.forEach(test => {
+        const statusIcon = test.status === 'SUCCESS' ? '✅' : '❌';
+        console.log(`${statusIcon} ${test.name}: ${test.time || 'N/A'}ms`);
+        if (test.improvement) console.log(`   ${test.improvement}`);
+        if (test.user) console.log(`   User: ${test.user}`);
+        if (test.count) console.log(`   Count: ${test.count}`);
+        if (test.error) console.log(`   Error: ${test.error}`);
+      });
+      console.log('='.repeat(50));
+      if (response.data.summary && response.data.summary.averageTime) {
+        console.log(`📈 Average: ${response.data.summary.averageTime}ms\n`);
+      } else {
+        console.log(`⚠️  Performance test completed with errors\n`);
+      }
+    } catch (err) {
+      console.error('\n❌ Internal performance test failed:', err.message);
+    }
+  }, 3000);
 });
 
 // Handle server errors
 server.on('error', (err) => {
+  console.error('❌ SERVER ERROR OCCURRED:', err);
   if (err.code === 'EADDRINUSE') {
-    console.error(`Port ${PORT} is already in use`);
+    console.error(`❌ Port ${PORT} is already in use`);
     process.exit(1);
   } else {
-    console.error('Server error:', err);
+    console.error('❌ Unknown server error:', err);
     process.exit(1);
   }
 });

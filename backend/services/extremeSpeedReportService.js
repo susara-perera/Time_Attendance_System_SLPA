@@ -14,10 +14,10 @@
  */
 
 const { mysqlSequelize } = require('../config/mysql');
-const redis = require('redis');
 const { QueryTypes } = require('sequelize');
 const zlib = require('zlib');
 const { promisify } = require('util');
+const { getCache } = require('../config/reportCache');
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
@@ -39,24 +39,18 @@ class ExtremeSpeedReportService {
   async initialize() {
     if (this.initialized) return;
     try {
-      this.redisClient = redis.createClient({
-        host: process.env.REDIS_HOST || 'localhost',
-        port: process.env.REDIS_PORT || 6379,
-        password: process.env.REDIS_PASSWORD,
-        connectTimeout: 5000,
-        lazyConnect: false
-      });
-
-      this.redisClient.on('error', (err) => {
-        console.warn('Redis error:', err.message);
-        this.redisClient = null;
-      });
-
-      await this.redisClient.connect();
-      console.log('✅ In-Memory Cache L0 + Redis Cache L1 + DB Cache L2');
-      this.initialized = true;
+      const cache = getCache();
+      await cache.connect();
+      if (cache && cache.client) {
+        this.redisClient = cache.client;
+        console.log('✅ In-Memory Cache L0 + Shared Redis Cache L1 + DB Cache L2');
+        this.initialized = true;
+      } else {
+        console.warn('⚠️  Redis unavailable, using in-memory cache only');
+        this.initialized = false;
+      }
     } catch (err) {
-      console.warn('⚠️  Redis unavailable, using in-memory cache only');
+      console.warn('⚠️  Redis init failed, using in-memory cache only:', err.message);
       this.initialized = false;
     }
 

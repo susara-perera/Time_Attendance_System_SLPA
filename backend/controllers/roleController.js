@@ -1,12 +1,12 @@
-const Role = require('../models/Role');
-const AuditLog = require('../models/AuditLog');
+const Role = require('../models/mysql/Role');
+const AuditLog = require('../models/mysql/AuditLog');
 
 // @desc Get all roles
 // @route GET /api/roles
 // @access Private (admin, super_admin)
 const getRoles = async (req, res) => {
   try {
-    const roles = await Role.find().sort({ createdAt: 1 });
+    const roles = await Role.findAll({ order: [['createdAt', 'ASC']] });
     res.status(200).json({ success: true, data: roles });
   } catch (error) {
     console.error('Get roles error:', error);
@@ -24,7 +24,7 @@ const createRole = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Value and label are required' });
     }
 
-    const existing = await Role.findOne({ value });
+    const existing = await Role.findOne({ where: { value } });
     if (existing) {
       return res.status(400).json({ success: false, message: 'Role already exists' });
     }
@@ -32,12 +32,12 @@ const createRole = async (req, res) => {
   const role = await Role.create({ value, label, name: label, description });
   
     // Log audit trail for role creation
-    if (req.user?._id) {
+    if (req.user?.id) {
       try {
         await AuditLog.createLog({
-          user: req.user._id,
+          user: req.user.id,
           action: 'role_changed',
-          entity: { type: 'User', id: role._id, name: role.label },
+          entity: { type: 'User', id: role.id, name: role.label },
           category: 'data_modification',
           severity: 'high',
           description: `Role "${role.label}" created`,
@@ -67,7 +67,7 @@ const createRole = async (req, res) => {
 const getRole = async (req, res) => {
   try {
     const { id } = req.params;
-    const role = await Role.findById(id);
+    const role = await Role.findByPk(id);
     if (!role) return res.status(404).json({ success: false, message: 'Role not found' });
     res.status(200).json({ success: true, data: role });
   } catch (error) {
@@ -91,19 +91,19 @@ const updateRole = async (req, res) => {
       updates.permissions = permissions;
     }
 
-    updates.updatedAt = Date.now();
-
-    const role = await Role.findByIdAndUpdate(id, updates, { new: true });
+    const role = await Role.findByPk(id);
     if (!role) return res.status(404).json({ success: false, message: 'Role not found' });
+    
+    await role.update(updates);
 
     // Log audit trail for role/permission update
-    if (req.user?._id) {
+    if (req.user?.id) {
       try {
         const actionType = permissions ? 'permissions_updated' : 'role_changed';
         await AuditLog.createLog({
-          user: req.user._id,
+          user: req.user.id,
           action: actionType,
-          entity: { type: 'User', id: role._id, name: role.label },
+          entity: { type: 'User', id: role.id, name: role.label },
           category: 'data_modification',
           severity: 'high',
           description: permissions ? `Permissions updated for role "${role.label}"` : `Role "${role.label}" updated`,
@@ -118,6 +118,31 @@ const updateRole = async (req, res) => {
       } catch (auditErr) {
         console.error('[AuditLog] Failed to log role update:', auditErr);
       }
+    }
+
+    // Log to recent activities table
+    try {
+      const { logRecentActivity } = require('../services/activityLogService');
+
+      const activityType = permissions ? 'permissions_updated' : 'role_updated';
+      const title = permissions ? 'Role Permissions Updated' : 'Role Updated';
+      const description = permissions ? `"${role.label}" permissions changed` : `"${role.label}" role updated`;
+      const icon = permissions ? 'bi bi-shield-check' : 'bi bi-person-badge';
+
+      await logRecentActivity({
+        title: title,
+        description: description,
+        activity_type: activityType,
+        icon: icon,
+        entity_id: role.id?.toString(),
+        entity_name: role.label,
+        user_id: req.user?.id?.toString(),
+        user_name: req.user?.firstName || req.user?.email || 'Unknown User'
+      });
+
+      console.log(`[MySQL] ✅ Recent activity logged for role update: ${role.label}`);
+    } catch (activityErr) {
+      console.error('[RecentActivity] Failed to log role update activity:', activityErr);
     }
 
     res.status(200).json({ success: true, data: role });
@@ -135,7 +160,7 @@ const deleteRole = async (req, res) => {
     const { id } = req.params;
     console.log('Attempting to delete role with ID:', id);
     
-    const role = await Role.findById(id);
+    const role = await Role.findByPk(id);
     
     if (!role) {
       console.log('Role not found for ID:', id);
@@ -144,16 +169,16 @@ const deleteRole = async (req, res) => {
 
     console.log('Found role to delete:', role.value, role.label);
 
-    await Role.findByIdAndDelete(id);
+    await role.destroy();
     console.log('Role deleted successfully:', role.value);
     
     // Log audit trail for role deletion
-    if (req.user?._id) {
+    if (req.user?.id) {
       try {
         await AuditLog.createLog({
-          user: req.user._id,
+          user: req.user.id,
           action: 'role_changed',
-          entity: { type: 'User', id: role._id, name: role.label },
+          entity: { type: 'User', id: role.id, name: role.label },
           category: 'data_modification',
           severity: 'high',
           description: `Role "${role.label}" deleted`,

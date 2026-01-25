@@ -1,7 +1,4 @@
-const SubSection = require('../models/SubSection');
-const User = require('../models/User');
-const Attendance = require('../models/Attendance');
-const Meal = require('../models/Meal');
+const { MySQLSubSection: SubSection, MySQLUser: User, MySQLAttendance: Attendance, MySQLMeal: Meal } = require('../models/mysql');
 
 // Cache configuration
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutes cache TTL

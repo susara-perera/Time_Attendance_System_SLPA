@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import usePermission from '../../hooks/usePermission';
 import { useLanguage } from '../../context/LanguageContext';
+import { AuthContext } from '../../context/AuthContext';
+import { showModernAlert, showConfirmDialog } from '../common/ModernAlert';
 import './UserManagement.css';
 import PageHeader from './PageHeader';
 
@@ -17,6 +19,7 @@ const UserManagement = ({ onBack }) => {
     role: '',
     password: '',
     confirmPassword: '',
+    phone: '',
     division: '',
     section: '',
     subsection: ''
@@ -31,27 +34,38 @@ const UserManagement = ({ onBack }) => {
   const canCreateUser = usePermission('users', 'create');
   const canUpdateUser = usePermission('users', 'update');
   const canDeleteUser = usePermission('users', 'delete');
+  const { user: currentUser } = useContext(AuthContext);
   const { t } = useLanguage();
+
+  // Helper function to check if current user can delete a specific user
+  const canDeleteSpecificUser = (userId) => {
+    // Only super_admin can delete users
+    if (!currentUser || currentUser.role !== 'super_admin') {
+      return false;
+    }
+    // Cannot delete yourself
+    return userId !== currentUser._id && userId !== currentUser.id;
+  };
 
   // Helper function to get division name by ID
   const getDivisionName = (divisionId) => {
     if (!divisionId) return 'N/A';
-    const division = divisions.find(div => 
-      (div._id || div.id) === divisionId || 
-      div._id === divisionId || 
-      div.id === divisionId
-    );
+    const idStr = String(divisionId);
+    const division = divisions.find(div => {
+      if (!div) return false;
+      return [div._id, div.id].some(c => c !== undefined && String(c) === idStr);
+    });
     return division ? (division.name || 'Unknown Division') : 'N/A';
   };
 
   // Helper function to get section name by ID
   const getSectionName = (sectionId) => {
     if (!sectionId) return 'N/A';
-    const section = sections.find(sec => 
-      (sec._id || sec.id) === sectionId || 
-      sec._id === sectionId || 
-      sec.id === sectionId
-    );
+    const idStr = String(sectionId);
+    const section = sections.find(sec => {
+      if (!sec) return false;
+      return [sec._id, sec.id].some(c => c !== undefined && String(c) === idStr);
+    });
     return section ? (section.name || 'Unknown Section') : 'N/A';
   };
 
@@ -85,12 +99,23 @@ const UserManagement = ({ onBack }) => {
             const usersData = await usersResponse.json();
             console.log('Users API Response:', usersData); // Debug log
             
-            // Handle the response structure properly
-            const users = usersData.data || usersData || [];
+            // Handle the response structure properly - API returns { success: true, users: [...], count: N }
+            const users = usersData.users || usersData.data || [];
             
             // Map the data to match frontend structure
             const mappedUsers = users.map(user => {
               console.log('Mapping user:', user); // Debug log
+
+              // Use denormalized fields directly (divisionName, sectionName from database)
+              const divisionId = user.divisionId || null;
+              const sectionId = user.sectionId || null;
+              const subsectionId = user.subsectionId || null;
+
+              const divisionName = user.divisionName || '';
+              const sectionNameRaw = user.sectionName || '';
+              const sectionName = formatSectionName(sectionNameRaw);
+              const subsectionName = user.subsectionName || '';
+
               return {
                 id: user._id || user.id,
                 firstName: user.firstName || '',
@@ -99,13 +124,16 @@ const UserManagement = ({ onBack }) => {
                 role: user.role || 'employee',
                 employeeId: user.employeeId || '',
                 status: user.isActive !== false ? 'active' : 'inactive',
-                division: user.division?._id || user.division || '',
-                section: user.section?._id || user.section || '',
-                divisionName: user.division?.name || '',
-                sectionName: user.section?.name || '',
+                division: divisionId,
+                section: sectionId,
+                subsection: subsectionId,
+                divisionName: divisionName,
+                sectionName: sectionName,
+                subsectionName: subsectionName,
                 // Keep display values separate
-                divisionDisplay: user.division?.name || 'N/A',
-                sectionDisplay: user.section?.name || 'N/A'
+                divisionDisplay: divisionName || 'N/A',
+                sectionDisplay: sectionName || 'N/A',
+                subsectionDisplay: subsectionName || 'N/A'
               };
             });
             
@@ -358,6 +386,7 @@ const UserManagement = ({ onBack }) => {
       role: '',
       password: '',
       confirmPassword: '',
+      phone: '',
       division: '',
       section: '',
       subsection: ''
@@ -383,6 +412,7 @@ const UserManagement = ({ onBack }) => {
       role: user.role,
       password: '',
       confirmPassword: '',
+      phone: user.phone || '',
       division: divisionValue,
       section: sectionValue
     });
@@ -391,7 +421,15 @@ const UserManagement = ({ onBack }) => {
   };
 
   const handleDeleteUser = async (userId) => {
-    if (window.confirm(t('confirmDeleteUser'))) {
+    const confirmed = await showConfirmDialog({
+      title: t('confirmDeleteUser') || 'Delete User',
+      message: 'This action cannot be undone. Are you sure you want to delete this user?',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      type: 'danger'
+    });
+
+    if (confirmed) {
       try {
         const token = localStorage.getItem('token');
         const response = await fetch(`http://localhost:5000/api/users/${userId}`, {
@@ -404,14 +442,29 @@ const UserManagement = ({ onBack }) => {
 
         if (response.ok) {
           setUsers(users.filter(user => user.id !== userId));
-          alert(t('userDeletedSuccess'));
+          showModernAlert({
+            type: 'success',
+            title: 'Deleted!',
+            message: t('userDeletedSuccess') || 'User deleted successfully',
+            duration: 3000
+          });
         } else {
           const error = await response.json();
-          alert(error.message || t('noUsersFound'));
+          showModernAlert({
+            type: 'error',
+            title: 'Error',
+            message: error.message || t('noUsersFound'),
+            duration: 4000
+          });
         }
       } catch (error) {
         console.error('Error deleting user:', error);
-        alert(t('userDeletedSuccess'));
+        showModernAlert({
+          type: 'error',
+          title: 'Error',
+          message: 'Failed to delete user. Please try again.',
+          duration: 4000
+        });
       }
     }
   };
@@ -420,38 +473,86 @@ const UserManagement = ({ onBack }) => {
     e.preventDefault();
     // Enforce front-end permission check as a safeguard
     if (!canCreateUser && !editingUser) {
-      alert('You do not have permission to create users.');
+      showModernAlert({
+        type: 'error',
+        title: 'Permission Denied',
+        message: 'You do not have permission to create users.',
+        duration: 3000
+      });
       return;
     }
     
     // Check if passwords match when adding a new user
     if (!editingUser && formData.password !== formData.confirmPassword) {
-      alert(t('passwordsDoNotMatch') || 'Passwords do not match!');
+      showModernAlert({
+        type: 'warning',
+        title: 'Password Mismatch',
+        message: t('passwordsDoNotMatch') || 'Passwords do not match!',
+        duration: 3000
+      });
       return;
     }
     
     // Validate required fields
     if (!formData.firstName || !formData.lastName || !formData.email || !formData.employeeId || !formData.role) {
-      alert(t('pleaseFillRequired') || 'Please fill in all required fields!');
+      showModernAlert({
+        type: 'warning',
+        title: 'Missing Information',
+        message: t('pleaseFillRequired') || 'Please fill in all required fields!',
+        duration: 3000
+      });
       return;
     }
     
     if (!editingUser && !formData.password) {
-      alert(t('passwordRequired') || 'Password is required for new users!');
+      showModernAlert({
+        type: 'warning',
+        title: 'Password Required',
+        message: t('passwordRequired') || 'Password is required for new users!',
+        duration: 3000
+      });
       return;
     }
 
     try {
       const token = localStorage.getItem('token');
+      
+      // Resolve division, section, and subsection objects to send full data
+      let divisionObject = null;
+      let sectionObject = null;
+      let subsectionObject = null;
+      
+      console.log('🔍 DEBUG - Divisions array:', divisions);
+      console.log('🔍 DEBUG - FormData division value:', formData.division);
+      
+      if (formData.division) {
+        divisionObject = divisions.find(d => d.name === formData.division);
+        console.log('🔍 DEBUG - Found division object:', divisionObject);
+      }
+      
+      if (formData.section) {
+        sectionObject = sections.find(s => s.name === formData.section);
+        console.log('🔍 DEBUG - Found section object:', sectionObject);
+      }
+      
+      if (formData.subsection) {
+        subsectionObject = subsections.find(s => s.name === formData.subsection);
+        console.log('🔍 DEBUG - Found subsection object:', subsectionObject);
+      }
+      
       const userData = {
         firstName: formData.firstName,
         lastName: formData.lastName,
         email: formData.email,
         employeeId: formData.employeeId,
         role: formData.role,
-        division: formData.division || undefined,
-        section: formData.section || undefined
+        phone: formData.phone,
+        division: divisionObject,  // Send full object with id, name, code
+        section: sectionObject,    // Send full object with id, name, code
+        subsection: subsectionObject  // Send full object with id, name, code
       };
+      
+      console.log('📤 Sending user data to server:', userData); // Debug
 
       if (!editingUser) {
         userData.password = formData.password;
@@ -484,49 +585,121 @@ const UserManagement = ({ onBack }) => {
 
       if (response.ok) {
         const result = await response.json();
-        
-        if (editingUser) {
-          // Update existing user in state
-          setUsers(users.map(user => 
-            user.id === editingUser.id 
-              ? {
-                  ...user,
-                  firstName: formData.firstName,
-                  lastName: formData.lastName,
-                  email: formData.email,
-                  employeeId: formData.employeeId,
-                  role: formData.role,
-                  division: formData.division,
-                  section: formData.section
-                }
-              : user
-          ));
-        } else {
-          // Add new user to state
-          const newUser = {
-            id: result.data._id,
-            firstName: formData.firstName,
-            lastName: formData.lastName,
-            email: formData.email,
-            employeeId: formData.employeeId,
-            role: formData.role,
-            status: 'active',
-            division: formData.division,
-            section: formData.section
+        console.log('📥 Server response:', result); // Debug
+        const returnedUser = result.user || result.data || null;
+        console.log('📦 Returned user data:', returnedUser); // Debug
+
+        // Helper to normalize server user into frontend shape
+        const normalizeUser = (u) => {
+          if (!u) return null;
+          
+          console.log('🔄 Normalizing user from server:', u); // Debug
+          
+          // Use denormalized fields directly from database
+          const divisionId = u.divisionId || null;
+          const sectionId = u.sectionId || null;
+          const subsectionId = u.subsectionId || null;
+          
+          const divisionName = u.divisionName || '';
+          const sectionNameRaw = u.sectionName || '';
+          const sectionName = formatSectionName(sectionNameRaw);
+          const subsectionName = u.subsectionName || '';
+
+          const normalized = {
+            id: u._id || u.id,
+            firstName: u.firstName || '',
+            lastName: u.lastName || '',
+            email: u.email || '',
+            role: u.role || 'employee',
+            employeeId: u.employeeId || '',
+            status: u.isActive !== false ? 'active' : 'inactive',
+            division: divisionId,
+            section: sectionId,
+            subsection: subsectionId,
+            divisionName: divisionName,
+            sectionName: sectionName,
+            subsectionName: subsectionName,
+            divisionDisplay: divisionName || 'N/A',
+            sectionDisplay: sectionName || 'N/A',
+            subsectionDisplay: subsectionName || 'N/A'
           };
-          setUsers([...users, newUser]);
+          
+          console.log('✅ Normalized user:', normalized); // Debug
+          return normalized;
+        };
+
+        if (returnedUser) {
+          const normalized = normalizeUser(returnedUser);
+
+          if (editingUser) {
+            setUsers(users.map(user => user.id === editingUser.id ? normalized : user));
+          } else {
+            setUsers(prev => [...prev, normalized]);
+          }
+        } else {
+          // Fallback to previous optimistic update if server did not return full user
+          if (editingUser) {
+            // Update existing user in state
+            setUsers(users.map(user => 
+              user.id === editingUser.id 
+                ? {
+                    ...user,
+                    firstName: formData.firstName,
+                    lastName: formData.lastName,
+                    email: formData.email,
+                    employeeId: formData.employeeId,
+                    role: formData.role,
+                    division: formData.division,
+                    section: formData.section
+                  }
+                : user
+            ));
+          } else {
+            // Add new user to state
+            const newUser = {
+              id: (result.data && (result.data.id || result.data._id)) || `${Date.now()}`,
+              firstName: formData.firstName,
+              lastName: formData.lastName,
+              email: formData.email,
+              employeeId: formData.employeeId,
+              role: formData.role,
+              status: 'active',
+              division: formData.division,
+              section: formData.section
+            };
+            setUsers(prev => [...prev, newUser]);
+          }
         }
-        
+
         setShowAddModal(false);
         setEditingUser(null);
-        alert(editingUser ? t('userUpdateSuccess') : t('userCreateSuccess'));
+
+        showModernAlert({
+          type: 'success',
+          title: editingUser ? 'Updated!' : 'Created!',
+          message: editingUser 
+            ? (t('userUpdateSuccess') || 'User updated successfully')
+            : (t('userCreateSuccess') || 'User created successfully'),
+          duration: 3000,
+          showConfetti: !editingUser
+        });
       } else {
         const error = await response.json();
-        alert(error.message || (t('failedToSaveUser') || 'Failed to save user'));
+        showModernAlert({
+          type: 'error',
+          title: 'Error',
+          message: error.message || (t('failedToSaveUser') || 'Failed to save user'),
+          duration: 4000
+        });
       }
     } catch (error) {
       console.error('Error saving user:', error);
-      alert(t('failedToSaveUser') || 'Error saving user. Please try again.');
+      showModernAlert({
+        type: 'error',
+        title: 'Error',
+        message: t('failedToSaveUser') || 'Error saving user. Please try again.',
+        duration: 4000
+      });
     }
   };
 
@@ -652,10 +825,10 @@ const UserManagement = ({ onBack }) => {
                       </button>
                       <button 
                         className="btn-professional btn-danger"
-                        onClick={canDeleteUser ? () => handleDeleteUser(user.id) : undefined}
-                        title={!canDeleteUser ? 'No permission to delete users' : 'Delete User'}
-                        disabled={!canDeleteUser}
-                        style={{ padding: '8px 12px', fontSize: '12px', cursor: canDeleteUser ? 'pointer' : 'not-allowed' }}
+                        onClick={canDeleteSpecificUser(user.id) ? () => handleDeleteUser(user.id) : undefined}
+                        title={!canDeleteSpecificUser(user.id) ? (user.id === currentUser?._id || user.id === currentUser?.id ? 'Cannot delete your own account' : 'No permission to delete users') : 'Delete User'}
+                        disabled={!canDeleteSpecificUser(user.id)}
+                        style={{ padding: '8px 12px', fontSize: '12px', cursor: canDeleteSpecificUser(user.id) ? 'pointer' : 'not-allowed' }}
                       >
                         <i className="bi bi-trash"></i>
                       </button>

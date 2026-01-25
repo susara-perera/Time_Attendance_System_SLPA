@@ -542,16 +542,6 @@ const performFullSync = async (triggeredBy = 'system') => {
     // Sync employees
     results.employees = await syncEmployees(triggeredBy);
 
-    // Update dashboard totals cache after successful sync
-    try {
-      const { updateDashboardTotals } = require('./dashboardTotalsService');
-      console.log('🔄 [SYNC] Updating dashboard totals cache...');
-      await updateDashboardTotals();
-      console.log('✅ [SYNC] Dashboard totals updated');
-    } catch (err) {
-      console.error('⚠️ [SYNC] Failed to update dashboard totals:', err.message);
-    }
-
     // Sync attendance data for reports (last 30 days)
     try {
       const { syncLastNDays } = require('./attendanceSyncService');

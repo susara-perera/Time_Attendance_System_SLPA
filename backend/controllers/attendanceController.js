@@ -1,6 +1,4 @@
-const Attendance = require('../models/Attendance');
-const User = require('../models/User');
-const AuditLog = require('../models/AuditLog');
+const { MySQLAttendance: Attendance, MySQLUser: User, MySQLAuditLog: AuditLog } = require('../models/mysql');
 const moment = require('moment');
 
 // @desc    Check in
@@ -72,6 +70,27 @@ const checkIn = async (req, res) => {
         endpoint: req.originalUrl
       }
     });
+
+    // Log to recent activities table
+    try {
+      const { logRecentActivity } = require('../services/activityLogService');
+      const moment = require('moment');
+
+      await logRecentActivity({
+        title: 'Check-in Recorded',
+        description: `${req.user?.name || req.user?.username || 'User'} checked in`,
+        activity_type: 'check_in',
+        icon: 'bi bi-box-arrow-in-right',
+        entity_id: attendance._id?.toString(),
+        entity_name: `Check-in ${moment(checkInTime).format('HH:mm')}`,
+        user_id: req.user?._id?.toString(),
+        user_name: req.user?.name || req.user?.username || 'Unknown User'
+      });
+
+      console.log(`[MySQL] ✅ Recent activity logged for check-in: ${req.user?.name || req.user?.username}`);
+    } catch (activityErr) {
+      console.error('[RecentActivity] Failed to log check-in activity:', activityErr);
+    }
 
     res.status(200).json({
       success: true,
@@ -154,6 +173,27 @@ const checkOut = async (req, res) => {
         endpoint: req.originalUrl
       }
     });
+
+    // Log to recent activities table
+    try {
+      const { logRecentActivity } = require('../services/activityLogService');
+      const moment = require('moment');
+
+      await logRecentActivity({
+        title: 'Check-out Recorded',
+        description: `${req.user?.name || req.user?.username || 'User'} checked out`,
+        activity_type: 'check_out',
+        icon: 'bi bi-box-arrow-right',
+        entity_id: attendance._id?.toString(),
+        entity_name: `Check-out ${moment(checkOutTime).format('HH:mm')}`,
+        user_id: req.user?._id?.toString(),
+        user_name: req.user?.name || req.user?.username || 'Unknown User'
+      });
+
+      console.log(`[MySQL] ✅ Recent activity logged for check-out: ${req.user?.name || req.user?.username}`);
+    } catch (activityErr) {
+      console.error('[RecentActivity] Failed to log check-out activity:', activityErr);
+    }
 
     res.status(200).json({
       success: true,

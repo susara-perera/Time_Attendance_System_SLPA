@@ -11,7 +11,7 @@ const poolConfig = {
   host: process.env.MYSQL_HOST || 'localhost',
   port: parseInt(process.env.MYSQL_PORT || '3306'),
   user: process.env.MYSQL_USER || 'root',
-  password: process.env.MYSQL_PASSWORD || '',
+  password: process.env.MYSQL_PASSWORD || 'your_password_here', // Update with the correct password
   database: process.env.MYSQL_DATABASE || 'slpa_db',
   waitForConnections: true,
   connectionLimit: 20, // Max concurrent connections

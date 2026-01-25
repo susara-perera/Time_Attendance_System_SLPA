@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import usePermission from '../../hooks/usePermission';
 import { useLanguage } from '../../context/LanguageContext';
+import { showModernAlert, showConfirmDialog } from '../common/ModernAlert';
 import PageHeader from './PageHeader';
 import './DivisionManagement.css';
 
@@ -198,8 +199,8 @@ const DivisionManagement = ({ onBack }) => {
     try {
       const token = localStorage.getItem('token');
       const url = currentDivision 
-        ? `http://localhost:5000/api/divisions/${currentDivision._id}`
-        : 'http://localhost:5000/api/divisions';
+        ? `${API_BASE_URL}/divisions/${currentDivision._id}`
+        : `${API_BASE_URL}/divisions`;
       
       // Prepare the data
       const submitData = {
@@ -228,22 +229,43 @@ const DivisionManagement = ({ onBack }) => {
         console.log('Success response:', responseData);
         await fetchDivisions(); // Refresh the list
         handleCloseModal();
-        alert(currentDivision ? 'Division updated successfully!' : 'Division created successfully!');
+        showModernAlert({
+          type: 'success',
+          title: currentDivision ? 'Updated!' : 'Created!',
+          message: currentDivision ? 'Division updated successfully!' : 'Division created successfully!',
+          duration: 3000,
+          showConfetti: !currentDivision
+        });
       } else {
         const errorData = await response.json();
         console.error('Error response:', errorData);
         
         // Handle validation errors specifically
         if (errorData.errors && Array.isArray(errorData.errors)) {
-          const errorMessages = errorData.errors.map(err => `${err.field}: ${err.message}`).join('\n');
-          alert(`Validation failed:\n${errorMessages}`);
+          const errorMessages = errorData.errors.map(err => err.message).join(', ');
+          showModernAlert({
+            type: 'error',
+            title: 'Validation Failed',
+            message: errorMessages,
+            duration: 4000
+          });
         } else {
-          alert(errorData.message || `Failed to ${currentDivision ? 'update' : 'add'} division`);
+          showModernAlert({
+            type: 'error',
+            title: 'Error',
+            message: errorData.message || `Failed to ${currentDivision ? 'update' : 'add'} division`,
+            duration: 4000
+          });
         }
       }
     } catch (error) {
       console.error('Error submitting division:', error);
-      alert(`Error ${currentDivision ? 'updating' : 'adding'} division. Please try again.`);
+      showModernAlert({
+        type: 'error',
+        title: 'Error',
+        message: `Error ${currentDivision ? 'updating' : 'adding'} division. Please try again.`,
+        duration: 4000
+      });
     } finally {
       setSubmitting(false);
     }
@@ -267,7 +289,7 @@ const DivisionManagement = ({ onBack }) => {
     if (window.confirm(`Are you sure you want to delete "${division.name}" division? This action cannot be undone.`)) {
       try {
         const token = localStorage.getItem('token');
-        const response = await fetch(`http://localhost:5000/api/divisions/${division._id}`, {
+        const response = await fetch(`${API_BASE_URL}/divisions/${division._id}`, {
           method: 'DELETE',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -285,7 +307,12 @@ const DivisionManagement = ({ onBack }) => {
         }
       } catch (error) {
         console.error('Error deleting division:', error);
-        alert('Error deleting division. Please try again.');
+        showModernAlert({
+          type: 'error',
+          title: 'Error',
+          message: 'Error deleting division. Please try again.',
+          duration: 4000
+        });
       }
     }
   };

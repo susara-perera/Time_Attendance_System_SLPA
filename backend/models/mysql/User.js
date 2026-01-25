@@ -1,8 +1,8 @@
-const { DataTypes } = require('sequelize');
-const { sequelize } = require('../../config/mysql');
-const bcrypt = require('bcryptjs');
+const { DataTypes } = require("sequelize");
+const { sequelize } = require("../../config/mysql");
+const bcrypt = require("bcryptjs");
 
-const MySQLUser = sequelize.define('User', {
+const MySQLUser = sequelize.define("User", {
   id: {
     type: DataTypes.INTEGER,
     primaryKey: true,
@@ -10,196 +10,148 @@ const MySQLUser = sequelize.define('User', {
   },
   firstName: {
     type: DataTypes.STRING(50),
-    allowNull: false,
-    validate: {
-      notEmpty: true,
-      len: [1, 50]
-    }
+    allowNull: false
   },
   lastName: {
     type: DataTypes.STRING(50),
-    allowNull: false,
-    validate: {
-      notEmpty: true,
-      len: [1, 50]
-    }
+    allowNull: false
   },
   email: {
     type: DataTypes.STRING(255),
     allowNull: false,
-    unique: true,
-    validate: {
-      isEmail: true
-    }
+    unique: true
   },
   employeeId: {
     type: DataTypes.STRING(20),
     allowNull: false,
-    unique: true,
-    validate: {
-      notEmpty: true,
-      len: [1, 20]
-    }
+    unique: true
   },
   password: {
     type: DataTypes.STRING(255),
-    allowNull: false,
-    validate: {
-      len: [1, 255]
-    }
+    allowNull: false
   },
   role: {
-    type: DataTypes.ENUM('super_admin', 'admin', 'clerk', 'administrative_clerk', 'employee'),
-    defaultValue: 'employee'
+    type: DataTypes.ENUM("super_admin", "admin", "clerk", "administrative_clerk", "employee"),
+    defaultValue: "employee"
   },
   divisionId: {
-    type: DataTypes.INTEGER,
-    allowNull: true,
-    references: {
-      model: 'Divisions',
-      key: 'id'
-    }
+    type: DataTypes.STRING(50),
+    allowNull: true
+  },
+  divisionCode: {
+    type: DataTypes.STRING(50),
+    allowNull: true
+  },
+  divisionName: {
+    type: DataTypes.STRING(150),
+    allowNull: true
   },
   sectionId: {
-    type: DataTypes.INTEGER,
-    allowNull: true,
-    references: {
-      model: 'Sections',
-      key: 'id'
-    }
+    type: DataTypes.STRING(50),
+    allowNull: true
+  },
+  sectionCode: {
+    type: DataTypes.STRING(50),
+    allowNull: true
+  },
+  sectionName: {
+    type: DataTypes.STRING(150),
+    allowNull: true
+  },
+  subsectionId: {
+    type: DataTypes.STRING(50),
+    allowNull: true
+  },
+  subsectionCode: {
+    type: DataTypes.STRING(50),
+    allowNull: true
+  },
+  subsectionName: {
+    type: DataTypes.STRING(100),
+    allowNull: true
   },
   phone: {
     type: DataTypes.STRING(15),
     allowNull: true
   },
-  address: {
-    type: DataTypes.TEXT,
-    allowNull: true
-  },
-  dateOfJoining: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW
-  },
-  salary: {
-    type: DataTypes.DECIMAL(10, 2),
-    allowNull: true,
-    validate: {
-      min: 0
-    }
-  },
-  designation: {
-    type: DataTypes.STRING(100),
-    allowNull: true
-  },
-  permissions: {
-    type: DataTypes.JSON,
-    defaultValue: {
-      users: { create: false, read: false, update: false, delete: false },
-      attendance: { create: false, read: false, update: false, delete: false },
-      reports: { create: false, read: false, update: false, delete: false },
-      divisions: { create: false, read: false, update: false, delete: false },
-      settings: { create: false, read: false, update: false, delete: false }
-    }
-  },
   isActive: {
     type: DataTypes.BOOLEAN,
     defaultValue: true
   },
-  lastLogin: {
-    type: DataTypes.DATE,
-    allowNull: true
-  },
-  profilePicture: {
-    type: DataTypes.STRING(255),
-    allowNull: true
-  },
-  passwordResetToken: {
-    type: DataTypes.STRING(255),
-    allowNull: true
-  },
-  passwordResetExpires: {
-    type: DataTypes.DATE,
-    allowNull: true
-  },
-  loginAttempts: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0
+  permissions: {
+    type: DataTypes.TEXT, // Using TEXT as it is longtext in DB
+    allowNull: true,
+    get() {
+      const rawValue = this.getDataValue("permissions");
+      try {
+        return rawValue ? JSON.parse(rawValue) : null;
+      } catch (e) {
+        return rawValue;
+      }
+    },
+    set(value) {
+      this.setDataValue("permissions", typeof value === "object" ? JSON.stringify(value) : value);
+    }
   },
   lockUntil: {
     type: DataTypes.DATE,
     allowNull: true
   }
 }, {
-  tableName: 'users',
+  tableName: "users", // lowercase to match DB
   timestamps: true,
-  indexes: [
-    { fields: ['email'] },
-    { fields: ['employeeId'] },
-    { fields: ['divisionId'] },
-    { fields: ['role'] }
-  ]
+  hooks: {
+    beforeCreate: async (user) => {
+      if (user.password) {
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(user.password, salt);
+      }
+    },
+    beforeUpdate: async (user) => {
+      if (user.changed("password")) {
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(user.password, salt);
+      }
+    }
+  }
 });
 
-// Virtual for full name
+MySQLUser.prototype.matchPassword = async function(enteredPassword) {
+  return await bcrypt.compare(enteredPassword, this.password);
+};
+
+// Backwards-compatible alias for legacy code expecting `comparePassword`
+MySQLUser.prototype.comparePassword = async function(enteredPassword) {
+  return await bcrypt.compare(enteredPassword, this.password);
+};
+
 MySQLUser.prototype.getFullName = function() {
   return `${this.firstName} ${this.lastName}`;
 };
 
-// Check if account is locked
 MySQLUser.prototype.isLocked = function() {
-  return !!(this.lockUntil && this.lockUntil > new Date());
+  return !!(this.lockUntil && this.lockUntil > Date.now());
 };
 
-// Increment login attempts
-MySQLUser.prototype.incLoginAttempts = async function() {
-  // If previous lock has expired, restart at 1
-  if (this.lockUntil && this.lockUntil < new Date()) {
-    return await this.update({
-      lockUntil: null,
-      loginAttempts: 1
-    });
-  }
-  
-  const updates = { loginAttempts: this.loginAttempts + 1 };
-  
-  // Lock account after 5 failed attempts for 2 hours
-  if (this.loginAttempts + 1 >= 5 && !this.isLocked()) {
-    updates.lockUntil = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 hours
-  }
-  
-  return await this.update(updates);
-};
-
-// Reset login attempts
-MySQLUser.prototype.resetLoginAttempts = async function() {
-  return await this.update({
-    loginAttempts: 0,
-    lockUntil: null
+// Define associations method
+MySQLUser.associate = function(models) {
+  // User belongs to Division
+  MySQLUser.belongsTo(models.MySQLDivision, {
+    foreignKey: 'divisionId',
+    as: 'division'
   });
-};
-
-// Compare password method
-MySQLUser.prototype.comparePassword = async function(candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
-};
-
-// Hash password before saving
-MySQLUser.beforeSave(async (user, options) => {
-  if (user.changed('password')) {
-    const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(user.password, salt);
-  }
-});
-
-// Remove password from JSON output
-MySQLUser.prototype.toJSON = function() {
-  const values = Object.assign({}, this.get());
-  delete values.password;
-  delete values.passwordResetToken;
-  delete values.passwordResetExpires;
-  delete values.loginAttempts;
-  delete values.lockUntil;
-  return values;
+  
+  // User belongs to Section
+  MySQLUser.belongsTo(models.MySQLSection, {
+    foreignKey: 'sectionId',
+    as: 'section'
+  });
+  
+  // User belongs to SubSection
+  MySQLUser.belongsTo(models.MySQLSubSection, {
+    foreignKey: 'subsectionId',
+    as: 'subsection'
+  });
 };
 
 module.exports = MySQLUser;

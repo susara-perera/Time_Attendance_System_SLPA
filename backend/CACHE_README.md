@@ -187,6 +187,10 @@ CACHE_TTL_SECTIONS=3600
 CACHE_TTL_EMPLOYEES=1800
 ```
 
+# Optional env flags
+- `CACHE_PRELOAD_ON_LOGIN` (default: enabled) — set to `false` to disable automatic cache preload during login.
+- `PRELOAD_FULL_ATTENDANCE_ON_LOGIN` (default: enabled) — set to `false` to skip full attendance preload during login (reduces login-time work).
+
 ---
 
 ## Troubleshooting

@@ -1,5 +1,4 @@
 const { body, param, query, validationResult } = require('express-validator');
-const mongoose = require('mongoose');
 
 // Validation error handler
 const handleValidationErrors = (req, res, next) => {
@@ -24,10 +23,10 @@ const handleValidationErrors = (req, res, next) => {
 
 // Common validation rules
 const commonValidations = {
-  mongoId: (field) => 
+  id: (field) => 
     param(field)
-      .isMongoId()
-      .withMessage(`${field} must be a valid MongoDB ObjectId`),
+      .isInt({ min: 1 })
+      .withMessage(`${field} must be a valid positive integer ID`),
 
   email: (field = 'email') =>
     body(field)
@@ -129,12 +128,12 @@ const userValidation = {
     commonValidations.role(),
     body('division')
       .if(body('role').not().equals('super_admin'))
-      .isMongoId()
+      .isInt({ min: 1 })
       .withMessage('Division is required for non-super admin users'),
     body('section')
       .optional()
-      .isMongoId()
-      .withMessage('Section must be a valid MongoDB ObjectId'),
+      .isInt({ min: 1 })
+      .withMessage('Section must be a valid positive integer ID'),
     commonValidations.phone(),
     commonValidations.optionalString('designation', 100),
     body('salary')
@@ -145,7 +144,7 @@ const userValidation = {
   ],
 
   update: [
-    commonValidations.mongoId('id'),
+    commonValidations.id('id'),
     commonValidations.optionalString('firstName', 2, 50),
     commonValidations.optionalString('lastName', 2, 50),
     body('email')
@@ -164,12 +163,12 @@ const userValidation = {
       .withMessage('Role must be one of: super_admin, admin, clerk, administrative_clerk, employee'),
     body('division')
       .optional()
-      .isMongoId()
-      .withMessage('Division must be a valid MongoDB ObjectId'),
+      .isInt({ min: 1 })
+      .withMessage('Division must be a valid positive integer ID'),
     body('section')
       .optional()
-      .isMongoId()
-      .withMessage('Section must be a valid MongoDB ObjectId'),
+      .isInt({ min: 1 })
+      .withMessage('Section must be a valid positive integer ID'),
     commonValidations.phone(),
     commonValidations.optionalString('designation', 100),
     body('salary')
@@ -234,7 +233,7 @@ const attendanceValidation = {
   ],
 
   update: [
-    commonValidations.mongoId('id'),
+    commonValidations.id('id'),
     body('date')
       .optional()
       .isISO8601()
@@ -277,7 +276,7 @@ const divisionValidation = {
   ],
 
   update: [
-    commonValidations.mongoId('id'),
+    commonValidations.id('id'),
     body('name')
       .optional()
       .trim()
@@ -293,7 +292,7 @@ const divisionValidation = {
       .trim(),
     body('manager')
       .optional()
-      .isMongoId()
+      .isInt({ min: 1 })
       .withMessage('Manager must be a valid user ID'),
     body('workingHours.startTime')
       .optional()
@@ -323,12 +322,12 @@ const sectionValidation = {
       .matches(/^[A-Z0-9_]+$/)
       .withMessage('Section code can only contain uppercase letters, numbers, and underscores'),
     body('division')
-      .isMongoId()
+      .isInt({ min: 1 })
       .withMessage('Division is required and must be a valid ID'),
     commonValidations.optionalString('description', 500),
     body('supervisor')
       .optional()
-      .isMongoId()
+      .isInt({ min: 1 })
       .withMessage('Supervisor must be a valid user ID'),
     body('capacity')
       .optional()
@@ -342,7 +341,7 @@ const sectionValidation = {
   ],
 
   update: [
-    commonValidations.mongoId('id'),
+    commonValidations.id('id'),
     commonValidations.optionalString('name', 2, 100),
     body('code')
       .optional()
@@ -353,12 +352,12 @@ const sectionValidation = {
       .withMessage('Section code can only contain uppercase letters, numbers, and underscores'),
     body('division')
       .optional()
-      .isMongoId()
+      .isInt({ min: 1 })
       .withMessage('Division must be a valid ID'),
     commonValidations.optionalString('description', 500),
     body('supervisor')
       .optional()
-      .isMongoId()
+      .isInt({ min: 1 })
       .withMessage('Supervisor must be a valid user ID'),
     body('capacity')
       .optional()
@@ -478,7 +477,7 @@ const mealValidation = {
   ],
 
   update: [
-    commonValidations.mongoId('id'),
+    commonValidations.id('id'),
     body('status')
       .optional()
       .isIn(['ordered', 'preparing', 'ready', 'served', 'cancelled'])
@@ -506,12 +505,12 @@ const reportValidation = {
       .toDate(),
     query('division')
       .optional()
-      .isMongoId()
-      .withMessage('Division must be a valid MongoDB ObjectId'),
+      .isInt({ min: 1 })
+      .withMessage('Division must be a valid positive integer ID'),
     query('section')
       .optional()
-      .isMongoId()
-      .withMessage('Section must be a valid MongoDB ObjectId'),
+      .isInt({ min: 1 })
+      .withMessage('Section must be a valid positive integer ID'),
     query('format')
       .optional()
       .isIn(['json', 'pdf', 'excel', 'csv'])
@@ -536,8 +535,8 @@ const reportValidation = {
       .withMessage('Action must be a string'),
     query('userId')
       .optional()
-      .isMongoId()
-      .withMessage('User ID must be a valid MongoDB ObjectId'),
+      .isInt({ min: 1 })
+      .withMessage('User ID must be a valid positive integer ID'),
     handleValidationErrors
   ],
 
@@ -567,19 +566,19 @@ const reportValidation = {
       .toDate(),
     query('division')
       .optional()
-      .isMongoId()
-      .withMessage('Division must be a valid MongoDB ObjectId'),
+      .isInt({ min: 1 })
+      .withMessage('Division must be a valid positive integer ID'),
     query('section')
       .optional()
-      .isMongoId()
-      .withMessage('Section must be a valid MongoDB ObjectId'),
+      .isInt({ min: 1 })
+      .withMessage('Section must be a valid positive integer ID'),
     handleValidationErrors
   ],
 
   divisionReport: [
     param('divisionId')
-      .isMongoId()
-      .withMessage('Division ID must be a valid MongoDB ObjectId'),
+      .isInt({ min: 1 })
+      .withMessage('Division ID must be a valid positive integer ID'),
     query('startDate')
       .optional()
       .isISO8601()
@@ -606,8 +605,8 @@ const reportValidation = {
       .toDate(),
     query('userId')
       .optional()
-      .isMongoId()
-      .withMessage('User ID must be a valid MongoDB ObjectId'),
+      .isInt({ min: 1 })
+      .withMessage('User ID must be a valid positive integer ID'),
     handleValidationErrors
   ],
 
@@ -682,11 +681,11 @@ const reportValidation = {
       }),
     body('filters.division')
       .optional()
-      .isMongoId()
+      .isInt({ min: 1 })
       .withMessage('Division filter must be a valid ID'),
     body('filters.section')
       .optional()
-      .isMongoId()
+      .isInt({ min: 1 })
       .withMessage('Section filter must be a valid ID'),
     body('filters.users')
       .optional()

@@ -85,6 +85,7 @@ const syncAuditData = async (startDate, endDate, filters = {}, triggeredBy = 'sy
         COUNT(*) AS punch_count
       FROM attendance a
       WHERE a.date_ BETWEEN ? AND ?
+      AND (a.fingerprint_id NOT LIKE '%Emergancy Exit%' OR a.fingerprint_id IS NULL)
     `;
     
     const queryParams = [startDate, endDate];

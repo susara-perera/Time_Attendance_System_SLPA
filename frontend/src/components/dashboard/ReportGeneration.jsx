@@ -7,7 +7,7 @@ import AuditReport from './AuditReport';
 import { useLanguage } from '../../context/LanguageContext';
 import PageHeader from './PageHeader';
 
-const ReportGeneration = ({ onBack }) => {
+const ReportGeneration = ({ onBack, initialEmployeeId = null }) => {
   const { t } = useLanguage();
   const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
   
@@ -23,7 +23,23 @@ const ReportGeneration = ({ onBack }) => {
   const [reportScope, setReportScope] = useState('individual');
   const [timePeriod, setTimePeriod] = useState('none');
   const [reportGrouping, setReportGrouping] = useState('none');
-  const [employeeId, setEmployeeId] = useState('');
+  const [employeeId, setEmployeeId] = useState(initialEmployeeId || '');
+  
+  // Set employee ID when initialEmployeeId prop changes
+  useEffect(() => {
+    if (initialEmployeeId) {
+      setEmployeeId(initialEmployeeId);
+      setReportScope('individual');
+      // Auto-scroll to employee ID field
+      setTimeout(() => {
+        const empField = document.querySelector('input[placeholder*="Employee"]');
+        if (empField) {
+          empField.focus();
+          empField.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 300);
+    }
+  }, [initialEmployeeId]);
   const [divisionId, setDivisionId] = useState('all');
   const [sectionId, setSectionId] = useState('all');
   const [divisions, setDivisions] = useState([]);
@@ -121,7 +137,79 @@ const ReportGeneration = ({ onBack }) => {
     });
   }, [reportData, searchQuery]);
 
-  const filteredReportData = reportData ? { ...reportData, data: filteredData } : reportData;
+  // Flatten punches (group-style) to a uniform punch array so individual reports can reuse same data
+const flattenedPunches = useMemo(() => {
+  if (!reportData || !Array.isArray(reportData.data)) return [];
+  const punches = [];
+
+  // Two main shapes: group-shaped (employees with dailyAttendance/punches) or flat punch rows
+  reportData.data.forEach(emp => {
+    // If this looks like an employee record with dailyAttendance or punches
+    const empId = emp.employeeId || emp.employee_ID || emp.emp_no || emp.empNo || emp.EMP_NUMBER || emp.EMP_NO || '';
+    const empName = emp.employeeName || emp.employee_name || emp.name || emp.FULLNAME || '';
+
+    // 1) raw punches array on employee
+    if (Array.isArray(emp.punches) && emp.punches.length) {
+      emp.punches.forEach(p => {
+        const d = p.date || p.punchDate || p.date_ || p.day || '';
+        punches.push({
+          employee_ID: String(empId),
+          employee_name: empName,
+          date_: d,
+          time_: p.time || p.time_ || p.punchTime || '',
+          scan_type: (p.scan_type || p.status || p.type || '').toString()
+        });
+      });
+      return; // continue to next emp
+    }
+
+    // 2) dailyAttendance object per employee
+    if (emp.dailyAttendance && typeof emp.dailyAttendance === 'object') {
+      Object.entries(emp.dailyAttendance).forEach(([date, dayData]) => {
+        if (Array.isArray(dayData) && dayData.length) {
+          dayData.forEach(p => punches.push({ employee_ID: String(empId), employee_name: empName, date_: date, time_: p.time || p.time_ || p.punchTime || '', scan_type: (p.scan_type || p.status || p.type || '').toString() }));
+        } else if (dayData && typeof dayData === 'object') {
+          if (dayData.checkIn) punches.push({ employee_ID: String(empId), employee_name: empName, date_: date, time_: dayData.checkIn, scan_type: 'IN' });
+          if (dayData.checkOut) punches.push({ employee_ID: String(empId), employee_name: empName, date_: date, time_: dayData.checkOut, scan_type: 'OUT' });
+        }
+      });
+      return;
+    }
+
+    // 3) fallback: if this element itself is a punch row (flat list)
+    const recDate = emp.date_ || emp.punchDate || emp.date;
+    if (recDate) {
+      punches.push({ employee_ID: String(emp.employee_ID || emp.employeeId || empId), employee_name: emp.employee_name || emp.employeeName || empName, date_: recDate, time_: emp.time_ || emp.time || emp.punchTime || '', scan_type: (emp.scan_type || emp.status || emp.type || '').toString() });
+    }
+  });
+
+  // Sort same as group logic
+  punches.sort((a,b) => {
+    const da = new Date(a.date_||''); const db = new Date(b.date_||'');
+    if (!isNaN(da.getTime()) && !isNaN(db.getTime())) { if (da < db) return -1; if (da > db) return 1; } else { if ((a.date_||'') < (b.date_||'')) return -1; if ((a.date_||'') > (b.date_||'')) return 1; }
+    const empA = String(a.employee_ID||''); const empB = String(b.employee_ID||''); if (empA < empB) return -1; if (empA > empB) return 1;
+    const ta = a.time_||''; const tb = b.time_||''; if (ta < tb) return -1; if (ta > tb) return 1;
+    const aIsIn = (a.scan_type||'').toUpperCase() === 'IN'; const bIsIn = (b.scan_type||'').toUpperCase() === 'IN'; if (aIsIn && !bIsIn) return -1; if (!aIsIn && bIsIn) return 1; return 0;
+  });
+
+  return punches;
+}, [reportData]);
+
+// For individual scope, produce a reportData-like object containing only the selected employee's punches
+const individualFlatReportData = useMemo(() => {
+  if (!reportData) return reportData;
+  if (reportScope === 'individual' && employeeId) {
+    const empIdStr = String(employeeId);
+    const data = flattenedPunches.filter(p => String(p.employee_ID) === empIdStr);
+    // Build dates array for headers and pagination
+    const dates = Array.from(new Set(data.map(d => d.date_))).sort((a,b)=> new Date(a)-new Date(b));
+    return { reportType: 'individual', dateRange: reportData.dateRange || reportData.dates || {}, dates, data };
+  }
+  return reportData ? { ...reportData, data: filteredData } : reportData;
+}, [flattenedPunches, reportData, reportScope, employeeId, filteredData]);
+
+// Final report data passed to components (group uses filteredReportData, individual uses individualFlatReportData)
+const filteredReportData = reportScope === 'individual' ? individualFlatReportData : (reportData ? { ...reportData, data: filteredData } : reportData);
   // Helpers: normalize backend data (same as EmployeeManagement.jsx)
   const normalizeDivisions = (data = []) => {
     const out = [];
@@ -760,7 +848,7 @@ const ReportGeneration = ({ onBack }) => {
         return;
       }
 
-      // Handle MongoDB response format
+      // Handle response format
       const reportArray = Array.isArray(data.data) ? data.data : Array.isArray(data) ? data : [];
       console.log('📊 Report array length:', reportArray.length);
       console.log('📊 Data success flag:', data.success);

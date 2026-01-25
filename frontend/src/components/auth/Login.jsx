@@ -18,6 +18,16 @@ const Login = () => {
   const { login } = useContext(AuthContext) || {};
   const navigate = useNavigate();
 
+  // Simple local toast helper (fallback)
+  const showToast = ({ type = 'success', title = '', message = '' }) => {
+    try {
+      // Emit a global event other components may listen to
+      window.dispatchEvent(new CustomEvent('app.toast', { detail: { type, title, message } }));
+    } catch (e) { /* ignore */ }
+    // Minimal fallback
+    console.log(`${title}: ${message}`);
+  };
+
   useEffect(() => {
     // Add the CSS animations to the document
     const style = document.createElement('style');
@@ -139,6 +149,17 @@ const Login = () => {
       @keyframes logoBreath {
         0%, 100% { transform: scale(1); }
         50% { transform: scale(1.03); }
+      }
+
+      @keyframes modalFadeIn {
+        from {
+          opacity: 0;
+          transform: scale(0.9) translateY(-20px);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1) translateY(0);
+        }
       }
     `;
     document.head.appendChild(style);
@@ -285,19 +306,14 @@ const Login = () => {
       localStorage.removeItem('blockUntil');
       setLoginAttempts(0);
 
-      // Show brief cache preload notice if server triggered preloads
-      if (result && result.cache && result.cache.preloadTrigger) {
-        const days = result.cache.preloadTrigger.days || 0;
-        setError(`⚡ Cache preload triggered for attendance & audit (last ${days} days). Warming up in background.`);
-        // Show message briefly then navigate
-        setTimeout(() => {
-          setError('');
-          navigate('/dashboard');
-        }, 900);
-      } else {
-        console.log('Login successful, navigating to dashboard...', result);
-        navigate('/dashboard');
-      }
+      // Navigate to dashboard after successful login
+      console.log('🚀 Login successful, navigating to dashboard');
+      showToast({ type: 'success', title: 'Login', message: 'Welcome back!' });
+      navigate('/dashboard');
+      // Navigate to dashboard after successful login
+      console.log('🚀 Login successful, navigating to dashboard');
+      showToast({ type: 'success', title: 'Login', message: 'Welcome back!' });
+      navigate('/dashboard');
     } catch (err) {
       console.error('Login error:', err);
       

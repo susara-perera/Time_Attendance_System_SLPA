@@ -1,8 +1,4 @@
-const User = require('../models/User');
-const Attendance = require('../models/Attendance');
-const Meal = require('../models/Meal');
-const Division = require('../models/Division');
-const Section = require('../models/Section');
+const { MySQLUser: User, MySQLAttendance: Attendance, MySQLMeal: Meal, MySQLDivision: Division, MySQLSection: Section } = require('../models/mysql');
 
 // GET /api/employees
 // Query params: divisionId, sectionId, startDate, endDate, type=attendance|meal|both, includeRecords=true|false, page, limit

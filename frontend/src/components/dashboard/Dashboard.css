@@ -239,6 +239,22 @@ body {
   align-items: center;
 }
 
+/* Center datetime styling for header */
+.center-datetime {
+  text-align: center;
+}
+.center-datetime .datetime-time {
+  font-size: 20px;
+  font-weight: 700;
+  color: white !important; /* white color */
+}
+.center-datetime .datetime-date {
+  font-size: 12px;
+  color: white !important; /* white color */
+  opacity: 0.85;
+  font-weight: 500;
+}
+
 /* Navigation Left Section with Toggle */
 .nav-left {
   display: flex;
@@ -497,14 +513,15 @@ body {
 .datetime-time {
   font-size: 18px;
   font-weight: 700;
-  color: white;
+  color: white !important;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.5px;
 }
 
 .datetime-date {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.7);
+  color: white !important;
+  opacity: 0.85;
   font-weight: 500;
 }
 
@@ -631,7 +648,7 @@ body {
   -ms-overflow-style: none;
   transform: translateX(-100%);
   backdrop-filter: blur(20px);
-  border-radius: 0 24px 24px 0;
+  border-radius: 0;
 }
 
 .sidebar::before {
@@ -643,7 +660,7 @@ body {
   height: 250px;
   background: linear-gradient(180deg, rgba(102, 126, 234, 0.08) 0%, rgba(139, 92, 246, 0.05) 50%, transparent 100%);
   pointer-events: none;
-  border-radius: 0 24px 0 0;
+  border-radius: 0;
 }
 
 @supports (scrollbar-width: none) {

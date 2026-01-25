@@ -20,6 +20,7 @@ const MealManagement = ({ onBack }) => {
   const [messageType, setMessageType] = useState('');
   const [todaysBookings, setTodaysBookings] = useState(0);
   const { t } = useLanguage();
+  const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
   const [userInfo, setUserInfo] = useState(null);
 
   // Helper to sanitize section display name (removes IDs/codes and counts in parentheses)
@@ -142,7 +143,7 @@ const MealManagement = ({ onBack }) => {
     
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/auth/verify', {
+      const response = await fetch(`${API_BASE_URL}/auth/verify`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -212,7 +213,7 @@ const MealManagement = ({ onBack }) => {
       const token = localStorage.getItem('token');
       console.log('📥 Fetching HRIS divisions...');
       
-      const response = await fetch('http://localhost:5000/api/divisions/hris', {
+      const response = await fetch(`${API_BASE_URL}/divisions/hris`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -249,7 +250,7 @@ const MealManagement = ({ onBack }) => {
       console.log('📥 Fetching HRIS sections...');
       
       // Use HRIS sections endpoint (same as ReportGeneration)
-      let response = await fetch('http://localhost:5000/api/sections/hris', {
+      let response = await fetch(`${API_BASE_URL}/sections/hris`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -258,7 +259,7 @@ const MealManagement = ({ onBack }) => {
 
       if (!response.ok) {
         console.warn('HRIS sections endpoint returned non-OK, falling back to /api/sections', response.status);
-        response = await fetch('http://localhost:5000/api/sections', {
+        response = await fetch(`${API_BASE_URL}/sections`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
@@ -305,7 +306,7 @@ const MealManagement = ({ onBack }) => {
     try {
       const token = localStorage.getItem('token');
 
-      const response = await fetch('http://localhost:5000/api/meals/bookings/today/count', {
+      const response = await fetch(`${API_BASE_URL}/meals/bookings/today/count`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }

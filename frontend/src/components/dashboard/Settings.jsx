@@ -381,6 +381,46 @@ const Settings = ({ onBack }) => {
                   </select>
                   <small className="form-text text-muted">Select your preferred language.</small>
                 </div>
+
+                {/* Clear Cache Button */}
+                <div className="mb-4 p-3 bg-light rounded" style={{ background: '#fafbfc' }}>
+                  <h6 className="fw-bold mb-3">
+                    <i className="bi bi-arrow-clockwise me-2"></i>Cache Management
+                  </h6>
+                  <p className="text-muted small mb-3">
+                    Clear all cached data to force fresh data retrieval from the database. This may temporarily slow down the system until cache is rebuilt.
+                  </p>
+                  <button
+                    className="btn btn-warning"
+                    onClick={async () => {
+                      if (!window.confirm('Are you sure you want to clear all cached data? This may temporarily slow down the system.')) {
+                        return;
+                      }
+                      try {
+                        const token = localStorage.getItem('token');
+                        const res = await fetch(`${API_BASE_URL}/cache/clear-all`, {
+                          method: 'POST',
+                          headers: { 
+                            'Content-Type': 'application/json', 
+                            Authorization: token ? `Bearer ${token}` : '' 
+                          },
+                          credentials: 'include'
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                          alert('Cache cleared successfully!');
+                        } else {
+                          alert(`Failed to clear cache: ${data.message || 'Unknown error'}`);
+                        }
+                      } catch (err) {
+                        console.error('Clear cache error:', err);
+                        alert('Failed to clear cache. Please try again.');
+                      }
+                    }}
+                  >
+                    <i className="bi bi-trash me-2"></i>Clear All Cache
+                  </button>
+                </div>
               </div>
             </div>
           )}

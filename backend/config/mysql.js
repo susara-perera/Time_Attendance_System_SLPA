@@ -15,7 +15,11 @@ const sequelize = new Sequelize(
       max: 10,
       min: 0,
       acquire: 30000,
-      idle: 10000
+      idle: 10000,
+      afterConnect: async (connection) => {
+        // Set max_allowed_packet for each connection (128MB)
+        await connection.execute('SET max_allowed_packet = ?', ['128M']);
+      }
     }
   }
 );
@@ -218,6 +222,33 @@ async function ensureMySQLSchema() {
     `;
     await conn.execute(ddlTransferredEmployees);
     console.log('🛠️  Ensured MySQL table exists: transferred_employees');
+
+    const ddlAuditLogs = `
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        userId INT NULL,
+        action VARCHAR(100) NOT NULL,
+        entityType VARCHAR(50) NULL,
+        entityId INT NULL,
+        entityName VARCHAR(255) NULL,
+        category VARCHAR(50) DEFAULT 'general',
+        severity ENUM('low', 'medium', 'high', 'critical') DEFAULT 'low',
+        description TEXT NULL,
+        details TEXT NULL,
+        metadata TEXT NULL,
+        ipAddress VARCHAR(45) NULL,
+        userAgent VARCHAR(255) NULL,
+        isSecurityRelevant BOOLEAN DEFAULT FALSE,
+        status VARCHAR(50) DEFAULT 'success',
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_userId (userId),
+        INDEX idx_action (action),
+        INDEX idx_entityType_entityId (entityType, entityId)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `;
+    await conn.execute(ddlAuditLogs);
+    console.log('🛠️  Ensured MySQL table exists: audit_logs');
 
     // Create sync tables for HRIS data
     const fs = require('fs');

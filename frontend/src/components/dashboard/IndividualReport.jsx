@@ -24,8 +24,36 @@ const IndividualReport = forwardRef(({ reportData, getHeaders, formatRow, report
       }
 
       dateOrder.forEach(date => {
-        // find records for this date
         reportData.data.forEach(r => {
+          // 1) raw punches array
+          if (Array.isArray(r.punches) && r.punches.length) {
+            r.punches.forEach(p => {
+              const pDate = p.date || p.date_ || r.date || r.punchDate || date;
+              if (String(pDate) !== String(date)) return;
+              punches.push({
+                employee_ID: r.employee_ID || r.employeeId || '',
+                employee_name: r.employee_name || r.employeeName || '',
+                date_: date,
+                time_: p.time || p.time_ || p.punchTime || '',
+                scan_type: (p.scan_type || p.status || p.type || '').toString()
+              });
+            });
+            return;
+          }
+
+          // 2) dailyAttendance keyed data
+          if (r.dailyAttendance && r.dailyAttendance[date]) {
+            const dayData = r.dailyAttendance[date];
+            if (Array.isArray(dayData) && dayData.length) {
+              dayData.forEach(p => punches.push({ employee_ID: r.employee_ID || r.employeeId || '', employee_name: r.employee_name || r.employeeName || '', date_: date, time_: p.time || p.time_ || p.punchTime || '', scan_type: (p.scan_type || p.status || p.type || '').toString() }));
+            } else {
+              if (dayData.checkIn) punches.push({ employee_ID: r.employee_ID || r.employeeId || '', employee_name: r.employee_name || r.employeeName || '', date_: date, time_: dayData.checkIn, scan_type: 'IN' });
+              if (dayData.checkOut) punches.push({ employee_ID: r.employee_ID || r.employeeId || '', employee_name: r.employee_name || r.employeeName || '', date_: date, time_: dayData.checkOut, scan_type: 'OUT' });
+            }
+            return;
+          }
+
+          // 3) fallback to flat record
           const recDate = r.date_ || r.punchDate || r.date;
           if (String(recDate) === String(date)) {
             const inferredType = r.scan_type || r.type || r.direction || '';
@@ -170,6 +198,29 @@ const IndividualReport = forwardRef(({ reportData, getHeaders, formatRow, report
     }
     dateOrder.forEach(date => {
       reportData.data.forEach(r => {
+        // 1) raw punches array
+        if (Array.isArray(r.punches) && r.punches.length) {
+          r.punches.forEach(p => {
+            const pDate = p.date || p.date_ || r.date || r.punchDate || date;
+            if (String(pDate) !== String(date)) return;
+            punches.push({ employee_ID: r.employee_ID || r.employeeId || '', employee_name: r.employee_name || r.employeeName || '', date_: date, time_: p.time || p.time_ || p.punchTime || '', scan_type: (p.scan_type || p.status || p.type || '').toString() });
+          });
+          return;
+        }
+
+        // 2) dailyAttendance keyed data
+        if (r.dailyAttendance && r.dailyAttendance[date]) {
+          const dayData = r.dailyAttendance[date];
+          if (Array.isArray(dayData) && dayData.length) {
+            dayData.forEach(p => punches.push({ employee_ID: r.employee_ID || r.employeeId || '', employee_name: r.employee_name || r.employeeName || '', date_: date, time_: p.time || p.time_ || p.punchTime || '', scan_type: (p.scan_type || p.status || p.type || '').toString() }));
+          } else {
+            if (dayData.checkIn) punches.push({ employee_ID: r.employee_ID || r.employeeId || '', employee_name: r.employee_name || r.employeeName || '', date_: date, time_: dayData.checkIn, scan_type: 'IN' });
+            if (dayData.checkOut) punches.push({ employee_ID: r.employee_ID || r.employeeId || '', employee_name: r.employee_name || r.employeeName || '', date_: date, time_: dayData.checkOut, scan_type: 'OUT' });
+          }
+          return;
+        }
+
+        // 3) fallback to flat record
         const recDate = r.date_ || r.punchDate || r.date;
         if (String(recDate) === String(date)) {
           const inferredType = r.scan_type || r.type || r.direction || '';

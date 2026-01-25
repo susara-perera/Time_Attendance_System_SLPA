@@ -4,6 +4,10 @@
  * Comprehensive tests for the cache preload and indexing system
  */
 
+// Load environment variables from .env for local test runs
+require('dotenv').config();
+
+
 const cachePreloadService = require('./services/cachePreloadService');
 const cacheDataService = require('./services/cacheDataService');
 const { CacheMetadata, CacheSyncLog, CacheIndex } = require('./models/mysql');

@@ -1,7 +1,4 @@
-const Division = require('../models/Division');
-const Section = require('../models/Section');
-const User = require('../models/User');
-const AuditLog = require('../models/AuditLog');
+const { MySQLDivision: Division, MySQLSection: Section, MySQLUser: User, MySQLAuditLog: AuditLog } = require('../models/mysql');
 const hrisApiService = require('../services/hrisApiService'); // Only used for hierarchy sync, not cache
 const mysqlDataService = require('../services/mysqlDataService');
 // Note: HRIS cache is no longer used for data access - data comes from MySQL sync tables
@@ -13,12 +10,12 @@ const getDivisions = async (req, res) => {
   try {
     const {
       page = 1,
-      limit = req.query.limit ? parseInt(req.query.limit) : 1000, // Increased default limit to 1000
+      limit = req.query.limit ? parseInt(req.query.limit) : 1000,
       sort = 'name',
       order = 'asc',
       search,
       isActive,
-      source = 'local' // Add source parameter: 'local', 'hris', or 'both'
+      source = 'local'
     } = req.query;
 
     // If source is 'hris', fetch from HRIS API
@@ -26,68 +23,58 @@ const getDivisions = async (req, res) => {
       return await getHrisDivisions(req, res);
     }
 
-    // Build query
-    let query = {};
-
-    // Role-based filtering - removed restrictions for now to get all data
-    // if (req.user.role === 'admin' && req.user.division) {
-    //   query._id = req.user.division._id;
-    // } else if (req.user.role === 'clerk' && req.user.division) {
-    //   query._id = req.user.division._id;
-    // }
+    // Build Sequelize where clause
+    const { Op } = require('sequelize');
+    let whereClause = {};
 
     // Search filter
     if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { code: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
+      whereClause[Op.or] = [
+        { name: { [Op.like]: `%${search}%` } },
+        { code: { [Op.like]: `%${search}%` } },
+        { description: { [Op.like]: `%${search}%` } }
       ];
     }
 
-    if (isActive !== undefined) query.isActive = isActive === 'true';
+    if (isActive !== undefined) {
+      whereClause.isActive = isActive === 'true';
+    }
 
-    // Sort order
-    const sortOrder = order === 'desc' ? -1 : 1;
-    const sortObj = { [sort]: sortOrder };
-
-    // Execute query with pagination
-    const skip = (page - 1) * limit;
+    // Pagination
+    const offset = (page - 1) * limit;
     
-    console.log('Fetching divisions with query:', query);
+    console.log('Fetching divisions with where clause:', whereClause);
     
-    const divisions = await Division.find(query)
-      .populate('manager', 'firstName lastName email employeeId')
-      .populate('employeeCount')
-      .populate('sectionCount')
-      .sort(sortObj)
-      .skip(skip)
-      .limit(parseInt(limit));
+    const { count, rows: divisions } = await Division.findAndCountAll({
+      where: whereClause,
+      include: [
+        { 
+          model: User, 
+          as: 'manager', 
+          attributes: ['firstName', 'lastName', 'email', 'employeeId'],
+          required: false
+        }
+      ],
+      order: [[sort, order.toUpperCase()]],
+      limit: parseInt(limit),
+      offset: offset
+    });
 
-    const total = await Division.countDocuments(query);
-
-    console.log(`Found ${divisions.length} divisions out of ${total} total`);
-    console.log('Division data:', divisions.map(d => ({ 
-      id: d._id, 
-      name: d.name, 
-      code: d.code, 
-      isActive: d.isActive,
-      employeeCount: d.employeeCount,
-      manager: d.manager ? `${d.manager.firstName} ${d.manager.lastName}` : 'No manager'
-    })));
+    console.log(`Found ${divisions.length} divisions out of ${count} total`);
 
     // Calculate pagination
-    const totalPages = Math.ceil(total / limit);
+    const totalPages = Math.ceil(count / limit);
     const hasNextPage = page < totalPages;
     const hasPrevPage = page > 1;
 
     res.status(200).json({
       success: true,
-      data: divisions,
+      divisions: divisions,
+      data: divisions, // Keep both for compatibility
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        total,
+        total: count,
         totalPages,
         hasNextPage,
         hasPrevPage
@@ -197,6 +184,26 @@ const createDivision = async (req, res) => {
         endpoint: req.originalUrl
       }
     });
+
+    // Log to recent activities table
+    try {
+      const { logRecentActivity } = require('../services/activityLogService');
+
+      await logRecentActivity({
+        title: 'New Division Created',
+        description: `"${division.name}" division added`,
+        activity_type: 'division_created',
+        icon: 'bi bi-building',
+        entity_id: division._id?.toString(),
+        entity_name: division.name,
+        user_id: req.user?._id?.toString(),
+        user_name: req.user?.name || req.user?.username || 'Unknown User'
+      });
+
+      console.log(`[MySQL] ✅ Recent activity logged for division creation: ${division.name}`);
+    } catch (activityErr) {
+      console.error('[RecentActivity] Failed to log division creation activity:', activityErr);
+    }
 
     res.status(201).json({
       success: true,
@@ -321,6 +328,26 @@ const updateDivision = async (req, res) => {
         endpoint: req.originalUrl
       }
     });
+
+    // Log to recent activities table
+    try {
+      const { logRecentActivity } = require('../services/activityLogService');
+
+      await logRecentActivity({
+        title: 'Division Updated',
+        description: `"${division.name}" division modified`,
+        activity_type: 'division_updated',
+        icon: 'bi bi-building-gear',
+        entity_id: division._id?.toString(),
+        entity_name: division.name,
+        user_id: req.user?._id?.toString(),
+        user_name: req.user?.name || req.user?.username || 'Unknown User'
+      });
+
+      console.log(`[MySQL] ✅ Recent activity logged for division update: ${division.name}`);
+    } catch (activityErr) {
+      console.error('[RecentActivity] Failed to log division update activity:', activityErr);
+    }
 
     // Populate manager before sending response
     await division.populate('manager', 'firstName lastName email employeeId');
@@ -586,7 +613,7 @@ const getSyncDivisions = async (req, res) => {
     const start = (pageNum - 1) * limitNum;
     const paginated = allDivisions.slice(start, start + limitNum);
 
-    res.status(200).json({
+    const response = {
       success: true,
       message: 'Divisions fetched from divisions_sync',
       data: paginated,
@@ -599,7 +626,9 @@ const getSyncDivisions = async (req, res) => {
         hasPrevPage: pageNum > 1
       },
       source: 'MySQL_SYNC'
-    });
+    };
+
+    res.status(200).json(response);
   } catch (error) {
     console.error('Get divisions from divisions_sync error:', error.message);
     res.status(500).json({

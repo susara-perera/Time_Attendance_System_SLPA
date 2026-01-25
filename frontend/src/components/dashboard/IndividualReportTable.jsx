@@ -70,12 +70,20 @@ const IndividualReportTable = ({ reportData, parseTimeMillis, formatTime, format
       if (outVal) outTime = formatTime ? formatTime(outVal) : String(outVal);
 
       const first = punches[0] || {};
-      const func = (() => {
-        if (inTime && outTime) return 'F1-0 / F4-0';
-        if (inTime) return 'F1-0';
-        if (outTime) return 'F4-0';
-        return '';
-      })();
+      // Prefer explicit scan_type/status/type on punches when available, otherwise fall back to
+      // computed in/out presence (earliest/latest times). This aligns Individual and Group views.
+      const hasIn = punches.some(p => ((p.scan_type || p.status || p.type) || '').toString().toUpperCase() === 'IN');
+      const hasOut = punches.some(p => ((p.scan_type || p.status || p.type) || '').toString().toUpperCase() === 'OUT');
+      let func = '';
+      if (hasIn && hasOut) func = 'F1-0 / F4-0';
+      else if (hasIn) func = 'F1-0';
+      else if (hasOut) func = 'F4-0';
+      else {
+        if (inTime && outTime) func = 'F1-0 / F4-0';
+        else if (inTime) func = 'F1-0';
+        else if (outTime) func = 'F4-0';
+        else func = '';
+      }
 
       const punchTimeCombined = (inTime && outTime) ? `${inTime} / ${outTime}` : (inTime || outTime || '');
       rows.push(

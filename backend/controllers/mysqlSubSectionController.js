@@ -1,6 +1,6 @@
 const { createMySQLConnection } = require('../config/mysql');
 const { getSubSectionsFromMySQL } = require('../services/mysqlDataService');
-const AuditLog = require('../models/AuditLog');
+const { MySQLAuditLog: AuditLog } = require('../models/mysql');
 
 // Map DB row -> API shape compatible with existing frontend usage
 function mapRow(row) {
@@ -174,6 +174,35 @@ exports.create = async (req, res, next) => {
       }
     }
 
+    // Log to recent activities table
+    try {
+      const { logRecentActivity } = require('../services/activityLogService');
+
+      await logRecentActivity({
+        title: 'New Sub-Section',
+        description: `"${payload.sub_name}" added`,
+        activity_type: 'subsection_created',
+        icon: 'bi bi-diagram-2',
+        entity_id: created?._id?.toString() || String(created?.parentSection?.id),
+        entity_name: payload.sub_name,
+        user_id: req.user?._id?.toString(),
+        user_name: req.user?.name || req.user?.username || 'Unknown User'
+      });
+
+      console.log(`[MySQL] ✅ Recent activity logged for sub-section creation: ${payload.sub_name}`);
+    } catch (activityErr) {
+      console.error('[RecentActivity] Failed to log sub-section creation activity:', activityErr);
+    }
+
+    // Auto-update dashboard subsections count
+    try {
+      const { updateSubsectionsCount } = require('../services/dashboardAutoUpdateService');
+      await updateSubsectionsCount();
+      console.log(`[MySQL] ✅ Dashboard subsections count auto-updated after creation`);
+    } catch (dashErr) {
+      console.error('[DashboardAutoUpdate] Failed to update subsections count:', dashErr);
+    }
+
     return res.status(201).json({ success: true, message: 'Sub-section created successfully', data: created });
   } catch (err) {
     // Duplicate entry
@@ -244,6 +273,35 @@ exports.update = async (req, res, next) => {
       }
     }
 
+    // Log to recent activities table
+    try {
+      const { logRecentActivity } = require('../services/activityLogService');
+
+      await logRecentActivity({
+        title: 'Sub-Section Updated',
+        description: `"${newName}" modified`,
+        activity_type: 'subsection_updated',
+        icon: 'bi bi-diagram-2',
+        entity_id: String(id),
+        entity_name: newName || updated?.subSection?.sub_hie_name || 'Unknown',
+        user_id: req.user?._id?.toString(),
+        user_name: req.user?.name || req.user?.username || 'Unknown User'
+      });
+
+      console.log(`[MySQL] ✅ Recent activity logged for sub-section update: ${newName}`);
+    } catch (activityErr) {
+      console.error('[RecentActivity] Failed to log sub-section update activity:', activityErr);
+    }
+
+    // Auto-update dashboard subsections count (in case rename affects count logic)
+    try {
+      const { updateSubsectionsCount } = require('../services/dashboardAutoUpdateService');
+      await updateSubsectionsCount();
+      console.log(`[MySQL] ✅ Dashboard subsections count auto-updated after update`);
+    } catch (dashErr) {
+      console.error('[DashboardAutoUpdate] Failed to update subsections count:', dashErr);
+    }
+
     return res.json({ success: true, message: 'Sub-section updated successfully', data: updated });
   } catch (err) {
     if (err && err.code === 'ER_DUP_ENTRY') {
@@ -305,6 +363,35 @@ exports.remove = async (req, res, next) => {
       } catch (auditErr) {
         console.error('[AuditLog] Failed to log MySQL sub-section deletion:', auditErr);
       }
+    }
+
+    // Log to recent activities table
+    try {
+      const { logRecentActivity } = require('../services/activityLogService');
+
+      await logRecentActivity({
+        title: 'Sub-Section Deleted',
+        description: `"${existing?.sub_name || 'Unknown'}" removed`,
+        activity_type: 'subsection_deleted',
+        icon: 'bi bi-trash',
+        entity_id: id,
+        entity_name: existing?.sub_name || 'Unknown',
+        user_id: req.user?._id?.toString(),
+        user_name: req.user?.name || req.user?.username || 'Unknown User'
+      });
+
+      console.log(`[MySQL] ✅ Recent activity logged for sub-section deletion: ${existing?.sub_name || id}`);
+    } catch (activityErr) {
+      console.error('[RecentActivity] Failed to log sub-section deletion activity:', activityErr);
+    }
+
+    // Auto-update dashboard subsections count
+    try {
+      const { updateSubsectionsCount } = require('../services/dashboardAutoUpdateService');
+      await updateSubsectionsCount();
+      console.log(`[MySQL] ✅ Dashboard subsections count auto-updated after deletion`);
+    } catch (dashErr) {
+      console.error('[DashboardAutoUpdate] Failed to update subsections count:', dashErr);
     }
 
     return res.json({ success: true, message: 'Sub-section deleted successfully' });

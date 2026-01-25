@@ -312,7 +312,7 @@ const EmployeeManagement = ({ onBack }) => {
         { key: 'sections', url: `${API_BASE_URL}/mysql-data/sections` },
         // Request division employee counts so the UI can show filtered/total correctly
         { key: 'divisions', url: `${API_BASE_URL}/mysql-data/divisions?includeEmployeeCount=true` },
-        // Use MySQL-backed subsections endpoint (MongoDB subsections route disabled on server)
+        // Use MySQL-backed subsections endpoint
         { key: 'subsections', url: `${API_BASE_URL}/mysql-subsections` },
       ];
 

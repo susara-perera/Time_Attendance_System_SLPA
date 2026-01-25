@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import usePermission from '../../hooks/usePermission';
+import { showModernAlert, showConfirmDialog } from '../common/ModernAlert';
 import PageHeader from './PageHeader';
 import './SectionManagement.css';
 
@@ -567,7 +568,7 @@ const SectionManagement = ({ onBack }) => {
     setShowTransferConfirm(true);
   };
 
-  // Confirm transfer and save to MongoDB
+  // Confirm transfer and save to MySQL
   const confirmTransferEmployee = async () => {
     if (!canTransferSubsection) {
       setShowTransferConfirm(false);
@@ -791,7 +792,7 @@ const SectionManagement = ({ onBack }) => {
     setShowRecallConfirm(true);
   };
 
-  // Confirm recall and delete from MongoDB
+  // Confirm recall and delete from MySQL
   const confirmRecallTransfer = async () => {
     if (!canRecallSubsection) {
       setShowRecallConfirm(false);
@@ -1010,7 +1011,7 @@ const SectionManagement = ({ onBack }) => {
 
       console.log('🔍 Fetching transferred employees for subsection:', subSection._id);
 
-      // Fetch transferred employees from MongoDB
+      // Fetch transferred employees from MySQL
   const response = await fetch(`${API_BASE_URL}/mysql-subsections/transferred/${subSection._id}`, {
         method: 'GET',
         headers: {
@@ -1155,8 +1156,26 @@ const SectionManagement = ({ onBack }) => {
         
         console.log('Division Map (Code -> ID):', Object.keys(divisionMap).length, 'entries');
         setDivisions(divisionData);
-        // Default to 'all' to ensure data shows up even if ID mapping is tricky
-        setSelectedDivision(prev => prev || 'all');
+        
+        // Find IS Division (code 66) and set as default
+        // Try multiple matching strategies to find IS Division
+        const isDivision = divisionData.find(d => 
+          d.code === '66' || 
+          d.code === 66 || 
+          d.divisionCode === '66' || 
+          d.divisionCode === 66 ||
+          String(d.code).trim() === '66' ||
+          d.name?.toLowerCase().includes('information systems') ||
+          d.name?.toLowerCase().includes('is division')
+        );
+        
+        if (isDivision) {
+          setSelectedDivision(isDivision._id);
+          console.log('✅ Set default division to IS Division (66):', isDivision._id, isDivision.name);
+        } else {
+          console.log('⚠️ IS Division (66) not found, using "all"');
+          setSelectedDivision('all');
+        }
       }
 
       // 2. Process Sections using the division map
@@ -1247,7 +1266,12 @@ const SectionManagement = ({ onBack }) => {
     e.preventDefault();
     // Front-end permission safeguard (create-only on this view)
     if (!canCreate) {
-      alert('You do not have permission to perform this action.');
+      showModernAlert({
+        type: 'error',
+        title: 'Permission Denied',
+        message: 'You do not have permission to perform this action.',
+        duration: 3000
+      });
       return;
     }
 
@@ -1263,7 +1287,12 @@ const SectionManagement = ({ onBack }) => {
       const token = localStorage.getItem('token');
       
       if (!token) {
-        alert('Authentication token not found. Please log in again.');
+        showModernAlert({
+          type: 'error',
+          title: 'Authentication Required',
+          message: 'Authentication token not found. Please log in again.',
+          duration: 3000
+        });
         setSubmitting(false);
         return;
       }
@@ -1304,7 +1333,13 @@ const SectionManagement = ({ onBack }) => {
           
           // Refresh data to get updated information
           await fetchData();
-          alert('Section updated successfully!');
+          
+          showModernAlert({
+            type: 'success',
+            title: 'Updated!',
+            message: 'Section updated successfully!',
+            duration: 3000
+          });
         } else {
           let errorMessage = 'Unknown error';
           try {
@@ -1323,7 +1358,12 @@ const SectionManagement = ({ onBack }) => {
             errorMessage = `HTTP ${response.status}: ${response.statusText}`;
           }
           
-          alert(`Failed to update section: ${errorMessage}`);
+          showModernAlert({
+            type: 'error',
+            title: 'Update Failed',
+            message: `Failed to update section: ${errorMessage}`,
+            duration: 4000
+          });
         }
       } else {
         // Add new section
@@ -1346,7 +1386,14 @@ const SectionManagement = ({ onBack }) => {
           
           // Refresh data to get updated information
           await fetchData();
-          alert('Section created successfully!');
+          
+          showModernAlert({
+            type: 'success',
+            title: 'Created!',
+            message: 'Section created successfully!',
+            duration: 3000,
+            showConfetti: true
+          });
         } else {
           let errorMessage = 'Unknown error';
           try {
@@ -1365,14 +1412,24 @@ const SectionManagement = ({ onBack }) => {
             errorMessage = `HTTP ${response.status}: ${response.statusText}`;
           }
           
-          alert(`Failed to create section: ${errorMessage}`);
+          showModernAlert({
+            type: 'error',
+            title: 'Creation Failed',
+            message: `Failed to create section: ${errorMessage}`,
+            duration: 4000
+          });
         }
       }
       
       handleCloseModal();
     } catch (error) {
       console.error('Error submitting section:', error);
-      alert(`Error ${currentSection ? 'updating' : 'adding'} section. Please try again.`);
+      showModernAlert({
+        type: 'error',
+        title: 'Error',
+        message: `Error ${currentSection ? 'updating' : 'adding'} section. Please try again.`,
+        duration: 4000
+      });
     } finally {
       setSubmitting(false);
     }

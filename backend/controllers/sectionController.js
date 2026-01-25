@@ -1,7 +1,4 @@
-const Section = require('../models/Section');
-const User = require('../models/User');
-const Division = require('../models/Division');
-const AuditLog = require('../models/AuditLog');
+const { MySQLSection: Section, MySQLUser: User, MySQLDivision: Division, MySQLAuditLog: AuditLog } = require('../models/mysql');
 const { validationResult } = require('express-validator');
 // Note: HRIS cache is no longer used - data comes from MySQL sync tables
 
@@ -188,6 +185,26 @@ const createSection = async (req, res) => {
       console.error('[AuditLog] Failed to log section creation:', auditErr);
     }
 
+    // Log to recent activities table
+    try {
+      const { logRecentActivity } = require('../services/activityLogService');
+
+      await logRecentActivity({
+        title: 'New Section Created',
+        description: `"${section.name}" section added`,
+        activity_type: 'section_created',
+        icon: 'bi bi-diagram-3',
+        entity_id: section._id?.toString(),
+        entity_name: section.name,
+        user_id: req.user?._id?.toString(),
+        user_name: req.user?.name || req.user?.username || 'Unknown User'
+      });
+
+      console.log(`[MySQL] ✅ Recent activity logged for section creation: ${section.name}`);
+    } catch (activityErr) {
+      console.error('[RecentActivity] Failed to log section creation activity:', activityErr);
+    }
+
     res.status(201).json({
       success: true,
       data: section,
@@ -310,6 +327,26 @@ const updateSection = async (req, res) => {
       console.error('[AuditLog] Failed to log section update:', auditErr);
     }
 
+    // Log to recent activities table
+    try {
+      const { logRecentActivity } = require('../services/activityLogService');
+
+      await logRecentActivity({
+        title: 'Section Updated',
+        description: `"${updatedSection.name}" section modified`,
+        activity_type: 'section_updated',
+        icon: 'bi bi-pencil-square',
+        entity_id: updatedSection._id?.toString(),
+        entity_name: updatedSection.name,
+        user_id: req.user?._id?.toString(),
+        user_name: req.user?.name || req.user?.username || 'Unknown User'
+      });
+
+      console.log(`[MySQL] ✅ Recent activity logged for section update: ${updatedSection.name}`);
+    } catch (activityErr) {
+      console.error('[RecentActivity] Failed to log section update activity:', activityErr);
+    }
+
     res.json({
       success: true,
       data: updatedSection,
@@ -371,6 +408,26 @@ const deleteSection = async (req, res) => {
       });
     } catch (auditErr) {
       console.error('[AuditLog] Failed to log section deletion:', auditErr);
+    }
+
+    // Log to recent activities table
+    try {
+      const { logRecentActivity } = require('../services/activityLogService');
+
+      await logRecentActivity({
+        title: 'Section Deleted',
+        description: `"${section.name}" section removed`,
+        activity_type: 'section_deleted',
+        icon: 'bi bi-trash',
+        entity_id: section._id?.toString(),
+        entity_name: section.name,
+        user_id: req.user?._id?.toString(),
+        user_name: req.user?.name || req.user?.username || 'Unknown User'
+      });
+
+      console.log(`[MySQL] ✅ Recent activity logged for section deletion: ${section.name}`);
+    } catch (activityErr) {
+      console.error('[RecentActivity] Failed to log section deletion activity:', activityErr);
     }
 
     res.json({
@@ -772,7 +829,7 @@ const getHrisSections = async (req, res) => {
 
     console.log(`✅ Successfully fetched ${transformedSections.length} sections from MySQL`);
 
-    res.status(200).json({
+    const response = {
       success: true,
       message: 'Sections fetched from MySQL sync tables',
       data: transformedSections,
@@ -785,7 +842,9 @@ const getHrisSections = async (req, res) => {
         hasPrevPage: false
       },
       source: 'MySQL'
-    });
+    };
+
+    res.status(200).json(response);
     
   } catch (error) {
     console.error('❌ Get sections from MySQL error:', error.message);

@@ -1,5 +1,4 @@
-const Settings = require('../models/Settings');
-const AuditLog = require('../models/AuditLog');
+const { MySQLSettings: Settings, MySQLAuditLog: AuditLog } = require('../models/mysql');
 const { validationResult } = require('express-validator');
 
 // @desc    Get all settings

@@ -1,0 +1,32 @@
+2026-01-20T01:00:57.843Z - Error
+    at Query.run (C:\Users\Administrator\Documents\GitHub\BawanthaProjectDirectory\backend\node_modules\sequelize\lib\dialects\mysql\query.js:52:25)
+    at C:\Users\Administrator\Documents\GitHub\BawanthaProjectDirectory\backend\node_modules\sequelize\lib\sequelize.js:315:28
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async CachePreloadService.buildRelationships (C:\Users\Administrator\Documents\GitHub\BawanthaProjectDirectory\backend\services\cachePreloadService.js:942:35)
+    at async CachePreloadService.preloadAll (C:\Users\Administrator\Documents\GitHub\BawanthaProjectDirectory\backend\services\cachePreloadService.js:253:35)
+    at async runTests (C:\Users\Administrator\Documents\GitHub\BawanthaProjectDirectory\backend\test_cache_preload.js:54:27)
+
+2026-01-20T01:02:51.322Z - Error
+    at Query.run (C:\Users\Administrator\Documents\GitHub\BawanthaProjectDirectory\backend\node_modules\sequelize\lib\dialects\mysql\query.js:52:25)
+    at C:\Users\Administrator\Documents\GitHub\BawanthaProjectDirectory\backend\node_modules\sequelize\lib\sequelize.js:315:28
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async CachePreloadService.buildRelationships (C:\Users\Administrator\Documents\GitHub\BawanthaProjectDirectory\backend\services\cachePreloadService.js:942:35)
+    at async CachePreloadService.preloadAll (C:\Users\Administrator\Documents\GitHub\BawanthaProjectDirectory\backend\services\cachePreloadService.js:253:35)
+    at async runTests (C:\Users\Administrator\Documents\GitHub\BawanthaProjectDirectory\backend\test_cache_preload.js:54:27)
+
+2026-01-20T01:07:46.935Z - Error
+    at Query.run (C:\Users\Administrator\Documents\GitHub\BawanthaProjectDirectory\backend\node_modules\sequelize\lib\dialects\mysql\query.js:52:25)
+    at C:\Users\Administrator\Documents\GitHub\BawanthaProjectDirectory\backend\node_modules\sequelize\lib\sequelize.js:315:28
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async CachePreloadService.buildRelationships (C:\Users\Administrator\Documents\GitHub\BawanthaProjectDirectory\backend\services\cachePreloadService.js:951:35)
+    at async CachePreloadService.preloadAll (C:\Users\Administrator\Documents\GitHub\BawanthaProjectDirectory\backend\services\cachePreloadService.js:253:35)
+    at async runTests (C:\Users\Administrator\Documents\GitHub\BawanthaProjectDirectory\backend\test_cache_preload.js:54:27)
+
+2026-01-20T03:42:34.390Z - Error
+    at Query.run (C:\Users\Administrator\Documents\GitHub\BawanthaProjectDirectory\backend\node_modules\sequelize\lib\dialects\mysql\query.js:52:25)
+    at C:\Users\Administrator\Documents\GitHub\BawanthaProjectDirectory\backend\node_modules\sequelize\lib\sequelize.js:315:28
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async CachePreloadService.buildRelationships (C:\Users\Administrator\Documents\GitHub\BawanthaProjectDirectory\backend\services\cachePreloadService.js:951:35)
+    at async CachePreloadService.preloadAll (C:\Users\Administrator\Documents\GitHub\BawanthaProjectDirectory\backend\services\cachePreloadService.js:253:35)
+    at async runTests (C:\Users\Administrator\Documents\GitHub\BawanthaProjectDirectory\backend\test_cache_preload.js:54:27)
+

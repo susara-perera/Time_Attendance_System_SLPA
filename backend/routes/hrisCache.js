@@ -104,4 +104,77 @@ router.get('/employees', auth, async (req, res) => {
   }
 });
 
+// @route   POST /api/hris-cache/divisions/refresh
+// @desc    Trigger divisions sync to MySQL
+// @access  Private (admin)
+router.post('/divisions/refresh', auth, authorize('super_admin', 'admin'), async (req, res, next) => {
+  try {
+    console.log('🔄 Divisions cache refresh requested by:', req.user.email);
+    const { triggerDivisionsSync } = require('../controllers/syncController');
+    // Call the controller function and let it handle the response
+    return triggerDivisionsSync(req, res);
+  } catch (error) {
+    console.error('Divisions cache refresh error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error refreshing divisions cache',
+      error: error.message
+    });
+  }
+});
+
+// @route   POST /api/hris-cache/sections/refresh
+// @desc    Trigger sections sync to MySQL
+// @access  Private (admin)
+router.post('/sections/refresh', auth, authorize('super_admin', 'admin'), async (req, res, next) => {
+  try {
+    console.log('🔄 Sections cache refresh requested by:', req.user.email);
+    const { triggerSectionsSync } = require('../controllers/syncController');
+    return triggerSectionsSync(req, res);
+  } catch (error) {
+    console.error('Sections cache refresh error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error refreshing sections cache',
+      error: error.message
+    });
+  }
+});
+
+// @route   POST /api/hris-cache/subsections/refresh
+// @desc    Trigger subsections sync to MySQL
+// @access  Private (admin)
+router.post('/subsections/refresh', auth, authorize('super_admin', 'admin'), async (req, res, next) => {
+  try {
+    console.log('🔄 Subsections cache refresh requested by:', req.user.email);
+    const { triggerSubSectionsSync } = require('../controllers/syncController');
+    return triggerSubSectionsSync(req, res);
+  } catch (error) {
+    console.error('Subsections cache refresh error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error refreshing subsections cache',
+      error: error.message
+    });
+  }
+});
+
+// @route   POST /api/hris-cache/employees/refresh
+// @desc    Trigger employees sync to MySQL
+// @access  Private (admin)
+router.post('/employees/refresh', auth, authorize('super_admin', 'admin'), async (req, res, next) => {
+  try {
+    console.log('🔄 Employees cache refresh requested by:', req.user.email);
+    const { triggerEmployeesSync } = require('../controllers/syncController');
+    return triggerEmployeesSync(req, res);
+  } catch (error) {
+    console.error('Employees cache refresh error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error refreshing employees cache',
+      error: error.message
+    });
+  }
+});
+
 module.exports = router;

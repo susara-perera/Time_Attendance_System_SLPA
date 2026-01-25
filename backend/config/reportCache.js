@@ -90,6 +90,17 @@ class ReportCache {
   }
 
   /**
+   * Get underlying redis client (ensures connected)
+   */
+  async getClient() {
+    if (!this.isEnabled) return null;
+    if (!this.isConnected) {
+      await this.connect();
+    }
+    return this.client;
+  }
+
+  /**
    * Generate cache key from report parameters
    */
   generateKey(type, params = {}) {
@@ -377,6 +388,116 @@ class ReportCache {
         error: error.message
       };
     }
+  }
+
+  /**
+   * Redis ZADD operation
+   */
+  async zadd(key, score, member) {
+    if (!this.isEnabled || !this.isConnected) return false;
+
+    try {
+      await this.client.zAdd(key, { score, value: member });
+      return true;
+    } catch (error) {
+      console.error('❌ Cache zadd error:', error.message);
+      this.stats.errors++;
+      return false;
+    }
+  }
+
+  /**
+   * Redis SADD operation
+   */
+  async sadd(key, member) {
+    if (!this.isEnabled || !this.isConnected) return false;
+
+    try {
+      await this.client.sAdd(key, member);
+      return true;
+    } catch (error) {
+      console.error('❌ Cache sadd error:', error.message);
+      this.stats.errors++;
+      return false;
+    }
+  }
+
+  /**
+   * Redis DEL operation
+   */
+  async del(key) {
+    if (!this.isEnabled || !this.isConnected) return false;
+
+    try {
+      await this.client.del(key);
+      this.stats.deletes++;
+      return true;
+    } catch (error) {
+      console.error('❌ Cache del error:', error.message);
+      this.stats.errors++;
+      return false;
+    }
+  }
+
+  /**
+   * Redis KEYS operation
+   */
+  async keys(pattern) {
+    if (!this.isEnabled || !this.isConnected) return [];
+
+    try {
+      const keys = await this.client.keys(pattern);
+      return keys;
+    } catch (error) {
+      console.error('❌ Cache keys error:', error.message);
+      this.stats.errors++;
+      return [];
+    }
+  }
+
+  /**
+   * Get keys count
+   */
+  async getKeysCount() {
+    if (!this.isEnabled || !this.isConnected) return 0;
+
+    try {
+      const keys = await this.client.keys('cache:*');
+      return keys.length;
+    } catch (error) {
+      console.error('❌ Cache keys count error:', error.message);
+      this.stats.errors++;
+      return 0;
+    }
+  }
+
+  /**
+   * Get Redis info
+   */
+  async getInfo() {
+    if (!this.isEnabled || !this.isConnected) return null;
+
+    try {
+      const info = await this.client.info();
+      return info;
+    } catch (error) {
+      console.error('❌ Cache info error:', error.message);
+      this.stats.errors++;
+      return null;
+    }
+  }
+
+  /**
+   * Reset statistics
+   */
+  resetStats() {
+    this.stats = {
+      hits: 0,
+      misses: 0,
+      sets: 0,
+      deletes: 0,
+      errors: 0
+    };
   }
 
   /**
