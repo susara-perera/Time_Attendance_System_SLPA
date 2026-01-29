@@ -6,7 +6,6 @@
  */
 
 const redis = require('redis');
-const { promisify } = require('util');
 
 class RedisCacheService {
   constructor() {
@@ -23,7 +22,7 @@ class RedisCacheService {
   }
 
   /**
-   * Initialize Redis connection
+   * Initialize Redis connection (Redis v5+ syntax)
    */
   async connect() {
     try {
@@ -35,55 +34,42 @@ class RedisCacheService {
       const redisPort = process.env.REDIS_PORT || 6379;
       const redisPassword = process.env.REDIS_PASSWORD || '';
 
+      // Redis v5+ uses different connection syntax
       this.client = redis.createClient({
-        host: redisHost,
-        port: redisPort,
-        password: redisPassword || undefined,
-        retry_strategy: (options) => {
-          if (options.error && options.error.code === 'ECONNREFUSED') {
-            console.warn('⚠️  Redis connection refused');
-            return new Error('Redis connection refused');
+        socket: {
+          host: redisHost,
+          port: redisPort,
+          reconnectStrategy: (retries) => {
+            if (retries > 10) {
+              console.warn('⚠️  Redis max reconnection attempts reached');
+              return new Error('Max reconnection attempts');
+            }
+            return Math.min(retries * 100, 3000);
           }
-          if (options.total_retry_time > 1000 * 60 * 60) {
-            return new Error('Redis retry time exhausted');
-          }
-          if (options.attempt > 10) {
-            return undefined;
-          }
-          return Math.min(options.attempt * 100, 3000);
-        }
+        },
+        password: redisPassword || undefined
       });
 
-      // Promisify Redis commands (check if methods exist first)
-      if (this.client.get) this.get = promisify(this.client.get).bind(this.client);
-      if (this.client.set) this.set = promisify(this.client.set).bind(this.client);
-      if (this.client.del) this.del = promisify(this.client.del).bind(this.client);
-      if (this.client.exists) this.exists = promisify(this.client.exists).bind(this.client);
-      if (this.client.expire) this.expire = promisify(this.client.expire).bind(this.client);
-      if (this.client.keys) this.keys = promisify(this.client.keys).bind(this.client);
-      if (this.client.flushall) this.flushall = promisify(this.client.flushall).bind(this.client);
-      if (this.client.ttl) this.ttl = promisify(this.client.ttl).bind(this.client);
-
-      return new Promise((resolve, reject) => {
-        this.client.on('connect', () => {
-          console.log('✅ Redis cache connected successfully');
-          this.isConnected = true;
-          resolve(true);
-        });
-
-        this.client.on('error', (err) => {
-          console.warn('⚠️  Redis cache error:', err.message);
-          this.isConnected = false;
-          resolve(false);
-        });
-
-        this.client.on('end', () => {
-          console.log('🔌 Redis connection closed');
-          this.isConnected = false;
-        });
+      // Setup event handlers
+      this.client.on('error', (err) => {
+        console.warn('⚠️  Redis cache error:', err.message);
+        this.isConnected = false;
       });
+
+      this.client.on('end', () => {
+        console.log('🔌 Redis connection closed');
+        this.isConnected = false;
+      });
+
+      // Connect to Redis (Redis v5 requires explicit connect)
+      await this.client.connect();
+      
+      console.log('✅ Redis cache connected successfully');
+      this.isConnected = true;
+      return true;
+
     } catch (error) {
-      console.error('❌ Redis connection failed:', error);
+      console.error('❌ Redis connection failed:', error.message);
       this.isConnected = false;
       return false;
     }
@@ -96,11 +82,11 @@ class RedisCacheService {
     const startTime = Date.now();
     
     try {
-      if (!this.isConnected) {
+      if (!this.isConnected || !this.client) {
         return null;
       }
 
-      const data = await this.get(key);
+      const data = await this.client.get(key);
       const retrieveTime = Date.now() - startTime;
       
       this.stats.totalRetrieveTime += retrieveTime;
@@ -128,12 +114,12 @@ class RedisCacheService {
     const startTime = Date.now();
     
     try {
-      if (!this.isConnected) {
+      if (!this.isConnected || !this.client) {
         return false;
       }
 
       const serialized = JSON.stringify(data);
-      await this.set(key, serialized, 'EX', ttl);
+      await this.client.set(key, serialized, { EX: ttl });
       
       const saveTime = Date.now() - startTime;
       this.stats.sets++;
@@ -152,11 +138,11 @@ class RedisCacheService {
    */
   async deleteCache(key) {
     try {
-      if (!this.isConnected) {
+      if (!this.isConnected || !this.client) {
         return false;
       }
 
-      await this.del(key);
+      await this.client.del(key);
       this.stats.deletes++;
       console.log(`🗑️  Cache DELETE: ${key}`);
       return true;
@@ -171,16 +157,16 @@ class RedisCacheService {
    */
   async deleteCachePattern(pattern) {
     try {
-      if (!this.isConnected) {
+      if (!this.isConnected || !this.client) {
         return 0;
       }
 
-      const keys = await this.keys(pattern);
+      const keys = await this.client.keys(pattern);
       if (keys.length === 0) {
         return 0;
       }
 
-      await Promise.all(keys.map(key => this.del(key)));
+      await Promise.all(keys.map(key => this.client.del(key)));
       this.stats.deletes += keys.length;
       console.log(`🗑️  Cache DELETE PATTERN: ${pattern} (${keys.length} keys)`);
       return keys.length;
@@ -263,11 +249,11 @@ class RedisCacheService {
    */
   async clearAll() {
     try {
-      if (!this.isConnected) {
+      if (!this.isConnected || !this.client) {
         return false;
       }
 
-      await this.flushall();
+      await this.client.flushAll();
       console.log('🗑️  All cache cleared');
       return true;
     } catch (error) {

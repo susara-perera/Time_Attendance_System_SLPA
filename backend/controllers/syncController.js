@@ -28,6 +28,13 @@ const {
 
 const { DivisionSync, SectionSync, EmployeeSync } = require('../models/mysql');
 
+// Import cache invalidation for Employee Management page
+const { invalidateEmployeeCaches } = require('../middleware/employeeCacheMiddleware');
+// Import cache invalidation for Management pages (Divisions, Sections, Sub-Sections)
+const { invalidateManagementCaches, invalidateHierarchyCache } = require('../middleware/managementCacheMiddleware');
+// Import cache invalidation for Attendance Reports
+const { invalidateAttendanceReportCaches } = require('../middleware/attendanceReportCacheMiddleware');
+
 /**
  * @desc    Get sync status and statistics
  * @route   GET /api/sync/status
@@ -80,6 +87,18 @@ const triggerFullSync = async (req, res) => {
     // Wait for sync to complete (runs in background)
     const result = await syncPromise;
     console.log('✅ Manual full sync completed:', result);
+    
+    // Invalidate employee caches after successful sync
+    await invalidateEmployeeCaches();
+    console.log('🔄 Employee caches invalidated after full sync');
+    
+    // Invalidate management caches (divisions, sections, subsections)
+    await invalidateManagementCaches();
+    console.log('🔄 Management caches invalidated after full sync');
+    
+    // Invalidate attendance report caches
+    await invalidateAttendanceReportCaches('all');
+    console.log('🔄 Attendance report caches invalidated after full sync');
 
   } catch (error) {
     console.error('Trigger full sync error:', error);
@@ -101,6 +120,11 @@ const triggerDivisionsSync = async (req, res) => {
     const triggeredBy = req.user?.id || req.user?._id || 'manual';
     
     const result = await syncDivisions(triggeredBy);
+    
+    // Invalidate caches after successful divisions sync
+    await invalidateEmployeeCaches();
+    await invalidateHierarchyCache('divisions');
+    console.log('🔄 Employee and division caches invalidated after divisions sync');
 
     res.status(200).json({
       success: true,
@@ -135,6 +159,11 @@ const triggerSectionsSync = async (req, res) => {
     const triggeredBy = req.user?.id || req.user?._id || 'manual';
     
     const result = await syncSections(triggeredBy);
+    
+    // Invalidate caches after successful sections sync
+    await invalidateEmployeeCaches();
+    await invalidateHierarchyCache('sections');
+    console.log('🔄 Employee and section caches invalidated after sections sync');
 
     res.status(200).json({
       success: true,
@@ -169,6 +198,10 @@ const triggerEmployeesSync = async (req, res) => {
     const triggeredBy = req.user?.id || req.user?._id || 'manual';
     
     const result = await syncEmployees(triggeredBy);
+    
+    // Invalidate employee caches after successful employees sync
+    await invalidateEmployeeCaches();
+    console.log('🔄 Employee caches invalidated after employees sync');
 
     res.status(200).json({
       success: true,
@@ -258,6 +291,10 @@ const triggerAttendanceSync = async (req, res) => {
     const { startDate, endDate } = req.body;
     
     const result = await syncAttendance(startDate, endDate, triggeredBy);
+    
+    // Invalidate attendance report caches after successful sync
+    await invalidateAttendanceReportCaches('all');
+    console.log('🔄 Attendance report caches invalidated after attendance sync');
 
     res.status(200).json({
       success: true,

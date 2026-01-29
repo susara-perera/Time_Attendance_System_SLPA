@@ -19,14 +19,16 @@ const {
   auditTrail 
 } = require('../middleware/auth');
 const { reportValidation, queryValidation } = require('../middleware/validation');
+const { cacheAttendanceReport } = require('../middleware/attendanceReportCacheMiddleware');
 
 const router = express.Router();
 
 // @route   GET /api/reports/attendance
-// @desc    Get attendance report
+// @desc    Get attendance report (with Redis caching)
 // @access  Private
 router.get(
   '/attendance',
+  cacheAttendanceReport(),
   auth,
   checkPermission('reports', 'view_reports'),
   // reportValidation.attendanceReport, // Temporarily disabled for testing
@@ -35,20 +37,22 @@ router.get(
 );
 
 // @route   GET /api/reports/attendance/individual
-// @desc    Get individual employee attendance report
+// @desc    Get individual employee attendance report (with Redis caching)
 // @access  Private
 router.get(
   '/attendance/individual',
+  cacheAttendanceReport(),
   auth,
   checkPermission('reports', 'view_reports'),
   getAttendanceReport
 );
 
 // @route   POST /api/reports/attendance
-// @desc    Generate attendance report (MongoDB)
+// @desc    Generate attendance report (MongoDB) (with Redis caching)
 // @access  Private
 router.post(
   '/attendance',
+  cacheAttendanceReport(),
   auth,
   checkPermission('reports', 'view_reports'),
   checkPermission('reports', 'attendance_generate'),

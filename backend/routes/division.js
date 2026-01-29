@@ -21,6 +21,7 @@ const {
   auditTrail 
 } = require('../middleware/auth');
 const { divisionValidation, queryValidation } = require('../middleware/validation');
+const { cacheDivisions } = require('../middleware/managementCacheMiddleware');
 
 const router = express.Router();
 
@@ -46,9 +47,10 @@ router.get(
 
 // @route   GET /api/divisions
 // @desc    Get all divisions (supports ?source=hris for HRIS data)
-// @access  Private
+// @access  Private (with Redis caching)
 router.get(
   '/',
+  cacheDivisions(),
   // auth,
   // queryValidation.pagination,
   getDivisions

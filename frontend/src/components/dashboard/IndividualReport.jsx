@@ -180,7 +180,7 @@ const IndividualReport = forwardRef(({ reportData, getHeaders, formatRow, report
     }
   }));
 
-  // preview rendering: build punches, inject date headers and suppress duplicates (limit to first 100)
+  // preview rendering: build punches, inject date headers and suppress duplicates (show all records)
   const headers = getHeaders();
   const _dropSetPreview = new Set(['emp no','emp name','meal-pkt-mny'].map(s=>s.toLowerCase()));
   const previewKeepIndices = headers.map((h,i)=> _dropSetPreview.has(String(h||'').trim().toLowerCase()) ? -1 : i).filter(i=>i>=0);
@@ -234,8 +234,8 @@ const IndividualReport = forwardRef(({ reportData, getHeaders, formatRow, report
       const empA = String(a.employee_ID||''); const empB = String(b.employee_ID||''); if (empA<empB) return -1; if (empA>empB) return 1; const ta = a.time_||''; const tb = b.time_||''; if (ta<tb) return -1; if (ta>tb) return 1; const aIsIn = (a.scan_type||'').toUpperCase() === 'IN'; const bIsIn = (b.scan_type||'').toUpperCase() === 'IN'; if (aIsIn && !bIsIn) return -1; if (!aIsIn && bIsIn) return 1; return 0;
     });
 
-    let lastKey = null; let lastDateSeen = null; let displayCount = 0; const MAX_PREVIEW = 100;
-    for (let i=0;i<punches.length && displayCount < MAX_PREVIEW;i++) {
+    let lastKey = null; let lastDateSeen = null; let displayCount = 0;
+    for (let i=0;i<punches.length;i++) {
       const p = punches[i];
       const dateVal = p.date_ || '';
       if (lastDateSeen !== dateVal) {
@@ -265,7 +265,6 @@ const IndividualReport = forwardRef(({ reportData, getHeaders, formatRow, report
           {previewElements}
         </tbody>
       </table>
-      {reportData && reportData.data && reportData.data.length > 100 && (<p className="preview-note">Showing first 100 records. Use print for full report.</p>)}
     </div>
   );
 });

@@ -13,6 +13,9 @@ require('dotenv').config();
 const { testMySQLConnection, ensureMySQLSchema } = require('./config/mysql');
 const { sequelize } = require('./config/mysql');
 
+// Redis Cache Service
+const redisCacheService = require('./services/redisCacheService');
+
 const app = express();
 
 // Initialize MySQL and sync models
@@ -38,6 +41,24 @@ const initializeMySQL = async () => {
     
     // Create default super admin
     await createDefaultSuperAdmin();
+
+    // Initialize Sync Schedules
+    try {
+      await require('./controllers/syncScheduleController').initializeDefaults();
+      require('./services/autoSyncScheduler').initialize();
+      console.log('✅ Sync schedules initialized');
+    } catch (err) {
+      console.error('⚠️ Failed to initialize sync schedules:', err.message);
+    }
+    
+    // Initialize Redis Cache for Employee Management
+    console.log('🔄 Connecting to Redis cache...');
+    const redisConnected = await redisCacheService.connect();
+    if (redisConnected) {
+      console.log('✅ Redis cache connected - Employee Management page will use fast caching');
+    } else {
+      console.log('⚠️  Redis cache not connected - Employee Management will work without caching');
+    }
     
   } catch (error) {
     console.error('❌ Failed to initialize MySQL:', error.message);
@@ -239,6 +260,8 @@ app.use('/api/roles', require('./routes/role'));
 app.use('/api/permissions', require('./routes/permission'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/quick-stats', require('./routes/quickStats')); // Progressive dashboard stats
+// Cache Management for Employee Management page
+app.use('/api/cache', require('./routes/cacheManagement'));
 // Performance testing route (internal testing from same process)
 app.use('/api/performance-test', require('./routes/performanceTest'));
 app.use('/api/mysql-subsections', require('./routes/mysqlSubSection'));
@@ -250,6 +273,8 @@ app.use('/api/mysql-activities', require('./routes/mysqlActivity'));
 app.use('/api/hris', require('./routes/hris'));
 // HRIS Sync routes
 app.use('/api/sync', require('./routes/sync'));
+// Sync Schedule routes
+app.use('/api/sync-schedule', require('./routes/syncSchedule'));
 // MySQL Data routes (fast synced data access)
 app.use('/api/mysql-data', require('./routes/mysqlData'));
 // Performance monitoring and testing routes

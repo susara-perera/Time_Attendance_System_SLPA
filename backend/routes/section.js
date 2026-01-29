@@ -19,6 +19,7 @@ const {
   auditTrail 
 } = require('../middleware/auth');
 const { sectionValidation, queryValidation } = require('../middleware/validation');
+const { cacheSections } = require('../middleware/managementCacheMiddleware');
 
 const router = express.Router();
 
@@ -30,9 +31,10 @@ router.get('/hris', getHrisSections);
 
 // @route   GET /api/sections
 // @desc    Get all sections
-// @access  Private
+// @access  Private (with Redis caching)
 router.get(
   '/',
+  cacheSections(),
   // auth,
   // queryValidation.pagination,
   // auditTrail('sections_viewed', 'Section'),

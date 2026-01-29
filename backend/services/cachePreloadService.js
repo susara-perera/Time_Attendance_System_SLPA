@@ -496,15 +496,6 @@ class CachePreloadService {
    * Full cache preload - loads all entities with indexes
    */
   async preloadAll(triggeredBy = 'system') {
-    // TEMPORARILY DISABLE PRELOAD SYSTEM
-    console.log('🚫 Cache preload system is temporarily disabled');
-    return {
-      success: false,
-      message: 'Cache preload system is temporarily disabled',
-      disabled: true,
-      triggeredBy: triggeredBy
-    };
-
     const startTime = Date.now();
     const syncLog = {
       sync_type: 'full_preload',
@@ -1332,62 +1323,89 @@ class CachePreloadService {
       const relationships = [];
 
       // Build division -> sections relationships
-      const [divisionSections] = await sequelize.query(
-        `SELECT DISTINCT HIE_RELATIONSHIP as division_code, HIE_CODE as section_code 
-         FROM sections_sync 
-         WHERE STATUS = 'ACTIVE' AND HIE_RELATIONSHIP IS NOT NULL`,
-        { raw: true }
-      );
+      try {
+        const [divisionSections] = await sequelize.query(
+          `SELECT DISTINCT HIE_RELATIONSHIP as division_code, HIE_CODE as section_code 
+           FROM sections_sync 
+           WHERE STATUS = 'ACTIVE' AND HIE_RELATIONSHIP IS NOT NULL AND HIE_RELATIONSHIP != ''`,
+          { raw: true }
+        );
 
-      for (const rel of divisionSections) {
-        relationships.push({
-          parent_type: 'division',
-          parent_id: rel.division_code,
-          child_type: 'section',
-          child_id: rel.section_code,
-          relationship_type: 'has_section'
-        });
+        for (const rel of divisionSections) {
+          if (rel && rel.division_code && rel.section_code) {
+            relationships.push({
+              parent_type: 'division',
+              parent_id: rel.division_code,
+              child_type: 'section',
+              child_id: rel.section_code,
+              relationship_type: 'has_section'
+            });
+          }
+        }
+        console.log(`✅ Built ${divisionSections.length} division-section relationships`);
+      } catch (err) {
+        console.warn('⚠️ Failed to build division-section relationships:', err.message);
       }
 
       // Build division -> employees relationships (use DIV_CODE and EMP_NO)
-      const [divisionEmployees] = await sequelize.query(
-        `SELECT DISTINCT DIV_CODE as division_code, EMP_NO as employee_id
-         FROM employees_sync
-         WHERE DIV_CODE IS NOT NULL`,
-        { raw: true }
-      );
+      try {
+        const [divisionEmployees] = await sequelize.query(
+          `SELECT DISTINCT DIV_CODE as division_code, EMP_NO as employee_id
+           FROM employees_sync
+           WHERE DIV_CODE IS NOT NULL AND DIV_CODE != ''`,
+          { raw: true }
+        );
 
-      for (const rel of divisionEmployees) {
-        relationships.push({
-          parent_type: 'division',
-          parent_id: rel.division_code,
-          child_type: 'employee',
-          child_id: rel.employee_id,
-          relationship_type: 'has_employee'
-        });
+        for (const rel of divisionEmployees) {
+          if (rel && rel.division_code && rel.employee_id) {
+            relationships.push({
+              parent_type: 'division',
+              parent_id: rel.division_code,
+              child_type: 'employee',
+              child_id: rel.employee_id,
+              relationship_type: 'has_employee'
+            });
+          }
+        }
+        console.log(`✅ Built ${divisionEmployees.length} division-employee relationships`);
+      } catch (err) {
+        console.warn('⚠️ Failed to build division-employee relationships:', err.message);
       }
 
       // Build section -> employees relationships (use SEC_CODE and EMP_NO)
-      const [sectionEmployees] = await sequelize.query(
-        `SELECT DISTINCT SEC_CODE as section_code, EMP_NO as employee_id
-         FROM employees_sync
-         WHERE SEC_CODE IS NOT NULL`,
-        { raw: true }
-      );
+      try {
+        const [sectionEmployees] = await sequelize.query(
+          `SELECT DISTINCT SEC_CODE as section_code, EMP_NO as employee_id
+           FROM employees_sync
+           WHERE SEC_CODE IS NOT NULL AND SEC_CODE != ''`,
+          { raw: true }
+        );
 
-      for (const rel of sectionEmployees) {
-        relationships.push({
-          parent_type: 'section',
-          parent_id: rel.section_code,
-          child_type: 'employee',
-          child_id: rel.employee_id,
-          relationship_type: 'has_employee'
-        });
+        for (const rel of sectionEmployees) {
+          if (rel && rel.section_code && rel.employee_id) {
+            relationships.push({
+              parent_type: 'section',
+              parent_id: rel.section_code,
+              child_type: 'employee',
+              child_id: rel.employee_id,
+              relationship_type: 'has_employee'
+            });
+          }
+        }
+        console.log(`✅ Built ${sectionEmployees.length} section-employee relationships`);
+      } catch (err) {
+        console.warn('⚠️ Failed to build section-employee relationships:', err.message);
       }
 
       // Bulk insert relationships in batches
       if (relationships.length > 0) {
-        await this._bulkCreateInBatches(CacheRelationship, relationships, { updateOnDuplicate: ['updated_at'] }, 500);
+        try {
+          await this._bulkCreateInBatches(CacheRelationship, relationships, { updateOnDuplicate: ['updated_at'] }, 500);
+          console.log(`✅ Inserted ${relationships.length} total relationships`);
+        } catch (err) {
+          console.warn('⚠️ Failed to insert some relationships:', err.message);
+          // Continue even if relationship insertion fails - it's not critical
+        }
       }
 
       console.log(`✅ Built ${relationships.length} relationships`);
@@ -1395,7 +1413,9 @@ class CachePreloadService {
 
     } catch (error) {
       console.error('❌ Relationship building error:', error);
-      throw error;
+      // Don't throw - relationships are helpful but not critical for cache to work
+      console.warn('⚠️ Continuing without relationships...');
+      return { count: 0 };
     }
   }
 

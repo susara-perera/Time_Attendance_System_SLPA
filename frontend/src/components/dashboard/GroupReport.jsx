@@ -268,9 +268,9 @@ const GroupReport = forwardRef(({ reportData, getHeaders, formatRow, reportType,
       const aIsIn = (a.scan_type||'').toUpperCase() === 'IN'; const bIsIn = (b.scan_type||'').toUpperCase() === 'IN'; if (aIsIn && !bIsIn) return -1; if (!aIsIn && bIsIn) return 1; return 0;
     });
 
-    // build preview elements: inject date headers and suppress duplicates, limit to first 100 display rows
-    let lastKey = null; let lastDateSeen = null; let displayCount = 0; const MAX_PREVIEW = 100;
-    for (let i = 0; i < punches.length && displayCount < MAX_PREVIEW; i++) {
+    // build preview elements: inject date headers and suppress duplicates, show all records
+    let lastKey = null; let lastDateSeen = null; let displayCount = 0;
+    for (let i = 0; i < punches.length; i++) {
       const p = punches[i];
       const dateVal = p.date_ || '';
       if (lastDateSeen !== dateVal) {
@@ -283,7 +283,6 @@ const GroupReport = forwardRef(({ reportData, getHeaders, formatRow, reportType,
           </tr>
         );
         lastDateSeen = dateVal; lastKey = null; displayCount++;
-        if (displayCount >= MAX_PREVIEW) break;
       }
 
       const row = formatRow(p);
@@ -318,10 +317,26 @@ const GroupReport = forwardRef(({ reportData, getHeaders, formatRow, reportType,
           <tr>{headers.map((h, i) => (<th key={i} style={{ fontSize: '12px', background: '#f5f5f5', fontWeight: 'bold', padding: '4px 2px', border: '0.5px solid #dee2e6', textAlign: 'left' }}>{h}</th>))}</tr>
         </thead>
         <tbody>
-          {previewElements}
+          {!reportData || !Array.isArray(reportData.data) || reportData.data.length === 0 ? (
+            <tr>
+              <td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: '#666', fontSize: '14px' }}>
+                <div style={{
+                  width: '30px',
+                  height: '30px',
+                  border: '3px solid #f3f3f3',
+                  borderTop: '3px solid #007bff',
+                  borderRadius: '50%',
+                  animation: 'spin 1s linear infinite',
+                  margin: '0 auto 15px'
+                }}></div>
+                Loading attendance records...
+              </td>
+            </tr>
+          ) : (
+            previewElements
+          )}
         </tbody>
       </table>
-      {reportData && reportData.data && reportData.data.length > 100 && (<p className="preview-note">Showing first 100 records. Use print for full report.</p>)}
     </div>
   );
 });

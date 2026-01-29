@@ -41,6 +41,16 @@ const ManualSync = ({ onBack }) => {
       color: 'success',
       description: 'Sync employee records from HRIS',
       hasProgress: true
+    },
+    {
+      id: 'attendance_cache',
+      name: 'Attendance Cache',
+      endpoint: '/api/cache/warmup',
+      icon: 'bi-calendar-check',
+      color: 'warning',
+      description: 'Cache attendance data for selected date range',
+      hasProgress: true,
+      needsDateRange: true
     }
   ];
 

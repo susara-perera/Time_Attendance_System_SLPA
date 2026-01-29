@@ -6,6 +6,15 @@
 const express = require('express');
 const router = express.Router();
 const { auth } = require('../middleware/auth');
+const { 
+  cacheEmployeeData, 
+  saveToCache 
+} = require('../middleware/employeeCacheMiddleware');
+const {
+  cacheDivisions,
+  cacheSections,
+  cacheSubSections
+} = require('../middleware/managementCacheMiddleware');
 
 // Controllers
 const {
@@ -36,21 +45,40 @@ const {
   getISEmployeesWithAttendance
 } = require('../controllers/mysqlEmpIndexController');
 
-// Divisions
-router.get('/divisions', getMySQLDivisions);
+// Divisions (with dual Redis caching - employee management + division management)
+router.get('/divisions', 
+  cacheDivisions(),
+  cacheEmployeeData('divisions'), 
+  saveToCache(600), 
+  getMySQLDivisions
+);
 router.get('/divisions/:code', getMySQLDivisionByCode);
 
-// Sections
-router.get('/sections', getMySQLSections);
+// Sections (with dual Redis caching - employee management + section management)
+router.get('/sections', 
+  cacheSections(),
+  cacheEmployeeData('sections'), 
+  saveToCache(600), 
+  getMySQLSections
+);
 router.get('/sections/:code', getMySQLSectionByCode);
 
-// Subsections
-router.get('/subsections', getMySQLSubSections);
+// Subsections (with dual Redis caching - employee management + subsection management)
+router.get('/subsections', 
+  cacheSubSections(),
+  cacheEmployeeData('subsections'), 
+  saveToCache(600), 
+  getMySQLSubSections
+);
 // Raw debug subsections (returns raw DB rows)
 router.get('/subsections/raw', getRawMySQLSubSections);
 
-// Employees
-router.get('/employees', getMySQLEmployees);
+// Employees (with Redis caching for employee management page - 5 min TTL)
+router.get('/employees', 
+  cacheEmployeeData('employees'), 
+  saveToCache(300), 
+  getMySQLEmployees
+);
 router.get('/employees/:empNo', getMySQLEmployeeByNumber);
 
 // Attendance - Get unique employee IDs by date range

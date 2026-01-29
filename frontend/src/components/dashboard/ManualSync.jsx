@@ -1,500 +1,674 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './ManualSync.css';
 import PageHeader from './PageHeader';
 
-const ManualSync = ({ onBack }) => {
-  const [loading, setLoading] = useState({});
-  const [progress, setProgress] = useState({});
-  const [results, setResults] = useState({});
-  const [showDateRangeModal, setShowDateRangeModal] = useState(false);
+const ManualSync = () => {
+  const [schedules, setSchedules] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [processing, setProcessing] = useState({}); // { task_id: boolean }
+  const [progress, setProgress] = useState({}); // { task_id: percentage }
+  const [message, setMessage] = useState(null);
   const [showResultModal, setShowResultModal] = useState(false);
   const [currentResult, setCurrentResult] = useState(null);
   const [dateRange, setDateRange] = useState({
     startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     endDate: new Date().toISOString().split('T')[0]
   });
+  const [taskDateRanges, setTaskDateRanges] = useState({}); // { task_id: { startDate, endDate } }
+
   const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
-  const syncTables = [
-    {
-      id: 'dashboard_totals_cache',
-      name: 'Sync total_count_dashboard (Updated Dashboard)',
-      endpoint: '/dashboard/total-counts/refresh',
-      icon: 'bi-speedometer2',
-      color: 'secondary',
-      description: 'Rebuild total_count_dashboard for the new dashboard (counts, trend, IS attendance, present/absent with division + section)',
-      hasProgress: true
-    },
-    {
-      id: 'divisions_sync',
-      name: 'Divisions Sync',
-      endpoint: '/sync/trigger/divisions',
-      icon: 'bi-building',
-      color: 'primary',
-      description: 'Sync company divisions from HRIS',
-      hasProgress: true
-    },
-    {
-      id: 'sections_sync',
-      name: 'Sections Sync',
-      endpoint: '/sync/trigger/sections',
-      icon: 'bi-diagram-3',
-      color: 'info',
-      description: 'Sync organizational sections from HRIS',
-      hasProgress: true
-    },
-    {
-      id: 'employees_sync',
-      name: 'Employees Sync',
-      endpoint: '/sync/trigger/employees',
-      icon: 'bi-people',
-      color: 'success',
-      description: 'Sync employee records from HRIS',
-      hasProgress: true
-    },
-    {
-      id: 'division_cache',
-      name: 'Division Cache',
-      endpoint: '/hris-cache/divisions/refresh',
-      icon: 'bi-hdd-stack',
-      color: 'primary',
-      description: 'Preload division cache for faster access',
-      hasProgress: true
-    },
-    {
-      id: 'section_cache',
-      name: 'Section Cache',
-      endpoint: '/hris-cache/sections/refresh',
-      icon: 'bi-hdd-network',
-      color: 'info',
-      description: 'Preload section cache for faster access',
-      hasProgress: true
-    },
-    {
-      id: 'subsection_cache',
-      name: 'Sub-Section Cache',
-      endpoint: '/hris-cache/subsections/refresh',
-      icon: 'bi-hdd',
-      color: 'secondary',
-      description: 'Preload sub-section cache for faster access',
-      hasProgress: true
-    },
-    {
-      id: 'employee_cache',
-      name: 'Employee Cache',
-      endpoint: '/hris-cache/employees/refresh',
-      icon: 'bi-person-lines-fill',
-      color: 'success',
-      description: 'Preload employee cache for faster access',
-      hasProgress: true
-    },
-    {
-      id: 'attendance_cache',
-      name: 'Attendance Cache',
-      endpoint: '/cache/warmup',
-      icon: 'bi-calendar-check',
-      color: 'warning',
-      description: 'Cache attendance data for selected date range',
-      hasProgress: true,
-      needsDateRange: true
-    },
+  useEffect(() => {
+    fetchSchedules();
+    
+    // Initialize default date ranges for attendance cache
+    setTaskDateRanges({
+      attendance_cache: {
+        startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        endDate: new Date().toISOString().split('T')[0]
+      }
+    });
+  }, []);
 
-  ];
+  const fetchSchedules = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API_BASE_URL}/sync-schedule`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.data.success) {
+        setSchedules(res.data.data);
+      }
+    } catch (err) {
+      console.error('Error fetching schedules:', err);
+      // Fallback/Mock data if API fails (during dev/migration)
+      setSchedules([
+          { task_id: 'divisions_sync', task_name: 'Divisions Sync', description: 'Sync company divisions from HRIS', mode: 'manual', repeat_interval: 'none', repeat_enabled: false, last_run: null, status: 'idle' },
+          { task_id: 'sections_sync', task_name: 'Sections Sync', description: 'Sync organizational sections from HRIS', mode: 'manual', repeat_interval: 'none', repeat_enabled: false, last_run: null, status: 'idle' },
+          { task_id: 'employees_sync', task_name: 'Employees Sync', description: 'Sync employee records from HRIS', mode: 'manual', repeat_interval: 'none', repeat_enabled: false, last_run: null, status: 'idle' },
+          { task_id: 'dashboard_sync', task_name: 'Dashboard Totals Sync', description: 'Sync dashboard with latest data', mode: 'manual', repeat_interval: 'none', repeat_enabled: false, last_run: null, status: 'idle' },
+          { task_id: 'attendance_cache', task_name: 'Attendance Table Cache', description: 'Cache attendance data', mode: 'manual', repeat_interval: 'none', repeat_enabled: false, last_run: null, status: 'idle' },
+          { task_id: 'employees_cache', task_name: 'Employees Cache', description: 'Preload employees cache', mode: 'manual', repeat_interval: 'none', repeat_enabled: false, last_run: null, status: 'idle' },
+          { task_id: 'divisions_cache', task_name: 'Divisions Cache', description: 'Preload divisions cache', mode: 'manual', repeat_interval: 'none', repeat_enabled: false, last_run: null, status: 'idle' },
+          { task_id: 'sections_cache', task_name: 'Sections Cache', description: 'Preload sections cache', mode: 'manual', repeat_interval: 'none', repeat_enabled: false, last_run: null, status: 'idle' },
+          { task_id: 'subsections_cache', task_name: 'Sub-Sections Cache', description: 'Preload sub-sections cache', mode: 'manual', repeat_interval: 'none', repeat_enabled: false, last_run: null, status: 'idle' }
+      ]);
+      setMessage({ type: 'warning', text: 'Could not load schedules from server, showing defaults.' });
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const handleSync = async (table) => {
-    if (table.needsDateRange) {
-      setShowDateRangeModal(true);
+  const [saving, setSaving] = useState({});
+
+  const handleUpdateSchedule = async (task_id, updates) => {
+    // Optimistic UI update with saving flag and preserved previous state
+    const current = schedules.find(s => s.task_id === task_id);
+    if (!current) {
+      setMessage({ type: 'error', text: 'Schedule not found' });
       return;
     }
 
-    await executeSyncWithProgress(table);
-  };
+    const previous = { ...current };
+    const optimistic = { ...current, ...updates };
 
-  const executeSyncWithProgress = async (table, customParams = {}) => {
+    console.debug('[ManualSync] Updating schedule', task_id, 'updates=', updates, 'optimistic=', optimistic);
+
+    setSchedules(prev => prev.map(s => s.task_id === task_id ? optimistic : s));
+    setSaving(prev => ({ ...prev, [task_id]: true }));
+
     try {
-      setLoading(prev => ({ ...prev, [table.id]: true }));
-      setProgress(prev => ({ ...prev, [table.id]: { percent: 0, message: 'Starting...', current: 0, total: 0 } }));
-      setResults(prev => ({ ...prev, [table.id]: null }));
-
       const token = localStorage.getItem('token');
-      
-      // Build URL with date range if needed
-      let url = `${API_BASE_URL}${table.endpoint}`;
-      if (customParams.startDate && customParams.endDate) {
-        url += `?startDate=${customParams.startDate}&endDate=${customParams.endDate}`;
+
+      const payload = {
+        task_id: optimistic.task_id,
+        task_name: optimistic.task_name,
+        description: optimistic.description,
+        mode: optimistic.mode,
+        schedule_date: optimistic.schedule_date,
+        schedule_time: optimistic.schedule_time,
+        date_range_start: optimistic.date_range_start,
+        date_range_end: optimistic.date_range_end,
+        repeat_interval: optimistic.repeat_interval || 'none',
+        repeat_enabled: optimistic.repeat_enabled || false,
+        last_run: optimistic.last_run || null,
+        status: optimistic.status || undefined
+      };
+
+      console.debug('[ManualSync] PUT payload', payload);
+
+      const response = await axios.put(`${API_BASE_URL}/sync-schedule/${task_id}`, payload, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      console.debug('[ManualSync] PUT response', response?.data);
+
+      if (response.data && response.data.success) {
+        setSchedules(prev => prev.map(s => s.task_id === task_id ? { ...s, ...response.data.data } : s));
+        setMessage({ type: 'success', text: 'Schedule updated successfully' });
+        setTimeout(() => setMessage(null), 3000);
+      } else {
+        const msg = response.data?.message || 'Unknown server response';
+        throw new Error(msg);
       }
 
-      const response = await axios.post(url, {}, {
-        headers: { 'Authorization': `Bearer ${token}` },
-        onDownloadProgress: (progressEvent) => {
-          // Simulate progress if real progress not available
-          if (!progressEvent.total) {
-            const timeElapsed = Date.now() - startTime;
-            const estimatedPercent = Math.min(90, (timeElapsed / 10000) * 100);
-            setProgress(prev => ({
-              ...prev,
-              [table.id]: {
-                percent: Math.round(estimatedPercent),
-                message: 'Processing...',
-                current: 0,
-                total: 0
-              }
-            }));
-          }
-        }
-      });
+    } catch (err) {
+      console.error('[ManualSync] Error updating schedule:', err);
+      const errorMsg = err.response?.data?.message || err.message || 'Failed to update schedule';
+      setMessage({ type: 'error', text: errorMsg });
 
-      const data = response.data;
+      // Revert optimistic update locally to avoid flicker caused by full reload
+      setSchedules(prev => prev.map(s => s.task_id === task_id ? previous : s));
 
-      // Calculate final progress from response
-      let finalProgress = { percent: 100, message: 'Completed!', current: 0, total: 0 };
-      
-      if (data.data) {
-        if (data.data.synced !== undefined && data.data.total !== undefined) {
-          finalProgress.current = data.data.synced;
-          finalProgress.total = data.data.total;
-        } else if (data.data.recordsSynced !== undefined) {
-          finalProgress.current = data.data.recordsSynced;
-          finalProgress.total = data.data.recordsSynced;
-        } else if (data.data.count !== undefined) {
-          finalProgress.current = data.data.count;
-          finalProgress.total = data.data.count;
-        }
+      // If auth error, suggest re-login (keep it concise)
+      if (err.response?.status === 401) {
+        setMessage({ type: 'error', text: 'Authentication error. Please login again.' });
       }
 
-      setProgress(prev => ({ ...prev, [table.id]: finalProgress }));
-      setResults(prev => ({ ...prev, [table.id]: data }));
-      
-      // Show result modal after sync completes
-      setCurrentResult({
-        tableName: table.name,
-        success: true,
-        data: data,
-        icon: table.icon,
-        color: table.color
-      });
-      setShowResultModal(true);
-
-    } catch (error) {
-      console.error(`Error syncing ${table.name}:`, error);
-      setProgress(prev => ({
-        ...prev,
-        [table.id]: { percent: 0, message: error.response?.data?.message || 'Error occurred', current: 0, total: 0 }
-      }));
-      setResults(prev => ({
-        ...prev,
-        [table.id]: { success: false, message: error.response?.data?.message || error.message }
-      }));
-      
-      // Show error in modal
-      setCurrentResult({
-        tableName: table.name,
-        success: false,
-        message: error.response?.data?.message || error.message,
-        icon: table.icon,
-        color: 'danger'
-      });
-      setShowResultModal(true);
+      // Don't automatically reload the whole list to avoid UI jank; allow manual refresh if needed
+      console.debug('[ManualSync] Reverted schedule to previous state');
     } finally {
-      setLoading(prev => ({ ...prev, [table.id]: false }));
+      setSaving(prev => ({ ...prev, [task_id]: false }));
     }
   };
 
-  const handleAttendanceCacheWithDateRange = async () => {
-    const table = syncTables.find(t => t.id === 'attendance_cache');
-    setShowDateRangeModal(false);
-    await executeSyncWithProgress(table, dateRange);
+  const handleStartSync = async (task) => {
+    if (processing[task.task_id]) return;
+
+    // For attendance_cache, use the task-specific date range
+    if (task.task_id === 'attendance_cache') {
+      const taskRange = taskDateRanges[task.task_id] || dateRange;
+      await executeSync(task, taskRange);
+    } else {
+      await executeSync(task, {});
+    }
   };
 
-  const startTime = Date.now();
+  const executeSync = async (task, options = {}) => {
+    setProcessing(prev => ({ ...prev, [task.task_id]: true }));
+    setProgress(prev => ({ ...prev, [task.task_id]: 0 }));
+    setMessage({ type: 'info', text: `Starting ${task.task_name}...` });
+
+    // Simulate progress
+    const progressInterval = setInterval(() => {
+      setProgress(prev => {
+        const current = prev[task.task_id] || 0;
+        if (current < 90) {
+          return { ...prev, [task.task_id]: current + 10 };
+        }
+        return prev;
+      });
+    }, 300);
+
+    try {
+      let endpoint = '';
+      // Map task_id to endpoint
+      switch(task.task_id) {
+        case 'divisions_sync': endpoint = '/sync/trigger/divisions'; break;
+        case 'sections_sync': endpoint = '/sync/trigger/sections'; break;
+        case 'employees_sync': endpoint = '/sync/trigger/employees'; break;
+        case 'dashboard_sync': endpoint = '/dashboard/total-counts/refresh'; break;
+        case 'attendance_cache': endpoint = '/cache/warmup'; break;
+        case 'employees_cache': endpoint = '/hris-cache/employees/refresh'; break;
+        case 'divisions_cache': endpoint = '/hris-cache/divisions/refresh'; break;
+        case 'sections_cache': endpoint = '/hris-cache/sections/refresh'; break;
+        case 'subsections_cache': endpoint = '/hris-cache/subsections/refresh'; break;
+        default: break;
+      }
+
+      if (endpoint) {
+        const token = localStorage.getItem('token');
+        let url = `${API_BASE_URL}${endpoint}`;
+        
+        // Add date range query params for attendance cache
+        if (task.task_id === 'attendance_cache' && options.startDate && options.endDate) {
+          url += `?startDate=${options.startDate}&endDate=${options.endDate}`;
+        }
+        
+        const response = await axios.post(url, {}, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        clearInterval(progressInterval);
+        setProgress(prev => ({ ...prev, [task.task_id]: 100 }));
+        
+        // Show result modal
+        setCurrentResult({
+          taskName: task.task_name,
+          taskId: task.task_id,
+          data: response.data
+        });
+        setShowResultModal(true);
+        
+        setMessage({ type: 'success', text: `${task.task_name} completed successfully` });
+      } else {
+        clearInterval(progressInterval);
+        setMessage({ type: 'error', text: 'No endpoint defined for this task' });
+      }
+      
+      // Update last run time locally
+      handleUpdateSchedule(task.task_id, { last_run: new Date(), status: 'completed' });
+
+    } catch (err) {
+      clearInterval(progressInterval);
+      console.error('Error starting sync:', err);
+      setMessage({ type: 'error', text: `Failed to start ${task.task_name}: ${err.response?.data?.message || err.message}` });
+      setProgress(prev => ({ ...prev, [task.task_id]: 0 }));
+    } finally {
+      setTimeout(() => {
+        setProcessing(prev => ({ ...prev, [task.task_id]: false }));
+        setProgress(prev => ({ ...prev, [task.task_id]: 0 }));
+      }, 2000);
+    }
+  };
+
+  const handleStopSync = (task) => {
+     // Since we can't easily cancel backend request, we just reset UI state
+     setProcessing(prev => ({ ...prev, [task.task_id]: false }));
+     setMessage({ type: 'info', text: 'Stopped (UI only)' });
+  };
 
   return (
     <div className="manual-sync-container">
-      <PageHeader
-        title="Manual Data Synchronization"
-        subtitle="Manually trigger data sync and cache operations"
-        icon="bi-arrow-repeat"
-        onBack={onBack}
+      <PageHeader 
+        title="Manual Sync & Cache Management" 
+        subtitle="Manage synchronization schedules and manual triggers"
+        icon="bi-arrow-repeat" 
       />
 
-      <div className="sync-list">
-        <div className="sync-list-header">
-          <div className="col name">Name</div>
-          <div className="col desc">Description</div>
-          <div className="col actions">Actions</div>
-        </div>
-        {syncTables.map(table => (
-          <div key={table.id} className={`sync-list-item sync-item-${table.color}`}>
-            <div className="col name">
-              <i className={`bi ${table.icon} item-icon`} />
-              <div className="item-title">{table.name}</div>
-            </div>
-            <div className="col desc">
-              <div className="item-desc">{table.description}</div>
-              {loading[table.id] && (
-                <div className="small-progress">{progress[table.id]?.percent || 0}% - {progress[table.id]?.message || 'Processing...'}</div>
-              )}
-            </div>
-            <div className="col actions">
-              <button
-                className={`start-btn start-btn-${table.color}`}
-                onClick={() => handleSync(table)}
-                disabled={loading[table.id]}
-              >
-                {loading[table.id] ? (
-                  <span className="spinner-border spinner-border-sm me-2"></span>
-                ) : (
-                  <i className="bi bi-play-fill"></i>
-                )}
-                <span className="btn-label">Start</span>
-              </button>
-
-              <button
-                className={`stop-btn`}
-                onClick={() => {
-                  // Soft stop: cancel UI state
-                  setLoading(prev => ({ ...prev, [table.id]: false }));
-                  setResults(prev => ({ ...prev, [table.id]: { success: false, message: 'Cancelled by user' } }));
-                }}
-                disabled={!loading[table.id]}
-              >
-                <i className="bi bi-stop-fill"></i>
-                <span className="btn-label">Stop</span>
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Date Range Modal for Attendance Cache */}
-      {showDateRangeModal && (
-        <div className="modal-overlay" onClick={() => setShowDateRangeModal(false)}>
-          <div className="modal-content date-range-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3><i className="bi bi-calendar-range"></i> Select Date Range</h3>
-              <button className="close-btn" onClick={() => setShowDateRangeModal(false)}>
-                <i className="bi bi-x-lg"></i>
-              </button>
-            </div>
-            <div className="modal-body">
-              <p className="modal-description">
-                Select the date range for attendance data to cache. This will improve report generation speed for the selected period.
-              </p>
-              <div className="date-inputs">
-                <div className="date-input-group">
-                  <label>Start Date</label>
-                  <input
-                    type="date"
-                    value={dateRange.startDate}
-                    onChange={(e) => setDateRange(prev => ({ ...prev, startDate: e.target.value }))}
-                    className="date-input"
-                  />
-                </div>
-                <div className="date-input-group">
-                  <label>End Date</label>
-                  <input
-                    type="date"
-                    value={dateRange.endDate}
-                    onChange={(e) => setDateRange(prev => ({ ...prev, endDate: e.target.value }))}
-                    className="date-input"
-                    max={new Date().toISOString().split('T')[0]}
-                  />
-                </div>
-              </div>
-              <div className="date-range-info">
-                <i className="bi bi-info-circle"></i>
-                <span>
-                  Selected: {Math.ceil((new Date(dateRange.endDate) - new Date(dateRange.startDate)) / (1000 * 60 * 60 * 24))} days
-                </span>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button
-                className="btn-cancel"
-                onClick={() => setShowDateRangeModal(false)}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn-confirm"
-                onClick={handleAttendanceCacheWithDateRange}
-              >
-                <i className="bi bi-check-circle"></i>
-                Start Caching
-              </button>
-            </div>
-          </div>
+      {message && (
+        <div className={`alert alert-${message.type === 'error' ? 'danger' : message.type === 'success' ? 'success' : 'info'} mb-3`}>
+          {message.text}
         </div>
       )}
+
+      <div className="card shadow-sm">
+        <div className="card-body p-0">
+          <div className="table-responsive">
+            <table className="table table-hover align-middle mb-0">
+              <thead className="bg-light">
+                <tr>
+                  <th style={{width: '12%'}}>Name</th>
+                  <th style={{width: '12%'}}>Description</th>
+                  <th style={{width: '10%'}}>Last Run</th>
+                  <th style={{width: '8%'}}>Progress</th>
+                  <th style={{width: '8%'}}>Action</th>
+                  <th style={{width: '8%'}}>Mode</th>
+                  <th style={{width: '10%'}}>Repeat Interval</th>
+                  <th style={{width: '16%'}}>Cache Date Range</th>
+                  <th style={{width: '16%'}}>Schedule</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan="9" className="text-center p-4">Loading schedules...</td></tr>
+                ) : schedules.map(task => (
+                  <tr key={task.task_id}>
+                    <td className="fw-bold">
+                        {task.task_name}
+                        {task.last_run && <div className="text-muted small fw-normal">Last: {new Date(task.last_run).toLocaleString()}</div>}
+                    </td>
+                    <td className="text-muted small">{task.description}</td>
+                    <td className="text-muted small">{task.last_run ? new Date(task.last_run).toLocaleString() : 'Never'}</td>
+                    <td>
+                      {processing[task.task_id] ? (
+                        <div>
+                          <div className="progress" style={{height: '20px'}}>
+                            <div 
+                              className="progress-bar progress-bar-striped progress-bar-animated bg-primary" 
+                              role="progressbar" 
+                              style={{width: `${progress[task.task_id] || 0}%`}}
+                              aria-valuenow={progress[task.task_id] || 0} 
+                              aria-valuemin="0" 
+                              aria-valuemax="100"
+                            >
+                              {progress[task.task_id] || 0}%
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-muted small">Ready</span>
+                      )}
+                    </td>
+                    <td>
+                      <div className="d-flex gap-1 flex-column">
+                        <button 
+                          className="btn btn-sm btn-primary"
+                          onClick={() => handleStartSync(task)}
+                          disabled={processing[task.task_id]}
+                        >
+                          {processing[task.task_id] ? (
+                            <span className="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                          ) : (
+                            <i className="bi bi-play-fill me-1"></i>
+                          )}
+                          Start
+                        </button>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="btn-group btn-group-sm" role="group">
+                        <input 
+                          type="radio" 
+                          className="btn-check" 
+                          name={`mode-${task.task_id}`} 
+                          id={`auto-${task.task_id}`} 
+                          autoComplete="off"
+                          checked={task.mode === 'auto'}
+                          disabled={!!saving[task.task_id]}
+                          onChange={() => handleUpdateSchedule(task.task_id, { mode: 'auto' })}
+                        />
+                        <label
+                          className={`btn ${task.mode === 'auto' ? 'btn-success' : 'btn-outline-secondary'}`}
+                          htmlFor={`auto-${task.task_id}`}
+                          onClick={() => !saving[task.task_id] && handleUpdateSchedule(task.task_id, { mode: 'auto' })}
+                          style={{ cursor: saving[task.task_id] ? 'not-allowed' : 'pointer' }}
+                        >Auto</label>
+
+                        <input 
+                          type="radio" 
+                          className="btn-check" 
+                          name={`mode-${task.task_id}`} 
+                          id={`manual-${task.task_id}`} 
+                          autoComplete="off"
+                          checked={task.mode === 'manual'}
+                          disabled={!!saving[task.task_id]}
+                          onChange={() => handleUpdateSchedule(task.task_id, { mode: 'manual' })}
+                        />
+                        <label
+                          className={`btn ${task.mode === 'manual' ? 'btn-secondary' : 'btn-outline-secondary'}`}
+                          htmlFor={`manual-${task.task_id}`}
+                          onClick={() => !saving[task.task_id] && handleUpdateSchedule(task.task_id, { mode: 'manual' })}
+                          style={{ cursor: saving[task.task_id] ? 'not-allowed' : 'pointer' }}
+                        >Manual</label>
+                        {saving[task.task_id] && (
+                          <div className="spinner-border spinner-border-sm ms-2" role="status" aria-hidden="true"></div>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="d-flex flex-column gap-2">
+                        <select 
+                          className="form-select form-select-sm" 
+                          disabled={task.mode !== 'auto' || !!saving[task.task_id]}
+                          value={task.repeat_interval || 'none'}
+                          onChange={(e) => handleUpdateSchedule(task.task_id, { repeat_interval: e.target.value, repeat_enabled: e.target.value !== 'none' })}
+                        >
+                          <option value="none">No Repeat</option>
+                          <option value="every_30_seconds">Every 30 Seconds</option>
+                          <option value="every_minute">Every Minute</option>
+                          <option value="every_5_minutes">Every 5 Minutes</option>
+                          <option value="every_15_minutes">Every 15 Minutes</option>
+                          <option value="every_30_minutes">Every 30 Minutes</option>
+                          <option value="hourly">Hourly</option>
+                          <option value="daily">Daily</option>
+                          <option value="weekly">Weekly</option>
+                        </select>
+                        {task.repeat_enabled && task.repeat_interval !== 'none' && (
+                          <span className="badge bg-info text-dark small">
+                            <i className="bi bi-arrow-repeat me-1"></i>Recurring
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      {task.task_id === 'attendance_cache' ? (
+                        <div className="row g-1">
+                          <div className="col-6">
+                            <input 
+                              type="date" 
+                              className="form-control form-control-sm" 
+                              value={taskDateRanges[task.task_id]?.startDate || dateRange.startDate}
+                              onChange={(e) => setTaskDateRanges(prev => ({
+                                ...prev,
+                                [task.task_id]: {
+                                  ...prev[task.task_id],
+                                  startDate: e.target.value
+                                }
+                              }))}
+                              placeholder="Start"
+                            />
+                          </div>
+                          <div className="col-6">
+                            <input 
+                              type="date" 
+                              className="form-control form-control-sm" 
+                              value={taskDateRanges[task.task_id]?.endDate || dateRange.endDate}
+                              onChange={(e) => setTaskDateRanges(prev => ({
+                                ...prev,
+                                [task.task_id]: {
+                                  ...prev[task.task_id],
+                                  endDate: e.target.value
+                                }
+                              }))}
+                              placeholder="End"
+                              max={new Date().toISOString().split('T')[0]}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-muted small">N/A</span>
+                      )}
+                    </td>
+                    <td>
+                      <div className="row g-2 align-items-center">
+                        <div className="col-6">
+                          <input 
+                            type="date" 
+                            className="form-control form-control-sm" 
+                            disabled={task.mode !== 'auto' || !!saving[task.task_id]}
+                            value={task.schedule_date || ''}
+                            onChange={(e) => handleUpdateSchedule(task.task_id, { schedule_date: e.target.value })}
+                            placeholder={task.repeat_enabled ? "Start date" : "Date"}
+                          />
+                        </div>
+                        <div className="col-6">
+                          <input 
+                            type="time" 
+                            className="form-control form-control-sm" 
+                            disabled={task.mode !== 'auto' || !!saving[task.task_id]}
+                            value={task.schedule_time || ''}
+                            onChange={(e) => handleUpdateSchedule(task.task_id, { schedule_time: e.target.value })}
+                            placeholder={task.repeat_enabled ? "Start time" : "Time"}
+                          />
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
 
       {/* Result Modal */}
       {showResultModal && currentResult && (
-        <div className="sync-result-modal-overlay" onClick={() => setShowResultModal(false)}>
-          <div className="sync-result-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="sync-result-header">
-              <div className="sync-result-title">
-                <i className={`bi ${currentResult.icon} me-2`} />
-                {currentResult.tableName} - Results
+        <div className="modal show d-block" tabIndex="-1" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
+          <div className="modal-dialog modal-lg modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header bg-primary text-white">
+                <h5 className="modal-title">
+                  <i className="bi bi-check-circle me-2"></i>
+                  {currentResult.taskName} - Results
+                </h5>
+                <button type="button" className="btn-close btn-close-white" onClick={() => setShowResultModal(false)}></button>
               </div>
-              <button className="close-btn" onClick={() => setShowResultModal(false)}>
-                <i className="bi bi-x-lg" />
-              </button>
-            </div>
-            
-            <div className="sync-result-body">
-              {currentResult.success ? (
-                <>
-                  <div className={`alert alert-${currentResult.data?.success ? 'success' : 'warning'} mb-3`}>
-                    <i className={`bi bi-${currentResult.data?.success ? 'check-circle' : 'exclamation-triangle'} me-2`} />
-                    {currentResult.data?.message || 'Operation completed'}
-                  </div>
-
-                  {/* Display sync statistics */}
-                  {currentResult.data?.data && (
-                    <div className="sync-stats-grid">
-                      {/* Total records */}
-                      {currentResult.data.data.total !== undefined && (
-                        <div className="stat-card">
-                          <div className="stat-label">Total Records</div>
-                          <div className="stat-value">{currentResult.data.data.total}</div>
-                        </div>
-                      )}
-                      
-                      {/* Synced/Created records */}
-                      {(currentResult.data.data.synced !== undefined || currentResult.data.data.created !== undefined) && (
-                        <div className="stat-card stat-success">
-                          <div className="stat-label">New/Updated</div>
-                          <div className="stat-value">{currentResult.data.data.synced || currentResult.data.data.created || 0}</div>
-                        </div>
-                      )}
-                      
-                      {/* Records synced */}
-                      {currentResult.data.data.recordsSynced !== undefined && (
-                        <div className="stat-card stat-info">
-                          <div className="stat-label">Records Synced</div>
-                          <div className="stat-value">{currentResult.data.data.recordsSynced}</div>
-                        </div>
-                      )}
-                      
-                      {/* Count field */}
-                      {currentResult.data.data.count !== undefined && (
-                        <div className="stat-card stat-primary">
-                          <div className="stat-label">Count</div>
-                          <div className="stat-value">{currentResult.data.data.count}</div>
-                        </div>
-                      )}
-                      
-                      {/* Present/Absent counts */}
-                      {currentResult.data.data.presentCount !== undefined && (
-                        <>
-                          <div className="stat-card stat-success">
-                            <div className="stat-label">Present</div>
-                            <div className="stat-value">{currentResult.data.data.presentCount}</div>
-                          </div>
-                          <div className="stat-card stat-danger">
-                            <div className="stat-label">Absent</div>
-                            <div className="stat-value">{currentResult.data.data.absentCount}</div>
-                          </div>
-                        </>
-                      )}
-                      
-                      {/* Total divisions, sections, etc */}
-                      {currentResult.data.data.totalDivisions !== undefined && (
-                        <div className="stat-card">
-                          <div className="stat-label">Divisions</div>
-                          <div className="stat-value">{currentResult.data.data.totalDivisions}</div>
-                        </div>
-                      )}
-                      {currentResult.data.data.totalSections !== undefined && (
-                        <div className="stat-card">
-                          <div className="stat-label">Sections</div>
-                          <div className="stat-value">{currentResult.data.data.totalSections}</div>
-                        </div>
-                      )}
-                      {currentResult.data.data.totalSubsections !== undefined && (
-                        <div className="stat-card">
-                          <div className="stat-label">Sub-Sections</div>
-                          <div className="stat-value">{currentResult.data.data.totalSubsections}</div>
-                        </div>
-                      )}
-                      {currentResult.data.data.totalActiveEmployees !== undefined && (
-                        <div className="stat-card">
-                          <div className="stat-label">Active Employees</div>
-                          <div className="stat-value">{currentResult.data.data.totalActiveEmployees}</div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Display if no new data found */}
-                  {currentResult.data?.data && 
-                   (currentResult.data.data.synced === 0 || 
-                    currentResult.data.data.created === 0 || 
-                    currentResult.data.data.recordsSynced === 0 ||
-                    (currentResult.data.data.synced === undefined && 
-                     currentResult.data.data.created === undefined && 
-                     currentResult.data.data.recordsSynced === undefined &&
-                     currentResult.data.data.count === 0)) && (
-                    <div className="alert alert-info mt-3">
-                      <i className="bi bi-info-circle me-2" />
-                      No new data found. All records are up to date.
-                    </div>
-                  )}
-
-                  {/* Display new records if available */}
-                  {currentResult.data?.data?.records && currentResult.data.data.records.length > 0 && (
-                    <div className="new-records-section mt-4">
-                      <h6 className="mb-3">
-                        <i className="bi bi-plus-circle me-2" />
-                        New Records ({currentResult.data.data.records.length})
-                      </h6>
-                      <div className="records-table-container">
-                        <table className="table table-sm table-hover">
-                          <thead>
-                            <tr>
-                              {Object.keys(currentResult.data.data.records[0]).map(key => (
-                                <th key={key}>{key.replace(/_/g, ' ').toUpperCase()}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {currentResult.data.data.records.slice(0, 100).map((record, idx) => (
-                              <tr key={idx}>
-                                {Object.values(record).map((value, vidx) => (
-                                  <td key={vidx}>{value?.toString() || 'N/A'}</td>
-                                ))}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        {currentResult.data.data.records.length > 100 && (
-                          <div className="text-muted small text-center mt-2">
-                            Showing first 100 of {currentResult.data.data.records.length} records
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="alert alert-danger">
-                  <i className="bi bi-exclamation-triangle me-2" />
-                  {currentResult.message || 'An error occurred during sync'}
-                </div>
-              )}
-            </div>
-            
-            <div className="sync-result-footer">
-              <button className="btn btn-primary" onClick={() => setShowResultModal(false)}>
-                Close
-              </button>
+              <div className="modal-body">
+                {renderResultContent(currentResult)}
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setShowResultModal(false)}>Close</button>
+              </div>
             </div>
           </div>
         </div>
       )}
+
+      {/* Date Range Modal for Attendance Cache - REMOVED: Now using inline date range inputs */}
+      {/* {showDateRangeModal && (
+        <div className="modal show d-block" tabIndex="-1" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header bg-warning text-dark">
+                <h5 className="modal-title">
+                  <i className="bi bi-calendar-range me-2"></i>
+                  Select Attendance Date Range
+                </h5>
+                <button type="button" className="btn-close" onClick={() => setShowDateRangeModal(false)}></button>
+              </div>
+              <div className="modal-body">
+                <p className="text-muted mb-3">
+                  Select the date range for attendance data to cache. This will improve report generation speed for the selected period.
+                </p>
+                <div className="row g-3">
+                  <div className="col-md-6">
+                    <label className="form-label fw-bold">Start Date</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={dateRange.startDate}
+                      onChange={(e) => setDateRange(prev => ({ ...prev, startDate: e.target.value }))}
+                    />
+                  </div>
+                  <div className="col-md-6">
+                    <label className="form-label fw-bold">End Date</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={dateRange.endDate}
+                      onChange={(e) => setDateRange(prev => ({ ...prev, endDate: e.target.value }))}
+                      max={new Date().toISOString().split('T')[0]}
+                    />
+                  </div>
+                </div>
+                <div className="alert alert-info mt-3 mb-0">
+                  <i className="bi bi-info-circle me-2"></i>
+                  <small>
+                    Selected: {Math.ceil((new Date(dateRange.endDate) - new Date(dateRange.startDate)) / (1000 * 60 * 60 * 24))} days
+                  </small>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setShowDateRangeModal(false)}>
+                  Cancel
+                </button>
+                <button type="button" className="btn btn-warning" onClick={handleDateRangeConfirm}>
+                  <i className="bi bi-check-circle me-1"></i>
+                  Start Caching
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )} */}
     </div>
   );
+
+  function renderResultContent(result) {
+    const { data, taskId } = result;
+    
+    // Handle sync operations
+    if (taskId.includes('_sync')) {
+      const syncData = data.data || {};
+      return (
+        <div>
+          <div className="row mb-3">
+            <div className="col-md-3">
+              <div className="card text-center border-primary">
+                <div className="card-body">
+                  <h3 className="text-primary mb-0">{syncData.synced || syncData.total || 0}</h3>
+                  <small className="text-muted">Total Synced</small>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-3">
+              <div className="card text-center border-success">
+                <div className="card-body">
+                  <h3 className="text-success mb-0">{syncData.created || 0}</h3>
+                  <small className="text-muted">New Records</small>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-3">
+              <div className="card text-center border-warning">
+                <div className="card-body">
+                  <h3 className="text-warning mb-0">{syncData.updated || 0}</h3>
+                  <small className="text-muted">Updated</small>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-3">
+              <div className="card text-center border-danger">
+                <div className="card-body">
+                  <h3 className="text-danger mb-0">{syncData.failed || 0}</h3>
+                  <small className="text-muted">Failed</small>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          {syncData.records && syncData.records.length > 0 && (
+            <div>
+              <h6 className="mb-3">New Records:</h6>
+              <div className="table-responsive" style={{maxHeight: '300px', overflowY: 'auto'}}>
+                <table className="table table-sm table-striped">
+                  <thead className="sticky-top bg-light">
+                    <tr>
+                      {taskId === 'divisions_sync' && (
+                        <>
+                          <th>Code</th>
+                          <th>Name</th>
+                        </>
+                      )}
+                      {taskId === 'sections_sync' && (
+                        <>
+                          <th>Code</th>
+                          <th>Name</th>
+                          <th>Division</th>
+                        </>
+                      )}
+                      {taskId === 'employees_sync' && (
+                        <>
+                          <th>Emp No</th>
+                          <th>Name</th>
+                          <th>Division</th>
+                          <th>Section</th>
+                        </>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {syncData.records.slice(0, 50).map((record, idx) => (
+                      <tr key={idx}>
+                        {taskId === 'divisions_sync' && (
+                          <>
+                            <td>{record.HIE_CODE || record.code}</td>
+                            <td>{record.HIE_NAME || record.name}</td>
+                          </>
+                        )}
+                        {taskId === 'sections_sync' && (
+                          <>
+                            <td>{record.HIE_CODE || record.code}</td>
+                            <td>{record.HIE_NAME || record.name}</td>
+                            <td>{record.DIV_CODE || record.divisionCode}</td>
+                          </>
+                        )}
+                        {taskId === 'employees_sync' && (
+                          <>
+                            <td>{record.EMP_NO || record.empNo}</td>
+                            <td>{record.EMP_NAME || record.name}</td>
+                            <td>{record.DIV_NAME || record.division}</td>
+                            <td>{record.SEC_NAME || record.section}</td>
+                          </>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {syncData.records.length > 50 && (
+                  <p className="text-muted text-center">Showing first 50 of {syncData.records.length} records</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+    
+    // Handle cache operations
+    if (taskId.includes('_cache') || taskId === 'dashboard_sync') {
+      return (
+        <div>
+          <div className="alert alert-success">
+            <i className="bi bi-check-circle me-2"></i>
+            <strong>Success!</strong> Cache operation completed successfully.
+          </div>
+          {data.data && (
+            <div className="bg-light p-3 rounded">
+              <pre className="mb-0" style={{maxHeight: '300px', overflowY: 'auto'}}>
+                {JSON.stringify(data.data, null, 2)}
+              </pre>
+            </div>
+          )}
+          {data.message && (
+            <p className="mt-3 mb-0">{data.message}</p>
+          )}
+        </div>
+      );
+    }
+    
+    return (
+      <div>
+        <div className="alert alert-info">
+          <i className="bi bi-info-circle me-2"></i>
+          Operation completed successfully
+        </div>
+        {data.message && <p>{data.message}</p>}
+      </div>
+    );
+  }
 };
 
 export default ManualSync;

@@ -4,6 +4,7 @@
  */
 
 const { getCache } = require('../config/reportCache');
+const { sequelize } = require('../models/mysql');
 const cachePreloadService = require('../services/cachePreloadService');
 const cacheDataService = require('../services/cacheDataService');
 const { CacheMetadata, CacheSyncLog } = require('../models/mysql');
@@ -506,11 +507,115 @@ async function searchCache(req, res) {
  */
 async function warmupCache(req, res) {
   try {
-    const triggeredBy = req.user?.id || req.user?._id || 'manual';
-    
-    // Check if already warm
+    const triggeredBy = req.user?.id || req.user?._id || 'manual-test';
+    const { startDate, endDate } = req.query;
+
+    // If date range is provided, use date-specific preload
+    if (startDate && endDate) {
+      console.log(`🗓️  Warming attendance cache with date range: ${startDate} to ${endDate}`);
+
+      // Import Redis cache service
+      const redisCacheService = require('../services/redisCacheService');
+
+      // Ensure Redis is connected
+      if (!redisCacheService.isConnected) {
+        await redisCacheService.connect();
+      }
+
+      // Fetch attendance data from MySQL
+      console.log(`📊 Fetching attendance data from ${startDate} to ${endDate}...`);
+
+      const attendanceData = await sequelize.query(`
+        SELECT
+          a.attendance_id,
+          a.employee_ID,
+          a.fingerprint_id,
+          DATE(a.date_) as date,
+          a.time_,
+          a.scan_type,
+          e.EMP_NAME as employee_name,
+          e.EMP_DESIGNATION as designation,
+          d.HIE_NAME as division_name,
+          s.HIE_NAME as section_name
+        FROM attendance a
+        LEFT JOIN employees_sync e ON a.employee_ID = e.EMP_NO
+        LEFT JOIN divisions_sync d ON e.DIV_CODE = d.HIE_CODE
+        LEFT JOIN sections_sync s ON e.SEC_CODE = s.HIE_CODE
+        WHERE DATE(a.date_) BETWEEN :startDate AND :endDate
+        AND (a.fingerprint_id NOT LIKE '%Emergancy Exit%' OR a.fingerprint_id IS NULL)
+        ORDER BY a.date_, a.time_
+      `, {
+        replacements: { startDate, endDate },
+        type: sequelize.QueryTypes.SELECT
+      });
+
+      if (!attendanceData || attendanceData.length === 0) {
+        return res.status(200).json({
+          success: true,
+          message: `No attendance data found for date range ${startDate} to ${endDate}`,
+          data: { recordsCached: 0 }
+        });
+      }
+
+      console.log(`📦 Caching ${attendanceData.length} attendance records to Redis...`);
+
+      // Cache the full dataset
+      const cacheKey = `attendance:range:${startDate}:${endDate}`;
+      const success = await redisCacheService.setCache(cacheKey, {
+        data: attendanceData,
+        metadata: {
+          startDate,
+          endDate,
+          recordCount: attendanceData.length,
+          cachedAt: new Date().toISOString(),
+          triggeredBy
+        }
+      }, 3600); // 1 hour TTL
+
+      if (!success) {
+        throw new Error('Failed to cache attendance data in Redis');
+      }
+
+      // Also cache by individual dates for faster lookups
+      const dateGroups = {};
+      attendanceData.forEach(record => {
+        const dateKey = record.date;
+        if (!dateGroups[dateKey]) {
+          dateGroups[dateKey] = [];
+        }
+        dateGroups[dateKey].push(record);
+      });
+
+      // Cache each date's data
+      for (const [date, records] of Object.entries(dateGroups)) {
+        const dateCacheKey = `attendance:date:${date}`;
+        await redisCacheService.setCache(dateCacheKey, {
+          data: records,
+          metadata: {
+            date,
+            recordCount: records.length,
+            cachedAt: new Date().toISOString()
+          }
+        }, 3600);
+      }
+
+      console.log(`✅ Successfully cached attendance data: ${attendanceData.length} records, ${Object.keys(dateGroups).length} dates`);
+
+      return res.status(200).json({
+        success: true,
+        message: `Attendance cache warmed up successfully for ${startDate} to ${endDate}`,
+        data: {
+          recordsCached: attendanceData.length,
+          datesCached: Object.keys(dateGroups).length,
+          cacheKey,
+          ttl: 3600
+        }
+      });
+    }
+
+    // Check if already warm (default behavior)
     const isWarm = await cachePreloadService.isCacheWarm();
-    
+
     if (isWarm) {
       return res.status(200).json({
         success: true,
@@ -522,7 +627,7 @@ async function warmupCache(req, res) {
       });
     }
 
-    // Trigger preload
+    // Trigger preload (default behavior - existing logic)
     const result = await cachePreloadService.preloadAll(triggeredBy);
 
     res.status(200).json({

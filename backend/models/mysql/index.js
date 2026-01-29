@@ -8,6 +8,7 @@ const MySQLAttendance = require('./Attendance');
 const MySQLMeal = require('./Meal');
 const MySQLSubSection = require('./SubSection');
 const MySQLSettings = require('./Settings');
+const SyncSchedule = require('./SyncSchedule');
 
 // Import sync models
 const DivisionSync = require('./DivisionSync')(sequelize);
@@ -136,6 +137,7 @@ module.exports = {
   MySQLMeal,
   MySQLSubSection,
   MySQLSettings,
+  SyncSchedule,
   // Sync models
   DivisionSync,
   SectionSync,

@@ -616,6 +616,22 @@ const filteredReportData = reportScope === 'individual' ? individualFlatReportDa
     }
 
     setLoading(true);
+    // Show the report modal immediately with loading state
+    setShowReportModal(true);
+    setReportData(null); // Clear previous data
+    
+    // Show empty report structure immediately
+    setTimeout(() => {
+      if (!reportData) {
+        setReportData({ 
+          data: [], 
+          dates: [], 
+          reportType: reportScope === 'group' ? 'group' : 'individual',
+          summary: { totalEmployees: 0, totalRecords: 0 }
+        });
+      }
+    }, 100);
+    
     try {
       const token = localStorage.getItem('token');
       let apiUrl = '';
@@ -855,25 +871,41 @@ const filteredReportData = reportScope === 'individual' ? individualFlatReportDa
       console.log('📊 Sample data (first 2 items):', reportArray.slice(0, 2));
       
       if ((data.success && reportArray.length > 0) || (!data.hasOwnProperty('success') && reportArray.length > 0)) {
-        console.log('✅ Report generated successfully with', reportArray.length, 'records');
-        // For group reports, add reportType and dates to the response
-        const processedData = {
-          ...data,
-          data: reportArray
+        // Simulate real-time loading by updating data in chunks
+        const fullData = reportArray;
+        const chunkSize = Math.max(10, Math.floor(fullData.length / 20)); // Show data in chunks
+        let currentIndex = 0;
+        
+        const loadDataChunk = () => {
+          const nextIndex = Math.min(currentIndex + chunkSize, fullData.length);
+          const chunkData = fullData.slice(0, nextIndex);
+          
+          const processedData = {
+            ...data,
+            data: chunkData
+          };
+          
+          // If this is a group report, add the reportType for frontend handling
+          if (reportScope === 'group' && data.reportType === 'group') {
+            processedData.reportType = 'group';
+            processedData.employees = chunkData; // For backward compatibility
+          }
+          
+          setReportData(processedData);
+          
+          currentIndex = nextIndex;
+          
+          if (currentIndex < fullData.length) {
+            // Load next chunk after a small delay
+            setTimeout(loadDataChunk, 100);
+          } else {
+            // All data loaded
+            setLoading(false);
+          }
         };
         
-        // If this is a group report, add the reportType for frontend handling
-        if (reportScope === 'group' && data.reportType === 'group') {
-          processedData.reportType = 'group';
-          processedData.employees = reportArray; // For backward compatibility
-        }
-        
-        setReportData(processedData);
-        if (data.employee_info) {
-          setEmployeeInfo(data.employee_info);
-        }
-        setError('');
-        setShowReportModal(true); // Open modal when report is generated
+        // Start loading data chunks
+        loadDataChunk();
       } else if (reportArray.length === 0) {
         console.warn('⚠️ No records found in response');
         console.log('Response details:', {
@@ -2785,216 +2817,195 @@ const filteredReportData = reportScope === 'individual' ? individualFlatReportDa
       )}
 
       {/* Report Results Modal */}
-      {showReportModal && reportData && (reportData.data && reportData.data.length > 0) && (
+      {showReportModal && (
         <div className="report-modal-overlay" onClick={() => setShowReportModal(false)}>
           <div className="report-modal-content" onClick={(e) => e.stopPropagation()}>
             <button className="report-modal-close" onClick={() => setShowReportModal(false)}>
               <i className="bi bi-x-lg"></i>
             </button>
-        <div className="report-results">
-          <div className="results-header">
-            <div className="filter-summary attractive-summary-card" style={{
-              background: '#fff',
-              border: '1px solid #e0e0e0',
-              borderRadius: '8px',
-              padding: '18px 28px 16px 28px',
-              color: '#222',
-              fontFamily: 'Segoe UI, Arial, sans-serif',
-              fontSize: '1.05rem',
-              margin: '0 auto 18px auto',
-              boxShadow: '0 2px 8px 0 rgba(80,80,120,0.06)',
-              maxWidth: '98vw',
-              fontWeight: 500
-            }}>
-              <div style={{fontWeight: 800, fontSize: '1.25rem', marginBottom: 10, letterSpacing: '0.2px'}}>Report Filter Summary</div>
-              <div style={{display: 'flex', flexWrap: 'wrap', gap: '32px 48px', marginBottom: 6}}>
-                <span>Type: <b>{reportType === 'attendance' ? 'Attendance Report' : reportType === 'audit' ? 'Audit Report' : 'Meal Report'}</b></span>
-                <span>Scope: <b>{reportScope === 'group' ? 'Group' : 'Individual'}</b></span>
-                {reportScope === 'individual' && (
-                  <span>Employee ID: <b>{employeeId || (employeeInfo && (employeeInfo.employee_id || employeeInfo.id)) || 'N/A'}</b></span>
-                )}
-                {reportScope === 'group' && (
-                  <>
-                    <span>Division: <b>{divisionId === 'all' ? 'All' : (divisions.find(d => d._id === divisionId || d.id === divisionId)?.name || divisionId)}</b></span>
-                    <span>Section: <b>{sectionId === 'all' ? 'All' : (sections.find(s => s._id === sectionId || s.id === sectionId)?.name || sectionId)}</b></span>
-                  </>
-                )}
-              </div>
-              <div style={{display: 'flex', flexWrap: 'wrap', gap: '32px 48px', borderTop: '1px solid #eee', paddingTop: 8}}>
-                <span>Date Range: <b>{dateRange.startDate} to {dateRange.endDate}</b></span>
-                <span>
-                  {reportData.reportType === 'group' ? 'Employees Found:' : 'Records Found:'}
-                  <b>{filteredData.length}</b>
-                  {filteredData.length !== (reportData.data?.length || 0) && (
-                    <span style={{ marginLeft: 8, color: '#666', fontWeight: 400 }}>({reportData.data?.length || 0} total)</span>
-                  )}
-                </span>
-                <span style={{color: '#666', fontWeight: 400, fontSize: '0.98rem', marginLeft: 'auto'}}>Generated at {new Date().toLocaleString()}</span>
-              </div>
-              
-              {/* Meal Report Summary Stats */}
-              {reportType === 'meal' && reportData.summary && (
-                <div style={{borderTop: '1px solid #eee', paddingTop: 12, marginTop: 10}}>
-                  <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '12px'}}>
-                    <div style={{
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: 12, 
-                      padding: '14px 18px', 
-                      backgroundColor: '#f0f9ff', 
-                      borderRadius: '8px',
-                      border: '1px solid #bfdbfe'
-                    }}>
-                      <i className="bi bi-basket-fill" style={{fontSize: '1.6rem', color: '#0284c7'}}></i>
-                      <div>
-                        <div style={{fontSize: '0.85rem', color: '#64748b', marginBottom: '2px'}}>Meal Packets Only</div>
-                        <div style={{fontSize: '1.5rem', fontWeight: 'bold', color: '#0284c7'}}>{reportData.summary.totalMealPacketEmployees || 0}</div>
-                      </div>
-                    </div>
-                    
-                    <div style={{
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: 12, 
-                      padding: '14px 18px', 
-                      backgroundColor: '#fef3c7', 
-                      borderRadius: '8px',
-                      border: '1px solid #fcd34d'
-                    }}>
-                      <i className="bi bi-cash-coin" style={{fontSize: '1.6rem', color: '#d97706'}}></i>
-                      <div>
-                        <div style={{fontSize: '0.85rem', color: '#78716c', marginBottom: '2px'}}>Meal Money Only</div>
-                        <div style={{fontSize: '1.5rem', fontWeight: 'bold', color: '#d97706'}}>{reportData.summary.totalMealMoneyEmployees || 0}</div>
-                      </div>
-                    </div>
-                    
-                    <div style={{
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: 12, 
-                      padding: '14px 18px', 
-                      backgroundColor: '#f3e8ff', 
-                      borderRadius: '8px',
-                      border: '1px solid #d8b4fe'
-                    }}>
-                      <i className="bi bi-award-fill" style={{fontSize: '1.6rem', color: '#9333ea'}}></i>
-                      <div>
-                        <div style={{fontSize: '0.85rem', color: '#6b7280', marginBottom: '2px'}}>Both Types</div>
-                        <div style={{fontSize: '1.5rem', fontWeight: 'bold', color: '#9333ea'}}>{reportData.summary.totalBothTypesEmployees || 0}</div>
-                      </div>
-                    </div>
-                    
-                    <div style={{
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: 12, 
-                      padding: '14px 18px', 
-                      backgroundColor: '#dcfce7', 
-                      borderRadius: '8px',
-                      border: '1px solid #86efac'
-                    }}>
-                      <i className="bi bi-people-fill" style={{fontSize: '1.6rem', color: '#15803d'}}></i>
-                      <div>
-                        <div style={{fontSize: '0.85rem', color: '#64748b', marginBottom: '2px'}}>Total Unique Employees</div>
-                        <div style={{fontSize: '1.5rem', fontWeight: 'bold', color: '#15803d'}}>{reportData.summary.totalEmployees || 0}</div>
-                      </div>
-                    </div>
+            <div className="report-results">
+              <div className="results-header">
+                <div className="filter-summary attractive-summary-card" style={{
+                  background: '#fff',
+                  border: '1px solid #e0e0e0',
+                  borderRadius: '8px',
+                  padding: '18px 28px 16px 28px',
+                  color: '#222',
+                  fontFamily: 'Segoe UI, Arial, sans-serif',
+                  fontSize: '1.05rem',
+                  margin: '0 auto 18px auto',
+                  boxShadow: '0 2px 8px 0 rgba(80,80,120,0.06)',
+                  maxWidth: '98vw',
+                  fontWeight: 500
+                }}>
+                  <div style={{fontWeight: 800, fontSize: '1.25rem', marginBottom: 10, letterSpacing: '0.2px'}}>Report Filter Summary</div>
+                  <div style={{display: 'flex', flexWrap: 'wrap', gap: '32px 48px', marginBottom: 6}}>
+                    <span>Type: <b>{reportType === 'attendance' ? 'Attendance Report' : reportType === 'audit' ? 'Audit Report' : 'Meal Report'}</b></span>
+                    <span>Scope: <b>{reportScope === 'group' ? 'Group' : 'Individual'}</b></span>
+                    {reportScope === 'individual' && (
+                      <span>Employee ID: <b>{employeeId || (employeeInfo && (employeeInfo.employee_id || employeeInfo.id)) || 'N/A'}</b></span>
+                    )}
+                    {reportScope === 'group' && (
+                      <>
+                        <span>Division: <b>{divisionId === 'all' ? 'All' : (divisions.find(d => d._id === divisionId || d.id === divisionId)?.name || divisionId)}</b></span>
+                        <span>Section: <b>{sectionId === 'all' ? 'All' : (sections.find(s => s._id === sectionId || s.id === sectionId)?.name || sectionId)}</b></span>
+                      </>
+                    )}
+                  </div>
+                  <div style={{display: 'flex', flexWrap: 'wrap', gap: '32px 48px', borderTop: '1px solid #eee', paddingTop: 8}}>
+                    <span>Date Range: <b>{dateRange.startDate} to {dateRange.endDate}</b></span>
+                    <span>
+                      {reportData?.reportType === 'group' ? 'Employees Found:' : 'Records Found:'}
+                      <b>{reportData?.data?.length || 0}</b>
+                      {loading && <span style={{color: '#007bff', marginLeft: '8px'}}>(Loading...)</span>}
+                    </span>
+                    <span style={{color: '#666', fontWeight: 400, fontSize: '0.98rem', marginLeft: 'auto'}}>Generated at {new Date().toLocaleString()}</span>
                   </div>
                   
-                  <div style={{display: 'flex', justifyContent: 'center', padding: '8px', backgroundColor: '#f8fafc', borderRadius: '6px', fontSize: '0.9rem', color: '#64748b'}}>
-                    <i className="bi bi-info-circle" style={{marginRight: '6px'}}></i>
-                    Total meal records processed: <b style={{marginLeft: '4px', color: '#475569'}}>{reportData.summary.totalMealRecords || 0}</b>
-                  </div>
+                  {/* Meal Report Summary Stats */}
+                  {reportType === 'meal' && reportData?.summary && (
+                    <div style={{borderTop: '1px solid #eee', paddingTop: 12, marginTop: 10}}>
+                      <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '12px'}}>
+                        <div style={{
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: 12, 
+                          padding: '14px 18px', 
+                          backgroundColor: '#f0f9ff', 
+                          borderRadius: '8px',
+                          border: '1px solid #bfdbfe'
+                        }}>
+                          <i className="bi bi-basket-fill" style={{fontSize: '1.6rem', color: '#0284c7'}}></i>
+                          <div>
+                            <div style={{fontSize: '0.85rem', color: '#64748b', marginBottom: '2px'}}>Meal Packets Only</div>
+                            <div style={{fontSize: '1.5rem', fontWeight: 'bold', color: '#0284c7'}}>{reportData.summary.totalMealPacketEmployees || 0}</div>
+                          </div>
+                        </div>
+                        
+                        <div style={{
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: 12, 
+                          padding: '14px 18px', 
+                          backgroundColor: '#fef3c7', 
+                          borderRadius: '8px',
+                          border: '1px solid #fcd34d'
+                        }}>
+                          <i className="bi bi-cash-coin" style={{fontSize: '1.6rem', color: '#d97706'}}></i>
+                          <div>
+                            <div style={{fontSize: '0.85rem', color: '#78716c', marginBottom: '2px'}}>Meal Money Only</div>
+                            <div style={{fontSize: '1.5rem', fontWeight: 'bold', color: '#d97706'}}>{reportData.summary.totalMealMoneyEmployees || 0}</div>
+                          </div>
+                        </div>
+                        
+                        <div style={{
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: 12, 
+                          padding: '14px 18px', 
+                          backgroundColor: '#f3e8ff', 
+                          borderRadius: '8px',
+                          border: '1px solid #d8b4fe'
+                        }}>
+                          <i className="bi bi-award-fill" style={{fontSize: '1.6rem', color: '#9333ea'}}></i>
+                          <div>
+                            <div style={{fontSize: '0.85rem', color: '#6b7280', marginBottom: '2px'}}>Both Types</div>
+                            <div style={{fontSize: '1.5rem', fontWeight: 'bold', color: '#9333ea'}}>{reportData.summary.totalBothTypesEmployees || 0}</div>
+                          </div>
+                        </div>
+                        
+                        <div style={{
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: 12, 
+                          padding: '14px 18px', 
+                          backgroundColor: '#dcfce7', 
+                          borderRadius: '8px',
+                          border: '1px solid #86efac'
+                        }}>
+                          <i className="bi bi-people-fill" style={{fontSize: '1.6rem', color: '#15803d'}}></i>
+                          <div>
+                            <div style={{fontSize: '0.85rem', color: '#64748b', marginBottom: '2px'}}>Total Unique Employees</div>
+                            <div style={{fontSize: '1.5rem', fontWeight: 'bold', color: '#15803d'}}>{reportData.summary.totalEmployees || 0}</div>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div style={{display: 'flex', justifyContent: 'center', padding: '8px', backgroundColor: '#f8fafc', borderRadius: '6px', fontSize: '0.9rem', color: '#64748b'}}>
+                        <i className="bi bi-info-circle" style={{marginRight: '6px'}}></i>
+                        Total meal records processed: <b style={{marginLeft: '4px', color: '#475569'}}>{reportData.summary.totalMealRecords || 0}</b>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
+              </div>
 
-          {/* Data Preview Row */}
-          <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '18px', marginBottom: '8px'}}>
-            <div style={{display: 'flex', alignItems: 'center', fontWeight: 600, fontSize: '1.15rem'}}>
-              <i className="bi bi-table" style={{marginRight: 10, marginLeft: 12, fontSize: '1.2rem'}}></i>
-              Data Preview
-            </div>
-            {/* Export Options - Only show for non-audit reports */}
-            {reportType !== 'audit' && (
-              <div className="action-group" style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
-                <span style={{fontWeight: 600, fontSize: '1.15rem', display: 'flex', alignItems: 'center', marginLeft: 12}}>
-                  <i className="bi bi-download" style={{marginRight: 6, fontSize: '1.2rem'}}></i>
-                  Export Options
-                </span>
-                {/* Print PDF should be controlled for attendance reports by attendance_download permission */}
-                {!(reportType === 'attendance') || canDownloadAttendance ? (
-                  <button
-                    onClick={() => exportReport('pdf')}
-                    className="btn btn-outline-primary"
-                    style={{marginLeft: 8, marginRight: 18, display: 'flex', alignItems: 'center', fontWeight: 500, fontSize: '1rem'}}
-                  >
-                    <i className="bi bi-file-earmark-pdf" style={{marginRight: 5, fontSize: '1.1rem'}}></i>
-                    Print PDF
-                  </button>
-                ) : (
-                  <button
-                    disabled
-                    title="You do not have permission to download this report"
-                    className="btn btn-outline-secondary"
-                    style={{marginLeft: 8, marginRight: 18, display: 'flex', alignItems: 'center', fontWeight: 500, fontSize: '1rem', opacity: 0.7}}
-                  >
-                    <i className="bi bi-file-earmark-pdf" style={{marginRight: 5, fontSize: '1.1rem'}}></i>
-                    Print PDF
-                  </button>
+              {/* Data Preview Row */}
+              <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '18px', marginBottom: '8px'}}>
+                <div style={{display: 'flex', alignItems: 'center', fontWeight: 600, fontSize: '1.15rem'}}>
+                  <i className="bi bi-table" style={{marginRight: 10, marginLeft: 12, fontSize: '1.2rem'}}></i>
+                  Data Preview
+                </div>
+                {/* Export Options - Only show for non-audit reports */}
+                {reportType !== 'audit' && (
+                  <div className="action-group" style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                    <span style={{fontWeight: 600, fontSize: '1.15rem', display: 'flex', alignItems: 'center', marginLeft: 12}}>
+                      <i className="bi bi-download" style={{marginRight: 6, fontSize: '1.2rem'}}></i>
+                      Export Options
+                    </span>
+                    {/* Print PDF should be controlled for attendance reports by attendance_download permission */}
+                    {!(reportType === 'attendance') || canDownloadAttendance ? (
+                      <button
+                        onClick={() => exportReport('pdf')}
+                        className="btn btn-outline-primary"
+                        style={{marginLeft: 8, marginRight: 18, display: 'flex', alignItems: 'center', fontWeight: 500, fontSize: '1rem'}}
+                      >
+                        <i className="bi bi-file-earmark-pdf" style={{marginRight: 5, fontSize: '1.1rem'}}></i>
+                        Print PDF
+                      </button>
+                    ) : (
+                      <button
+                        disabled
+                        title="You do not have permission to download this report"
+                        className="btn btn-outline-secondary"
+                        style={{marginLeft: 8, marginRight: 18, display: 'flex', alignItems: 'center', fontWeight: 500, fontSize: '1rem', opacity: 0.7}}
+                      >
+                        <i className="bi bi-file-earmark-pdf" style={{marginRight: 5, fontSize: '1.1rem'}}></i>
+                        Print PDF
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
-            )}
-          </div>
-          <div className="data-preview">
-            <div className="table-responsive">
-              {reportType === 'audit' ? (
-                <AuditReport
-                  reportData={reportData}
-                />
-              ) : reportScope === 'group' ? (
-                <GroupReport
-                  ref={groupReportRef}
-                  reportData={filteredReportData}
-                  getHeaders={getHeaders}
-                  formatRow={formatRow}
-                  reportType={reportType}
-                  dateRange={dateRange}
-                />
-              ) : (
-                <IndividualReport
-                  ref={individualReportRef}
-                  reportData={filteredReportData}
-                  getHeaders={getHeaders}
-                  formatRow={formatRow}
-                  reportType={reportType}
-                  dateRange={dateRange}
-                  employeeInfo={employeeInfo}
-                />
-              )}
+              <div className="data-preview">
+                <div className="table-responsive">
+                  {reportType === 'audit' ? (
+                    <AuditReport
+                      reportData={reportData || { data: [] }}
+                    />
+                  ) : reportScope === 'group' ? (
+                    <GroupReport
+                      ref={groupReportRef}
+                      reportData={reportData || { data: [], dates: [], reportType: 'group' }}
+                      getHeaders={getHeaders}
+                      formatRow={formatRow}
+                      reportType={reportType}
+                      dateRange={dateRange}
+                    />
+                  ) : (
+                    <IndividualReport
+                      ref={individualReportRef}
+                      reportData={reportData || { data: [] }}
+                      getHeaders={getHeaders}
+                      formatRow={formatRow}
+                      reportType={reportType}
+                      dateRange={dateRange}
+                      employeeInfo={employeeInfo}
+                    />
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-          </div>
-        </div>
-      )}
-
-      {showReportModal && reportData && (!reportData.data || reportData.data.length === 0) && (
-        <div className="report-modal-overlay" onClick={() => setShowReportModal(false)}>
-          <div className="report-modal-content" onClick={(e) => e.stopPropagation()}>
-            <button className="report-modal-close" onClick={() => setShowReportModal(false)}>
-              <i className="bi bi-x-lg"></i>
-            </button>
-        <div className="report-results">
-          <div className="empty-state">
-            <div className="empty-icon">
-              <i className="bi bi-inbox"></i>
-            </div>
-            <h4 className="empty-title">{t('noDataFoundTitle')}</h4>
-            <p className="empty-text">{t('noDataFoundText')}</p>
-          </div>
-        </div>
           </div>
         </div>
       )}
