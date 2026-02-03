@@ -151,7 +151,7 @@ const GroupReport = forwardRef(({ reportData, getHeaders, formatRow, reportType,
           <div class="header-content" style="max-width:1200px; margin:0 auto; padding:0 12px;">
             <table style="width:100%; border-collapse: collapse;">
               <thead>
-                <tr>${headers.map(h=>`<th style="font-size:12px; padding:4px 2px; border:0.5px solid #000; text-align:left;">${h}</th>`).join('')}</tr>
+                <tr>${headers.map(h=>{ const key = String(h||'').trim().toLowerCase(); const isMeal = key === 'meal-pkt-mny'; return `<th style="font-size:12px; padding:4px 2px; border:0.5px solid #000; text-align:left; ${isMeal ? 'width:8%;' : ''}">${h}</th>` }).join('')}</tr>
               </thead>
               <tbody>
                 ${pageRows.join('')}
@@ -314,7 +314,11 @@ const GroupReport = forwardRef(({ reportData, getHeaders, formatRow, reportType,
     <div>
       <table className="table table-striped" style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
-          <tr>{headers.map((h, i) => (<th key={i} style={{ fontSize: '12px', background: '#f5f5f5', fontWeight: 'bold', padding: '4px 2px', border: '0.5px solid #dee2e6', textAlign: 'left' }}>{h}</th>))}</tr>
+          <tr>{headers.map((h, i) => {
+            const key = String(h || '').trim().toLowerCase();
+            const isMeal = key === 'meal-pkt-mny';
+            return (<th key={i} style={{ fontSize: '12px', background: '#f5f5f5', fontWeight: 'bold', padding: '4px 2px', border: '0.5px solid #dee2e6', textAlign: 'left', width: isMeal ? '8%' : undefined }}>{h}</th>);
+          })}</tr>
         </thead>
         <tbody>
           {!reportData || !Array.isArray(reportData.data) || reportData.data.length === 0 ? (

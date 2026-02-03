@@ -639,7 +639,7 @@ const filteredReportData = reportScope === 'individual' ? individualFlatReportDa
 
       if (reportType === 'attendance') {
         // Use MySQL API for attendance reports
-        apiUrl = 'http://localhost:5000/api/reports/mysql/attendance';
+        apiUrl = `${API_BASE_URL}/reports/mysql/attendance`;
         payload = {
           report_type: reportScope,
           from_date: dateRange.startDate,
@@ -730,7 +730,7 @@ const filteredReportData = reportScope === 'individual' ? individualFlatReportDa
         }
 
         // Use MySQL API for audit reports
-        apiUrl = 'http://localhost:5000/api/reports/mysql/audit';
+        apiUrl = `${API_BASE_URL}/reports/mysql/audit`;
         payload = {
           from_date: dateRange.startDate,
           to_date: dateRange.endDate,
@@ -790,7 +790,7 @@ const filteredReportData = reportScope === 'individual' ? individualFlatReportDa
         });
       } else if (reportType === 'meal') {
         // Use MySQL API for meal reports from attendance table (GROUP SCOPE ONLY)
-        apiUrl = 'http://localhost:5000/api/reports/mysql/meal';
+        apiUrl = `${API_BASE_URL}/reports/mysql/meal`;
         
         // Prepare payload for group meal report
         payload = {
@@ -1003,7 +1003,7 @@ const filteredReportData = reportScope === 'individual' ? individualFlatReportDa
       // Format: Emp No, Emp Name, Meal-Pkt-Mny, Punch Date, Punch Time, Function, Event Description
       const punchDateObj = record.date_ ? new Date(record.date_) : (record.punchDate ? new Date(record.punchDate) : null);
       const formattedDate = punchDateObj && !isNaN(punchDateObj.getTime())
-        ? (punchDateObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/\//g, '-') + ' ' + punchDateObj.toLocaleDateString('en-US', { weekday: 'short' }))
+        ? punchDateObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/\//g, '-')
         : (record.punchDate || record.date_ || '');
 
       const functionCode = record.scan_type?.toUpperCase() === 'IN' ? 'F1-0' : 'F4-0';
@@ -1022,13 +1022,13 @@ const filteredReportData = reportScope === 'individual' ? individualFlatReportDa
       // Individual attendance report format to match your reference exactly
       // Format: Emp No, Emp Name, Meal-Pkt-Mny, Punch Date, Punch Time, Function, Event Description
       
-      // Format the punch date as "DD-MMM-YY Day" like "19-Aug-25 Tue"
+      // Format the punch date as "DD-MMM-YY" like "19-Aug-25"
       const punchDate = new Date(record.date_);
       const formattedDate = punchDate.toLocaleDateString('en-GB', {
         day: '2-digit',
         month: 'short',
         year: '2-digit'
-      }).replace(/\//g, '-') + ' ' + punchDate.toLocaleDateString('en-US', { weekday: 'short' });
+      }).replace(/\//g, '-');
       
       // Determine function code based on scan type
       const functionCode = record.scan_type?.toUpperCase() === 'IN' ? 'F1-0' : 'F4-0';

@@ -1,0 +1,37 @@
+========================================
+ TIME ATTENDANCE SYSTEM - ACCESS INFO
+========================================
+
+Server IP Address: 10.70.4.186
+Generated on: Tue 02/03/2026  8:31:05.49
+
+ACCESS URLS:
+----------------------------------------
+
+On This Server PC:
+  http://localhost:3000
+
+From Other Computers on Network:
+  http://10.70.4.186:3000
+
+Backend API:
+  http://10.70.4.186:5000
+
+========================================
+INSTRUCTIONS:
+========================================
+
+1. Start the system using: start_system.bat
+
+2. Share this URL with users:
+   http://10.70.4.186:3000
+
+3. Users should connect to the same network
+
+4. Keep this server PC running
+
+5. Default login credentials:
+   Email: susaraperera33@gmail.com
+   Password: susara_perera
+
+========================================

@@ -1,4 +1,5 @@
 import React, { createContext, useState, useEffect } from 'react';
+import config from '../config/api';
 
 export const AuthContext = createContext();
 
@@ -17,7 +18,7 @@ export const AuthProvider = ({ children }) => {
         const token = localStorage.getItem('token');
         if (token) {
           // Verify token with backend
-          const response = await fetch('http://localhost:5000/api/auth/verify', {
+          const response = await fetch(config.endpoints.auth.verify, {
             method: 'GET',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -35,7 +36,7 @@ export const AuthProvider = ({ children }) => {
               // Fetch available roles once to enable role-based permission lookups
               (async () => {
                 try {
-                  const rolesRes = await fetch('http://localhost:5000/api/roles', {
+                  const rolesRes = await fetch(config.endpoints.roles, {
                     headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}) }
                   });
                   if (rolesRes.ok) {
@@ -74,7 +75,7 @@ export const AuthProvider = ({ children }) => {
         if (now - lastVerified < 30000) return;
         
         // Refresh user data
-        const res = await fetch('http://localhost:5000/api/auth/verify', {
+        const res = await fetch(config.endpoints.auth.verify, {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -89,7 +90,7 @@ export const AuthProvider = ({ children }) => {
           setLastVerified(now);
         }
         // Also refresh roles list to pick up permission changes
-        const rolesRes = await fetch('http://localhost:5000/api/roles', {
+        const rolesRes = await fetch(config.endpoints.roles, {
           headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}) }
         });
         if (rolesRes.ok) {
@@ -114,7 +115,7 @@ export const AuthProvider = ({ children }) => {
             try {
               const token = localStorage.getItem('token');
               if (!token) return;
-              const res = await fetch('http://localhost:5000/api/auth/me', {
+              const res = await fetch(config.endpoints.auth.me, {
                 method: 'GET',
                 headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
                 credentials: 'include'
@@ -195,7 +196,7 @@ export const AuthProvider = ({ children }) => {
       console.log('Attempting login with credentials:', credentials);
       
       // Make API call to backend for authentication
-      const response = await fetch('http://localhost:5000/api/auth/login', {
+      const response = await fetch(config.endpoints.auth.login, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -249,7 +250,7 @@ export const AuthProvider = ({ children }) => {
       try {
         const token = data.token || localStorage.getItem('token');
         if (token) {
-          const meRes = await fetch('http://localhost:5000/api/auth/me', {
+          const meRes = await fetch(config.endpoints.auth.me, {
             method: 'GET',
             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
             credentials: 'include'
@@ -277,7 +278,7 @@ export const AuthProvider = ({ children }) => {
       const token = localStorage.getItem('token');
       if (token) {
         // Call backend logout
-        await fetch('http://localhost:5000/api/auth/logout', {
+        await fetch(config.endpoints.auth.logout, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,

@@ -15,6 +15,14 @@ const AuditReport = ({ reportData }) => {
     }
   }, [reportData]);
 
+  // Helper: format date to DD-MMM-YY (e.g., 26-Jan-26)
+  const formatDate = (d) => {
+    if (!d) return '';
+    const dt = new Date(d);
+    if (isNaN(dt.getTime())) return d;
+    return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/\//g, '-');
+  }; 
+
   if (!reportData || !reportData.data || reportData.data.length === 0) {
     return (
       <div className="no-data-message">
@@ -140,7 +148,7 @@ const AuditReport = ({ reportData }) => {
                       <td style={{ padding: '6px', border: '1px solid #000', fontFamily: 'monospace' }}>{emp.employeeId}</td>
                       <td style={{ padding: '6px', border: '1px solid #000' }}>{emp.employeeName}</td>
                       <td style={{ padding: '6px', border: '1px solid #000' }}>{emp.designation}</td>
-                      <td style={{ padding: '6px', border: '1px solid #000' }}>{emp.eventDate}</td>
+                      <td style={{ padding: '6px', border: '1px solid #000' }}>{formatDate(emp.eventDate)}</td>
                       <td style={{ padding: '6px', border: '1px solid #000', fontFamily: 'monospace' }}>{emp.eventTime}</td>
                     </tr>
                   ))}
@@ -323,7 +331,7 @@ const AuditReport = ({ reportData }) => {
                           <td style={{ padding: '12px', fontFamily: 'monospace', border: '1px solid #000' }}>{emp.employeeId}</td>
                           <td style={{ padding: '12px', fontWeight: '500', border: '1px solid #000' }}>{emp.employeeName}</td>
                           <td style={{ padding: '12px', border: '1px solid #000' }}>{emp.designation}</td>
-                          <td style={{ padding: '12px', border: '1px solid #000' }}>{emp.eventDate}</td>
+                          <td style={{ padding: '12px', border: '1px solid #000' }}>{formatDate(emp.eventDate)}</td>
                           <td style={{ padding: '12px', fontFamily: 'monospace', border: '1px solid #000' }}>{emp.eventTime}</td>
                         </tr>
                       ))}
@@ -380,7 +388,7 @@ const AuditReport = ({ reportData }) => {
       }}>
         <p style={{ margin: '4px 0' }}>Generated on {new Date().toLocaleString()}</p>
         <p style={{ margin: '4px 0', fontStyle: 'italic' }}>
-          Note: This report shows employees who have only one punch record per day.
+          Note: This report shows employees who marked ON (F1) at least once but did not mark OFF (F4).
         </p>
       </div>
     </div>

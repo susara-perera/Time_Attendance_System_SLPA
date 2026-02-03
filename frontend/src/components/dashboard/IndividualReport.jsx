@@ -138,7 +138,7 @@ const IndividualReport = forwardRef(({ reportData, getHeaders, formatRow, report
             </div>
             <div class="header-content" style="max-width:1200px; margin:0 auto; padding:0;">
               <table style="width:100%; border-collapse: collapse;">
-                <thead><tr>${keepIndices.map(i=>`<th style="font-size:12px; padding:4px 2px; border:0.5px solid #000; text-align:left;">${headers[i]}</th>`).join('')}</tr></thead>
+                <thead><tr>${keepIndices.map(i=>{ const key = String(headers[i]||'').trim().toLowerCase(); const isMeal = key === 'meal-pkt-mny'; return `<th style="font-size:12px; padding:4px 2px; border:0.5px solid #000; text-align:left; ${isMeal ? 'width:8%;' : ''}">${headers[i]}</th>` }).join('')}</tr></thead>
                 <tbody>${pageRows.join('')}</tbody>
               </table>
             </div>
@@ -259,7 +259,7 @@ const IndividualReport = forwardRef(({ reportData, getHeaders, formatRow, report
     <div>
       <table className="table table-striped" style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
-          <tr>{previewKeepIndices.map((i,idx)=>(<th key={idx} style={{ fontSize: '12px', background: '#f5f5f5', fontWeight: 'bold', padding: '4px 2px', border: '0.5px solid #dee2e6', textAlign: 'left' }}>{headers[i]}</th>))}</tr>
+          <tr>{previewKeepIndices.map((i,idx)=>{ const key = String(headers[i]||'').trim().toLowerCase(); const isMeal = key === 'meal-pkt-mny'; return (<th key={idx} style={{ fontSize: '12px', background: '#f5f5f5', fontWeight: 'bold', padding: '4px 2px', border: '0.5px solid #dee2e6', textAlign: 'left', width: isMeal ? '8%' : undefined }}>{headers[i]}</th>); })}</tr>
         </thead>
         <tbody>
           {previewElements}

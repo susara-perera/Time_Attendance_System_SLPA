@@ -72,8 +72,8 @@ const syncAuditData = async (startDate, endDate, filters = {}, triggeredBy = 'sy
       console.log(`   ✅ Found ${filteredEmployeeIds.length} employees in division\n`);
     }
 
-    // STEP 1: Find incomplete punch records (COUNT(*) = 1 per employee per day)
-    console.log('📊 STEP 1: Identifying incomplete punch records...');
+    // STEP 1: Find incomplete punch records (Has F1/IN but NO F4/OUT)
+    console.log('📊 STEP 1: Identifying incomplete punch records (F1 without F4)...');
     
     let incompletePunchSQL = `
       SELECT 
@@ -82,7 +82,15 @@ const syncAuditData = async (startDate, endDate, filters = {}, triggeredBy = 'sy
         MIN(a.time_) AS first_punch_time,
         MAX(a.time_) AS last_punch_time,
         GROUP_CONCAT(DISTINCT a.scan_type ORDER BY a.time_ SEPARATOR ',') AS scan_types,
-        COUNT(*) AS punch_count
+        COUNT(*) AS punch_count,
+        CAST(SUM(CASE 
+          WHEN UPPER(a.scan_type) IN ('IN', 'I', 'ON') THEN 1 
+          ELSE 0 
+        END) AS SIGNED) AS in_count,
+        CAST(SUM(CASE 
+          WHEN UPPER(a.scan_type) IN ('OUT', 'O', 'OFF') THEN 1 
+          ELSE 0 
+        END) AS SIGNED) AS out_count
       FROM attendance a
       WHERE a.date_ BETWEEN ? AND ?
       AND (a.fingerprint_id NOT LIKE '%Emergancy Exit%' OR a.fingerprint_id IS NULL)
@@ -99,12 +107,12 @@ const syncAuditData = async (startDate, endDate, filters = {}, triggeredBy = 'sy
     
     incompletePunchSQL += `
       GROUP BY a.employee_ID, a.date_
-      HAVING COUNT(*) = 1
+      HAVING in_count >= 1 AND out_count = 0
       ORDER BY a.date_ DESC, a.employee_ID
     `;
 
     const [incompleteRecords] = await conn.execute(incompletePunchSQL, queryParams);
-    console.log(`   ✅ Found ${incompleteRecords.length} incomplete punch records\n`);
+    console.log(`   ✅ Found ${incompleteRecords.length} incomplete punch records (F1 without F4)\n`);
 
     if (incompleteRecords.length === 0) {
       console.log('✨ No incomplete punches found in this date range');

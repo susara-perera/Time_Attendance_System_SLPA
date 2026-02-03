@@ -2349,17 +2349,26 @@ module.exports = {
       console.log(`\n📊 AUDIT REPORT (PUNCH/NONE)`);
       const connection = await createMySQLConnection();
 
-      // 1. FAST QUERY: Find Single Punch Records
+      // 1. FAST QUERY: Find Incomplete Punch Records (F1 without F4)
+      // Logic: Has at least one IN punch (F1) but NO OUT punch (F4)
       const auditQuery = `
         SELECT 
           employee_ID,
           date_,
           COUNT(*) as punch_count,
-          GROUP_CONCAT(CONCAT(time_, ':', scan_type) ORDER BY time_ SEPARATOR '|') as punches
+          GROUP_CONCAT(CONCAT(time_, ':', scan_type) ORDER BY time_ SEPARATOR '|') as punches,
+          CAST(SUM(CASE 
+            WHEN UPPER(scan_type) IN ('IN', 'I', 'ON') THEN 1 
+            ELSE 0 
+          END) AS SIGNED) as in_count,
+          CAST(SUM(CASE 
+            WHEN UPPER(scan_type) IN ('OUT', 'O', 'OFF') THEN 1 
+            ELSE 0 
+          END) AS SIGNED) as out_count
         FROM attendance
         WHERE date_ BETWEEN ? AND ?
         GROUP BY employee_ID, date_
-        HAVING COUNT(*) = 1
+        HAVING in_count >= 1 AND out_count = 0
         ORDER BY date_ DESC, employee_ID ASC
       `;
 
@@ -2451,23 +2460,23 @@ module.exports = {
             const empRecords = auditRecords.filter(r => String(r.employee_ID) === empId);
             
             empRecords.forEach(record => {
+              // Since query already filters to F1 without F4, all records here are check-in only
               const punchData = record.punches.split('|')[0].split(':');
               const time = punchData[0];
               const scanType = punchData[1];
               
-              if (isScanTypeIn(scanType)) {
-                checkInOnlyRecords.push({
-                   employeeId: empId,
-                   employeeName: emp.FULLNAME,
-                   designation: emp.currentwork?.designation,
-                   divisionName: emp.currentwork?.HIE_NAME_2,
-                   sectionName: emp.currentwork?.HIE_NAME_3,
-                   eventDate: record.date_,
-                   eventTime: time,
-                   scanType: scanType, // Included for debug/reference
-                   punchType: 'Check In Only'
-                });
-              }
+              checkInOnlyRecords.push({
+                 employeeId: empId,
+                 employeeName: emp.FULLNAME,
+                 designation: emp.currentwork?.designation,
+                 divisionName: emp.currentwork?.HIE_NAME_2,
+                 sectionName: emp.currentwork?.HIE_NAME_3,
+                 eventDate: record.date_,
+                 eventTime: time,
+                 scanType: scanType,
+                 punchType: 'Check In Only (No Check Out)',
+                 totalInPunches: record.in_count || 1
+              });
             });
         });
 
