@@ -9,16 +9,12 @@ async function checkTables() {
   });
 
   const [tables] = await conn.execute(
-    "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA='slpa_db' AND TABLE_NAME LIKE '%attend%'"
+    "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA='slpa_db'"
   );
   
-  console.log('Tables containing attend:', tables.map(t => t.TABLE_NAME));
-
-  // Check columns in attendance table
-  const [columns] = await conn.execute('DESCRIBE attendance');
-  console.log('\nAttendance table columns:');
-  columns.forEach(col => {
-    console.log(`  - ${col.Field} (${col.Type})`);
+  console.log('All tables in slpa_db:');
+  tables.forEach(t => {
+    console.log(`  - ${t.TABLE_NAME}`);
   });
 
   await conn.end();
